@@ -75,7 +75,7 @@ TSX 的 shadcn 安装，不迁移框架，不安装 React 动画依赖。改为�
 | `src/components/aceternity/BentoGrid.vue` / `BentoGridItem.vue`  | 官方网格与卡片结构的 Vue 插槽实现                   |
 | `src/components/Sidebar.vue`                                     | 增加受控收缩、悬停、固定展开和键盘支持              |
 | `src/components/Icon.vue`                                        | 增加首页图标                                        |
-| `src/App.vue` / `src/main.ts`                                    | 首页与工作台分区、最近项目入口、侧栏列宽联动        |
+| `src/App.vue` / `src/studio/main.ts` / `src/cover/main.ts`       | 首页与工作台分区、最近项目入口、侧栏列宽联动        |
 | `src/aceternity.css`                                             | 统一布局、动画、响应式与现有主题 Tokens             |
 | `tests/e2e/aceternity.spec.ts`                                   | 新增 6 项交互与真实动画检查                         |
 | 原有 `studio.spec.ts` / `themes.spec.ts`                         | 将原首页最近项目测试入口改为 `/workspace`，保留断言 |
@@ -88,9 +88,10 @@ TSX 的 shadcn 安装，不迁移框架，不安装 React 动画依赖。改为�
 
 ## 路由
 
-`/` 为新增产品首页；`/workspace` 承接原首页“打开最近项目”的行为，空列表或读取失败回到
-`/create`。已有 `/create` 与 `/projects/:projectId`
-路由保持有效。工作台品牌或侧栏首页入口可返回产品介绍。
+`/` 为独立打包的封面首页；`/studio.html#/workspace`
+承接原首页“打开最近项目”的行为，空列表或读取失败回到
+`#/create`。`#/create` 与 `#/projects/:projectId`
+路由保持有效，hash 模式让静态托管刷新深链也不需要回退。工作台品牌或侧栏首页入口可返回产品介绍。
 
 ## 本地快照与验证
 

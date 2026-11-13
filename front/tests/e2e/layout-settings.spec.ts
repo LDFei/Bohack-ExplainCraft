@@ -22,7 +22,7 @@ async function openSettings(page: Page) {
 test('one help entry and a real settings button replace duplicate help and avatar', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await expect(page.getByRole('button', { name: '查看使用指南' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: '使用帮助', exact: true })).toHaveCount(0);
   await expect(page.locator('.workspace-avatar')).toHaveCount(0);
@@ -39,7 +39,7 @@ test('resizing grows Copilot, shrinks preview and persists without remounting th
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const video = page.locator('.preview-panel video');
   await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
   const element = await video.elementHandle();
@@ -75,7 +75,7 @@ test('resizing grows Copilot, shrinks preview and persists without remounting th
 test('dragging panel handles reorders panels, supports keyboard moves and preserves DOM', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const video = await page.locator('.preview-panel video').elementHandle();
   await page.getByRole('textbox', { name: '视频创作需求' }).fill('面板换位不清空输入');
   await page
@@ -119,7 +119,7 @@ test('dragging panel handles reorders panels, supports keyboard moves and preser
 test('timeline height resizes, persists and remains bounded in shorter windows', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const separator = page.getByRole('separator', { name: '调整时间轴高度' });
   const box = (await separator.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -147,7 +147,7 @@ test('timeline height resizes, persists and remains bounded in shorter windows',
 test('general settings save the shortcut, reset layout and can disable layout memory', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await resizeColumns(page, -150);
   await openSettings(page);
   await page.getByRole('button', { name: '恢复默认布局', exact: true }).click();
@@ -157,13 +157,13 @@ test('general settings save the shortcut, reset layout and can disable layout me
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await resizeColumns(page, -120);
   expect(await page.evaluate((key) => localStorage.getItem(key), layoutKey)).toBeNull();
-  await page.goto('/create');
+  await page.goto('/studio.html#/create');
   await page.reload();
   await page.getByRole('button', { name: '仅讨论', exact: true }).click();
   const input = page.getByRole('textbox', { name: '视频创作需求' });
   await input.fill('如何安排开头？');
   await input.press('Enter');
-  await expect(page).toHaveURL('/create');
+  await expect(page).toHaveURL('/studio.html#/create');
   await expect(input).toHaveValue('如何安排开头？\n');
   await input.press('Control+Enter');
   await expect(page).toHaveURL(/\/projects\/prj_/);
@@ -178,7 +178,7 @@ test('four API modules reserve five connections and never persist keys or call p
   page.on('request', (request) => {
     if (request.url().includes('provider.example.test')) providerRequests.push(request.url());
   });
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await openSettings(page);
   await page.getByRole('tab', { name: 'API 配置', exact: false }).click();
   await expect(page.locator('.api-module')).toHaveCount(4);
@@ -220,7 +220,7 @@ test('four API modules reserve five connections and never persist keys or call p
 test('settings cancel discards changes and invalid API URLs keep the dialog open', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await openSettings(page);
   await page.getByRole('combobox', { name: '设置主题外观' }).selectOption('mist');
   await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -242,7 +242,7 @@ test('corrupt layout recovers and settings remain usable on mobile and tablet', 
     (key) => localStorage.setItem(key, '{"version":1,"order":["copilot","copilot","preview"]}'),
     layoutKey,
   );
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   expect((await page.locator('.sidebar').boundingBox())!.x).toBe(0);
   for (const width of [320, 390, 768, 1024]) {
     await page.setViewportSize({ width, height: 844 });

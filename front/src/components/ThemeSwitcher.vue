@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { DEFAULT_THEME, themeOptions, useTheme } from '../composables/useTheme.ts';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
+import { mediaUrl } from '../domain/assets.ts';
 const open = ref(false);
 const { currentTheme, selectedTheme, persistenceError, setTheme, resetTheme } = useTheme();
 /** 主题卡片按两列布局响应方向键，选择与焦点同步，并支持 Home/End 快速定位。 */
@@ -88,7 +89,7 @@ function navigateTheme(event: KeyboardEvent, index: number) {
             <div class="mini-main">
               <div class="mini-canvas">
                 <img
-                  src="/media/coffee-brew.jpg"
+                  :src="mediaUrl('coffee-brew.jpg')"
                   alt=""
                 />
                 <span />

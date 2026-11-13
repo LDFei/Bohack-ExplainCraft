@@ -8,7 +8,7 @@ test('four complete themes preserve the live project, player and unsent input', 
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'silver');
   const video = page.locator('video');
   await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
@@ -60,7 +60,7 @@ test('four complete themes preserve the live project, player and unsent input', 
 
 // 刷新与更换项目都保留外观，恢复默认仅影响主题，不能删除项目记录。
 test('theme preference survives refresh and project changes and can reset', async ({ page }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const projects = await page.locator('.history-project').count();
   await page.getByRole('button', { name: '更换主题' }).click();
   await page.getByRole('radio', { name: '浅丁香创意空间' }).click();
@@ -92,7 +92,7 @@ test('invalid or unwritable theme preferences never block the workspace', async 
       return original.call(this, name, value);
     };
   }, preferenceKey);
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'silver');
   await expect(page.locator('video')).toBeVisible();
   await page.getByRole('button', { name: '更换主题' }).click();
@@ -107,9 +107,9 @@ test('invalid or unwritable theme preferences never block the workspace', async 
 
 // 同源页面同步偏好，只更新另一页外观，不能切换其项目。
 test('theme preference synchronizes across open tabs', async ({ page, context }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const otherPage = await context.newPage();
-  await otherPage.goto('/projects/demo-product');
+  await otherPage.goto('/studio.html#/projects/demo-product');
   await expect(otherPage.locator('.project-title')).toHaveText('随行水杯产品短片');
   await page.getByRole('button', { name: '更换主题' }).click();
   await page.getByRole('radio', { name: '暖纸编辑室' }).click();
@@ -119,7 +119,7 @@ test('theme preference synchronizes across open tabs', async ({ page, context })
 
 // 手机与平板均保留主题入口；方向键、焦点恢复和弹窗范围不能依赖桌面宽度。
 test('theme picker supports keyboard and small screens without overflow', async ({ page }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await page.getByRole('button', { name: '更换主题' }).click();
@@ -148,7 +148,7 @@ test('theme picker supports keyboard and small screens without overflow', async 
 
 // 制作过程中换肤不重启任务、重复消息或丢失生成进度。
 test('theme switching during generation keeps the original task running', async ({ page }) => {
-  await page.goto('/create');
+  await page.goto('/studio.html#/create');
   await page.getByRole('textbox', { name: '视频创作需求' }).fill('做一个温暖的咖啡店宣传视频');
   await page.getByRole('button', { name: '生成视频', exact: true }).click();
   await expect(page.getByRole('button', { name: '停止生成', exact: true })).toBeVisible();

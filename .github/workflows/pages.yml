@@ -1,0 +1,59 @@
+name: Deploy cover and studio to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    # 只有封面前端或其部署配置变化才重新发布，后端目录改动不触发。
+    paths:
+      - 'front/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build static bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: front
+    env:
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build cover and studio entries
+        # 仓库页面的地址是 https://<owner>.github.io/<repo>/，因此 base 取仓库名。
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: front/dist
+
+  deploy:
+    name: Publish to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -5,8 +5,9 @@
 
 ## 布局与组件
 
-`/` 为产品首页，使用基于官方源码的 Background Beams 和 Bento Grid；`/workspace`
-保留打开最近项目的入口。官方源码与适配见 [Aceternity 说明](aceternity/README.md)，三轮调整及终验见
+`/` 为独立打包的封面首页，使用基于官方源码的 Background Beams 和 Bento Grid；
+工作台是另一个入口 `/studio.html`，`#/workspace` 保留打开最近项目的入口。官方源码与适配见
+[Aceternity 说明](aceternity/README.md)，三轮调整及终验见
 [视觉审查记录](aceternity/VISUAL_REVIEW.md)。
 
 - `LandingPage.vue`：产品 Hero、Bento 功能展示、原生示例播放、配乐试听与创作入口。

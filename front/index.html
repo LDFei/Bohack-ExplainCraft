@@ -22,12 +22,11 @@
     <title>ExplainCraft · AI 视频创作工作台</title>
   </head>
   <body>
-    <!-- Vue 在这里挂载整套工作台；实际界面由 App.vue 负责。 -->
+    <!-- 封面入口：这里只挂载产品首页，工作区在 studio.html 单独构建。 -->
     <div id="app"></div>
-    <!-- Vite 从 main.ts 开始解析组件、样式和路由依赖。 -->
     <script
       type="module"
-      src="/src/main.ts"
+      src="/src/cover/main.ts"
     ></script>
   </body>
 </html>

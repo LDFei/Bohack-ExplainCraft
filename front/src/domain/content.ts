@@ -43,8 +43,8 @@ export const capabilities: Capabilities = {
     { id: 'voice_bright', name: '元气女声', sample_url: null },
   ],
   music_tracks: [
-    { id: 'piano', name: '午后钢琴', sample_url: '/media/ambient.wav' },
-    { id: 'light', name: '轻松日常', sample_url: '/media/ambient.wav' },
+    { id: 'piano', name: '午后钢琴', sample_url: 'media/ambient.wav' },
+    { id: 'light', name: '轻松日常', sample_url: 'media/ambient.wav' },
   ],
   color_presets: [
     { id: 'natural', name: '自然原色' },
@@ -135,7 +135,7 @@ export const themes = {
 /**
  * 将本地示例图片名转换成静态资源 URL；返回的是浏览器路径，不是磁盘路径。
  */
-export const imagePath = (name: string) => `/media/${name}.jpg`;
+export const imagePath = (name: string) => `media/${name}.jpg`;
 /**
  * 深拷贝仅含普通 JSON 字段的业务数据，隔离草稿、历史快照和页面表单。
  * 不适用于 File、Blob、DOM、函数或需要保留原类型的 Date、Map。
@@ -157,7 +157,7 @@ export const ratioKey = (ratio: string) => ratio.replace(':', 'x');
 /**
  * 按示例主题与比例定位已打包的 MP4，不在浏览器执行视频生成。
  */
-export const videoPath = (theme: Theme, ratio: string) => `/media/${theme}-${ratioKey(ratio)}.mp4`;
+export const videoPath = (theme: Theme, ratio: string) => `media/${theme}-${ratioKey(ratio)}.mp4`;
 /**
  * 返回 720p 示例的真实宽高，竖屏、横屏和方形以短边 720px 为基准。
  */
