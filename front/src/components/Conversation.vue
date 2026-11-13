@@ -16,6 +16,9 @@ import type {
   VideoVersion,
 } from '../domain/types.ts';
 import Icon from './Icon.vue';
+import PanelDragHandle from './PanelDragHandle.vue';
+import type { WorkspacePanel } from '../composables/useWorkspaceLayout.ts';
+import type { SendShortcut } from '../composables/useAppSettings.ts';
 const props = defineProps<{
   messages: Message[];
   jobs: Record<string, Job>;
@@ -32,6 +35,8 @@ const props = defineProps<{
   uploading: { name: string; percent: number } | null;
   historical: boolean;
   demo: boolean;
+  layoutEnabled: boolean;
+  sendShortcut: SendShortcut;
 }>();
 const emit = defineEmits<{
   'update:input': [text: string];
@@ -47,6 +52,9 @@ const emit = defineEmits<{
   view: [versionId: string];
   panel: [tab: string];
   latest: [];
+  panelDragStart: [panel: WorkspacePanel, event: DragEvent];
+  panelDragEnd: [];
+  panelMove: [panel: WorkspacePanel, direction: number];
 }>();
 const scroller = ref<HTMLElement | null>(null),
   textarea = ref<HTMLTextAreaElement | null>(null),
@@ -108,10 +116,15 @@ watch(
   () => nextTick(resize),
 );
 /**
- * 处理发送快捷键：Enter 发送，Shift+Enter 换行；中文输入法选字时不触发发送。
+ * 按通用设置识别 Enter 或组合键发送；Shift+Enter 和中文输入法选字始终不触发发送。
  */
 function keydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.isComposing &&
+    (props.sendShortcut === 'enter' || event.ctrlKey || event.metaKey)
+  ) {
     event.preventDefault();
     emit('send');
   }
@@ -160,9 +173,14 @@ function openFile(event: Event) {
   if (files.length) emit('upload', files);
   element.value = '';
 }
-/**
- * 接收拖入素材并退出拖放提示；实际文件校验和保存统一交给父级服务处理。
- */
+/** 只有真实文件进入上传拖放状态，布局拖动仍交给工作台处理。 */
+function dragOverFiles(event: DragEvent) {
+  if (event.dataTransfer?.types.includes('Files')) {
+    event.preventDefault();
+    dragging.value = true;
+  }
+}
+/** 接收拖入文件并清理提示；实际校验、处理和保存继续交给父级上传流程。 */
 function drop(event: DragEvent) {
   dragging.value = false;
   if (event.dataTransfer?.files.length && !props.pending) emit('upload', event.dataTransfer.files);
@@ -181,8 +199,9 @@ defineExpose({
 <template>
   <main
     class="conversation"
+    data-workspace-panel="copilot"
     :class="{ 'is-dragging': dragging }"
-    @dragover.prevent="dragging = true"
+    @dragover="dragOverFiles"
     @dragleave.self="dragging = false"
     @drop.prevent="drop"
   >
@@ -197,20 +216,37 @@ defineExpose({
       <strong>放下素材，给灵感添点画面</strong>
       <span>支持图片、视频和音频</span>
     </div>
-    <div
-      v-if="hasMessages"
-      class="conversation-intro"
-    >
-      <span class="section-eyebrow">
-        <span class="small-spark">
-          <Icon
-            name="sparkles"
-            :size="15"
-          />
-        </span>
-        创作对话
+    <header class="copilot-heading">
+      <PanelDragHandle
+        panel="copilot"
+        label="AI 对话"
+        :enabled="layoutEnabled"
+        @start="(panel, event) => emit('panelDragStart', panel, event)"
+        @end="emit('panelDragEnd')"
+        @move="(panel, direction) => emit('panelMove', panel, direction)"
+      />
+      <span class="copilot-mark">
+        <Icon
+          name="sparkles"
+          :size="19"
+        />
       </span>
-      <span>每个好故事，都从一个想法开始</span>
+      <div>
+        <h2>AI Copilot</h2>
+        <span>让每一个想法，有声有色</span>
+      </div>
+      <span class="copilot-status">
+        <i />
+        {{ busy ? '创作中' : '就绪' }}
+      </span>
+    </header>
+    <div class="copilot-context">
+      <Icon
+        name="layers"
+        :size="13"
+      />
+      当前项目上下文
+      <span>{{ versions.length ? `v${versions.length}` : '新创作' }}</span>
     </div>
     <!-- 对话区独立滚动，角色决定气泡样式，blocks 决定业务卡片。 -->
     <div
@@ -241,7 +277,7 @@ defineExpose({
         <p>
           说说你想做什么视频，
           <br class="mobile-only" />
-          让灵镜替你完成剩下的事。
+          和 Copilot 一起打磨每个镜头。
         </p>
         <div class="sample-cards">
           <button
@@ -274,7 +310,7 @@ defineExpose({
             name="check"
             :size="14"
           />
-          不需要写脚本，也不用学习剪辑
+          从一个想法开始，随时调整细节
         </span>
       </section>
       <div
@@ -318,8 +354,8 @@ defineExpose({
             </span>
             <div class="assistant-body">
               <div class="assistant-name">
-                灵镜
-                <span>你的 AI 视频搭档</span>
+                Copilot
+                <span>创作助手</span>
               </div>
               <p
                 v-if="message.text"
@@ -482,7 +518,7 @@ defineExpose({
                       MP4
                     </span>
                     <small>
-                      在右侧预览你的作品
+                      在画布中预览作品
                       <Icon
                         name="arrowRight"
                         :size="12"
@@ -829,7 +865,7 @@ defineExpose({
         </span>
         <span v-else>AI 创作内容请预览确认后再使用</span>
         <span class="keyboard-note">
-          Enter 发送
+          {{ sendShortcut === 'mod-enter' ? '⌘ / Ctrl + Enter 发送' : 'Enter 发送' }}
           <span>·</span>
           Shift + Enter 换行
         </span>

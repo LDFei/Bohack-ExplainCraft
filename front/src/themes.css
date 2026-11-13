@@ -1,0 +1,110 @@
+/* 四套内置主题只覆盖外观，业务组件共享同一组语义 Tokens。小样可在局部复用 data-theme。 */
+:root,
+[data-theme='silver'] {
+  color-scheme: light;
+  --bg: #eef0f4;
+  --surface: #f9fafc;
+  --surface-raised: #ffffff;
+  --surface-hover: #e9ebf2;
+  --surface-input: #ffffff;
+  --canvas-bg: #e6e9ef;
+  --rail-bg: #f0f2f6;
+  --text: #2c3341;
+  --secondary: #586172;
+  --muted: #68707e;
+  --line: #dce0e8;
+  --line-subtle: #e7eaf0;
+  --accent: #7653b3;
+  --accent-hover: #66459f;
+  --accent-soft: #eee9f7;
+  --accent-secondary: #a64c7d;
+  --success: #43785c;
+  --danger: #ad4660;
+}
+[data-theme='lilac'] {
+  --bg: #f3eff9;
+  --surface: #fcfaff;
+  --surface-raised: #ffffff;
+  --surface-hover: #efe8f8;
+  --surface-input: #ffffff;
+  --canvas-bg: #eae2f3;
+  --rail-bg: #f0eaf7;
+  --text: #3b304b;
+  --secondary: #655775;
+  --muted: #746482;
+  --line: #e2d9ec;
+  --line-subtle: #eee7f5;
+  --accent: #8657b5;
+  --accent-hover: #74469f;
+  --accent-soft: #f0e5fa;
+  --accent-secondary: #b74e89;
+  --success: #49795f;
+  --danger: #b34468;
+}
+[data-theme='paper'] {
+  --bg: #f4f0e8;
+  --surface: #fcfaf5;
+  --surface-raised: #fffefa;
+  --surface-hover: #eee7dc;
+  --surface-input: #fffefa;
+  --canvas-bg: #eae3d8;
+  --rail-bg: #f1eadf;
+  --text: #42372e;
+  --secondary: #6b5c4e;
+  --muted: #7a6b5c;
+  --line: #e2d9cb;
+  --line-subtle: #ede6db;
+  --accent: #9b6043;
+  --accent-hover: #854d33;
+  --accent-soft: #f5e7dc;
+  --accent-secondary: #a65368;
+  --success: #5b7650;
+  --danger: #a8444c;
+}
+[data-theme='mist'] {
+  --bg: #edf2f8;
+  --surface: #f9fcff;
+  --surface-raised: #ffffff;
+  --surface-hover: #e6edf8;
+  --surface-input: #ffffff;
+  --canvas-bg: #e0e8f2;
+  --rail-bg: #eaf0f7;
+  --text: #29394c;
+  --secondary: #52667b;
+  --muted: #64778b;
+  --line: #d8e1ec;
+  --line-subtle: #e6edf5;
+  --accent: #3f6cc0;
+  --accent-hover: #315ca9;
+  --accent-soft: #e7effd;
+  --accent-secondary: #6c5cb0;
+  --success: #39786c;
+  --danger: #ae4969;
+}
+/* 派生色在每个主题作用域内计算，弹窗和主题小样都能获得一致的分层与对比。 */
+:root,
+[data-theme] {
+  --on-accent: #ffffff;
+  --accent-border: color-mix(in srgb, var(--accent) 25%, var(--surface-raised));
+  --accent-muted: color-mix(in srgb, var(--accent) 80%, var(--secondary));
+  --accent-wash: color-mix(in srgb, var(--accent) 5%, var(--surface-raised));
+  --accent-selected: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  --accent-focus: color-mix(in srgb, var(--accent) 55%, var(--surface-raised));
+  --accent-ring: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 16%, transparent);
+  --secondary-soft: color-mix(in srgb, var(--accent-secondary) 10%, var(--surface-raised));
+  --secondary-border: color-mix(in srgb, var(--accent-secondary) 28%, var(--surface-raised));
+  --danger-soft: color-mix(in srgb, var(--danger) 8%, var(--surface-raised));
+  --danger-border: color-mix(in srgb, var(--danger) 25%, var(--surface-raised));
+  --success-soft: color-mix(in srgb, var(--success) 10%, var(--surface-raised));
+  --success-border: color-mix(in srgb, var(--success) 25%, var(--surface-raised));
+  --switch-off: color-mix(in srgb, var(--muted) 40%, var(--surface-raised));
+  --ruler-line: color-mix(in srgb, var(--muted) 50%, var(--surface-raised));
+  --scrollbar: color-mix(in srgb, var(--muted) 32%, var(--surface-raised));
+  --shadow: 0 12px 40px #28344d12;
+  --canvas-shadow: 0 8px 28px #26324918;
+  --drawer-shadow: -8px 0 24px #28344d0d;
+  --modal-shadow: 0 24px 80px #24304924;
+  --scrim: #18212f66;
+  --modal-scrim: #18212f55;
+}

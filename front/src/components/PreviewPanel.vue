@@ -3,7 +3,7 @@
  * 作品预览与可编辑草稿面板。播放器读取成片，表单编辑当前草稿；历史版本以只读快照展示。
  */
 
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { copy, emptyDraft, imagePath } from '../domain/content.ts';
 import type {
   Asset,
@@ -14,6 +14,9 @@ import type {
   VideoVersion,
 } from '../domain/types.ts';
 import Icon from './Icon.vue';
+import VideoTimeline from './VideoTimeline.vue';
+import PanelDragHandle from './PanelDragHandle.vue';
+import type { WorkspacePanel } from '../composables/useWorkspaceLayout.ts';
 const props = defineProps<{
   projectId: string;
   draft: Draft | null;
@@ -28,6 +31,8 @@ const props = defineProps<{
   busy: boolean;
   pending: boolean;
   open: boolean;
+  layoutEnabled: boolean;
+  timelineHeight?: number;
   onSave: (changes: DraftChanges, revision: number) => Promise<boolean>;
 }>();
 const emit = defineEmits<{
@@ -41,7 +46,19 @@ const emit = defineEmits<{
   playing: [value: boolean];
   prompt: [text: string];
   notify: [text: string];
+  panelDragStart: [panel: WorkspacePanel, event: DragEvent];
+  panelDragEnd: [];
+  panelMove: [panel: WorkspacePanel, direction: number];
+  timelineHeight: [height: number, save: boolean];
 }>();
+const detailsOpen = ref(false),
+  currentTime = ref(0),
+  muted = ref(false);
+const undoStack = ref<string[]>([]),
+  redoStack = ref<string[]>([]);
+let restoring = false;
+const canUndo = computed(() => !disableForm.value && undoStack.value.length > 0);
+const canRedo = computed(() => !disableForm.value && redoStack.value.length > 0);
 const tab = ref('script'),
   video = ref<HTMLVideoElement | null>(null),
   playing = ref(false),
@@ -76,6 +93,8 @@ function resetForm() {
   formRevision.value = props.revision;
   formDirty.value = false;
   editingScript.value = false;
+  undoStack.value = [];
+  redoStack.value = [];
 }
 // 换项目或成片版本时，清空旧播放与试听状态，并重新建立表单副本。
 watch(
@@ -83,6 +102,7 @@ watch(
   () => {
     resetForm();
     mediaError.value = false;
+    currentTime.value = 0;
     playing.value = false;
     emit('playing', false);
     stopAudition();
@@ -112,6 +132,10 @@ function stopAudition() {
   audition = null;
   auditionPlaying.value = false;
 }
+// 详情面板收起时也停止试听，避免不可见的音乐控件继续发声。
+watch(detailsOpen, (open) => {
+  if (!open) stopAudition();
+});
 /**
  * 切换示例背景音乐的播放状态；只播放服务提供的 sample_url，不在前端生成配音。
  */
@@ -209,27 +233,125 @@ async function togglePlay() {
   } else video.value.pause();
 }
 /**
- * 公开给父组件的标签切换入口；对话中的“查看脚本”使用它定位右侧内容。
+ * 公开给父组件的标签切换入口；对话中的“查看脚本”使用它定位中央详情内容。
  */
 function openTab(id: string) {
   tab.value = id;
+  detailsOpen.value = true;
+}
+/** 仅记录本地未保存表单，撤销不回滚已生成版本或覆盖服务端草稿。 */
+watch(
+  () => JSON.stringify(form.value),
+  (value, previous) => {
+    if (restoring || !formDirty.value || value === previous) return;
+    undoStack.value.push(previous);
+    if (undoStack.value.length > 50) undoStack.value.shift();
+    redoStack.value = [];
+  },
+);
+/** 恢复一次本地编辑快照；等待响应式更新后再解除保护，避免恢复动作被再次入栈。 */
+async function restoreEdit(source: string[], destination: string[]) {
+  const snapshot = source.pop();
+  if (!snapshot || disableForm.value) return;
+  restoring = true;
+  destination.push(JSON.stringify(form.value));
+  form.value = JSON.parse(snapshot) as Draft;
+  formDirty.value = JSON.stringify(form.value) !== JSON.stringify(displayedDraft.value);
+  await nextTick();
+  restoring = false;
+}
+/** 撤销当前未保存表单的一步修改。 */
+function undo() {
+  return restoreEdit(undoStack.value, redoStack.value);
+}
+/** 重做刚撤销的表单修改。 */
+function redo() {
+  return restoreEdit(redoStack.value, undoStack.value);
+}
+/** 时间轴和素材卡共用真实播放器定位，切换项目时不会沿用旧播放位置。 */
+function seek(seconds: number) {
+  if (!video.value || !props.version) return;
+  const bounded = Math.min(props.version.duration_ms / 1000, Math.max(0, seconds));
+  video.value.currentTime = bounded;
+  currentTime.value = bounded;
+}
+/** 选择比例只修改草稿；保存并重新生成后才会改变成片文件。 */
+function changeRatio(event: Event) {
+  form.value.settings.aspect_ratio = (event.target as HTMLSelectElement).value;
+  formDirty.value = true;
+  openTab('settings');
+}
+/** 全屏操作交给浏览器原生播放器，不伪造成导出或新的渲染。 */
+async function fullscreen() {
+  try {
+    await video.value?.requestFullscreen();
+  } catch {
+    emit('notify', '当前浏览器暂不支持全屏播放。');
+  }
+}
+/** 画布下方使用常见的分秒与帧数时间码。 */
+function timecode(seconds: number) {
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}:${String(Math.floor((seconds % 1) * 30)).padStart(2, '0')}`;
+}
+let timelineDrag: { y: number; height: number; latest: number } | null = null;
+/** 捕获时间轴上沿拖动，让高度跟随指针，松开后才保存布局。 */
+function startTimelineResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  timelineDrag = {
+    y: event.clientY,
+    height: props.timelineHeight ?? 244,
+    latest: props.timelineHeight ?? 244,
+  };
+}
+/** 向上拖动增大时间轴，画布自动获得剩余高度。 */
+function moveTimelineResize(event: PointerEvent) {
+  if (!timelineDrag) return;
+  timelineDrag.latest = timelineDrag.height + timelineDrag.y - event.clientY;
+  emit('timelineHeight', timelineDrag.latest, false);
+}
+/** 松开或取消拖动时提交当前高度，避免刷新后丢失布局。 */
+function stopTimelineResize() {
+  if (timelineDrag) emit('timelineHeight', timelineDrag.latest, true);
+  timelineDrag = null;
+}
+/** 上下方向键提供时间轴调高的等价操作。 */
+function timelineKey(event: KeyboardEvent) {
+  if (['ArrowUp', 'ArrowDown'].includes(event.key)) {
+    event.preventDefault();
+    emit(
+      'timelineHeight',
+      (props.timelineHeight ?? 244) + (event.key === 'ArrowUp' ? 20 : -20),
+      true,
+    );
+  }
 }
 onBeforeUnmount(stopAudition);
-defineExpose({ openTab });
+defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
 </script>
 <template>
   <aside
     class="preview-panel"
+    data-workspace-panel="preview"
     :class="{ 'is-open': open }"
     aria-label="视频作品与设置"
   >
     <header class="preview-heading">
+      <PanelDragHandle
+        panel="preview"
+        label="预览画布"
+        :enabled="layoutEnabled"
+        @start="(panel, event) => emit('panelDragStart', panel, event)"
+        @end="emit('panelDragEnd')"
+        @move="(panel, direction) => emit('panelMove', panel, direction)"
+      />
       <div>
         <Icon
           name="video"
           :size="18"
         />
-        <h2>作品预览</h2>
+        <h2>预览画布</h2>
         <span
           v-if="version"
           class="ready-dot"
@@ -271,103 +393,241 @@ defineExpose({ openTab });
       </div>
     </header>
     <!-- 播放器读取成片文件；下面的表单修改的是 Draft，两者通过再次生成才同步。 -->
-    <div class="preview-content">
+    <div class="canvas-toolbar">
       <div
-        class="preview-stage"
-        :class="{
-          landscape: version && version.width > version.height,
-          square: version && version.width === version.height,
-        }"
+        class="canvas-tool-group"
+        role="tablist"
+        aria-label="作品详情"
       >
-        <template v-if="version && !mediaError">
-          <video
-            :key="version.id"
-            ref="video"
-            :src="version.playback_url"
-            :poster="version.thumbnail_url"
-            controls
-            playsinline
-            preload="metadata"
-            :aria-label="`${version.snapshot?.script?.title ?? '视频作品'}，版本 ${version.version_number}`"
-            @play="
-              playing = true;
-              emit('playing', true);
-            "
-            @pause="
-              playing = false;
-              emit('playing', false);
-            "
-            @ended="
-              playing = false;
-              emit('playing', false);
-            "
-            @error="mediaError = true"
+        <span class="active-tool">
+          <Icon
+            name="cursor"
+            :size="15"
           />
-          <div
-            v-if="!playing"
-            class="preview-caption"
+        </span>
+        <span class="toolbar-divider" />
+        <button
+          v-for="item in tabs"
+          :key="item.id"
+          :class="{ active: detailsOpen && tab === item.id }"
+          role="tab"
+          :aria-selected="detailsOpen && tab === item.id"
+          @click="detailsOpen && tab === item.id ? (detailsOpen = false) : openTab(item.id)"
+        >
+          <Icon
+            :name="item.icon"
+            :size="14"
+          />
+          {{ item.name }}
+        </button>
+      </div>
+      <label class="canvas-ratio">
+        <Icon
+          name="ratio"
+          :size="14"
+        />
+        <select
+          aria-label="画布比例设置"
+          :value="form.settings.aspect_ratio"
+          :disabled="disableForm"
+          @change="changeRatio"
+        >
+          <option
+            v-for="ratio in caps.aspect_ratios"
+            :key="ratio"
           >
-            <span>A STORY BY LINGJING</span>
-            <strong>{{ version.snapshot?.script?.title ?? '你的创作短片' }}</strong>
-            <i />
+            {{ ratio }}
+          </option>
+        </select>
+      </label>
+    </div>
+    <div class="preview-content">
+      <div class="canvas-area">
+        <div class="canvas-corner-label">
+          <span />
+          {{ version ? 'PROGRAM MONITOR' : 'YOUR NEXT STORY' }}
+        </div>
+        <div class="canvas-frame">
+          <div
+            class="preview-stage"
+            :class="{
+              landscape: version && version.width > version.height,
+              square: version && version.width === version.height,
+            }"
+          >
+            <template v-if="version && !mediaError">
+              <video
+                :key="version.id"
+                ref="video"
+                :src="version.playback_url"
+                :poster="version.thumbnail_url"
+                :muted="muted"
+                @timeupdate="currentTime = video?.currentTime ?? 0"
+                playsinline
+                preload="metadata"
+                :aria-label="`${version.snapshot?.script?.title ?? '视频作品'}，版本 ${version.version_number}`"
+                @play="
+                  playing = true;
+                  emit('playing', true);
+                "
+                @pause="
+                  playing = false;
+                  emit('playing', false);
+                "
+                @ended="
+                  playing = false;
+                  emit('playing', false);
+                "
+                @error="mediaError = true"
+              />
+              <div
+                v-if="!playing"
+                class="preview-caption"
+              >
+                <span>A STORY BY EXPLAINCRAFT</span>
+                <strong>{{ version.snapshot?.script?.title ?? '你的创作短片' }}</strong>
+                <i />
+              </div>
+              <button
+                v-if="!playing"
+                class="preview-play"
+                aria-label="播放视频"
+                @click="togglePlay"
+              >
+                <Icon
+                  name="play"
+                  :size="21"
+                />
+              </button>
+              <span class="preview-demo-tag">示例作品</span>
+            </template>
+            <div
+              v-else-if="mediaError"
+              class="preview-empty"
+            >
+              <Icon
+                name="info"
+                :size="30"
+              />
+              <strong>视频暂时无法加载</strong>
+              <button
+                class="text-button"
+                @click="mediaError = false"
+              >
+                重新加载
+              </button>
+            </div>
+            <div
+              v-else
+              class="preview-empty"
+            >
+              <span class="empty-frame">
+                <Icon
+                  name="sparkles"
+                  :size="32"
+                />
+              </span>
+              <strong>{{ busy ? '你的故事，正在成形' : '这里，等着你的第一个故事' }}</strong>
+              <p>
+                {{ busy ? '画面与声音准备好，就会在这里相遇' : '描述一个想法，让灵感成为画面' }}
+              </p>
+              <span
+                v-if="busy"
+                class="preview-loading"
+              >
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+            <span
+              v-if="busy && version"
+              class="new-version-status"
+            >
+              <span class="spinner" />
+              新版本制作中
+            </span>
           </div>
+        </div>
+        <div class="canvas-footer-label">
+          <span>{{ version ? `${version.width} × ${version.height}` : '等待生成' }}</span>
+          <span>适应画布</span>
+        </div>
+      </div>
+      <div class="player-controls">
+        <button
+          class="icon-button"
+          aria-label="视频静音"
+          :aria-pressed="muted"
+          :disabled="!version"
+          @click="muted = !muted"
+        >
+          <Icon
+            :name="muted ? 'mute' : 'volume'"
+            :size="16"
+          />
+        </button>
+        <span class="player-time">
+          {{ timecode(currentTime) }}
+          <small>/ {{ timecode((version?.duration_ms ?? 0) / 1000) }}</small>
+        </span>
+        <div class="transport-buttons">
           <button
-            v-if="!playing"
-            class="preview-play"
-            aria-label="播放视频"
+            class="icon-button"
+            aria-label="回到开头"
+            :disabled="!version"
+            @click="seek(0)"
+          >
+            <Icon
+              name="skipBack"
+              :size="16"
+            />
+          </button>
+          <button
+            class="transport-play"
+            :aria-label="playing ? '暂停视频' : '播放或暂停视频'"
+            :disabled="!version"
             @click="togglePlay"
           >
             <Icon
-              name="play"
-              :size="21"
+              :name="playing ? 'pause' : 'play'"
+              :size="17"
             />
           </button>
-          <span class="preview-demo-tag">示例作品</span>
-        </template>
-        <div
-          v-else-if="mediaError"
-          class="preview-empty"
+          <button
+            class="icon-button"
+            aria-label="跳到结尾"
+            :disabled="!version"
+            @click="seek(Math.max(0, (version?.duration_ms ?? 0) / 1000 - 0.1))"
+          >
+            <Icon
+              name="skipNext"
+              :size="16"
+            />
+          </button>
+        </div>
+        <input
+          class="player-progress"
+          type="range"
+          min="0"
+          :max="(version?.duration_ms ?? 30000) / 1000"
+          step="0.1"
+          :value="currentTime"
+          :disabled="!version"
+          aria-label="画布播放进度"
+          @input="seek(Number(($event.target as HTMLInputElement).value))"
+        />
+        <button
+          class="icon-button"
+          aria-label="全屏播放"
+          :disabled="!version"
+          @click="fullscreen"
         >
           <Icon
-            name="info"
-            :size="30"
+            name="fullscreen"
+            :size="16"
           />
-          <strong>视频暂时无法加载</strong>
-          <button
-            class="text-button"
-            @click="mediaError = false"
-          >
-            重新加载
-          </button>
-        </div>
-        <div
-          v-else
-          class="preview-empty"
-        >
-          <span class="empty-frame">
-            <Icon
-              name="sparkles"
-              :size="32"
-            />
-          </span>
-          <strong>{{ busy ? '你的故事，正在成形' : '这里，等着你的第一个故事' }}</strong>
-          <p>{{ busy ? '画面与声音准备好，就会在这里相遇' : '描述一个想法，让灵感成为画面' }}</p>
-          <span
-            v-if="busy"
-            class="preview-loading"
-          >
-            <i />
-            <i />
-            <i />
-          </span>
-        </div>
-        <span
-          v-if="busy && version"
-          class="new-version-status"
-        >
-          <span class="spinner" />
-          新版本制作中
-        </span>
+        </button>
       </div>
       <div class="preview-meta">
         <span>
@@ -411,482 +671,511 @@ defineExpose({ openTab });
           更新视频
         </button>
       </div>
-      <div
-        class="editor-tabs"
-        role="tablist"
-        aria-label="作品详情"
+      <section
+        v-show="detailsOpen"
+        class="inspector-drawer"
+        aria-label="作品详情面板"
       >
-        <button
-          v-for="item in tabs"
-          :id="`tab-${item.id}`"
-          :key="item.id"
-          :class="{ active: tab === item.id }"
-          role="tab"
-          :aria-selected="tab === item.id"
-          :aria-controls="`panel-${item.id}`"
-          @click="tab = item.id"
+        <header class="inspector-heading">
+          <strong>
+            {{ tabs.find((item) => item.id === tab)?.name }}
+            <span>作品详情</span>
+          </strong>
+          <button
+            class="icon-button"
+            aria-label="收起作品详情"
+            @click="detailsOpen = false"
+          >
+            <Icon
+              name="close"
+              :size="16"
+            />
+          </button>
+        </header>
+        <div
+          :id="`panel-${tab}`"
+          class="editor-content"
+          role="tabpanel"
+          :aria-labelledby="`tab-${tab}`"
         >
-          <Icon
-            :name="item.icon"
-            :size="15"
-          />
-          {{ item.name }}
-        </button>
-      </div>
-      <div
-        :id="`panel-${tab}`"
-        class="editor-content"
-        role="tabpanel"
-        :aria-labelledby="`tab-${tab}`"
-      >
-        <template v-if="tab === 'script'">
-          <div class="editor-subheading">
-            <strong>
-              分镜脚本
-              <span v-if="displayedDraft.shots.length">
-                {{ displayedDraft.shots.length }} 个镜头
-              </span>
-            </strong>
-            <button
-              v-if="displayedDraft.script && !editingScript"
-              class="text-button"
-              :disabled="disableForm"
-              @click="editingScript = true"
+          <template v-if="tab === 'script'">
+            <div class="editor-subheading">
+              <strong>
+                分镜脚本
+                <span v-if="displayedDraft.shots.length">
+                  {{ displayedDraft.shots.length }} 个镜头
+                </span>
+              </strong>
+              <button
+                v-if="displayedDraft.script && !editingScript"
+                class="text-button"
+                :disabled="disableForm"
+                @click="editingScript = true"
+              >
+                <Icon
+                  name="edit"
+                  :size="13"
+                />
+                编辑
+              </button>
+            </div>
+            <div
+              v-if="editingScript && form.script"
+              class="script-editor"
+            >
+              <label>
+                作品标题
+                <input
+                  v-model="form.script.title"
+                  maxlength="100"
+                  :disabled="disableForm"
+                  @input="formDirty = true"
+                />
+              </label>
+              <label>
+                解说文案
+                <textarea
+                  v-model="form.script.text"
+                  rows="7"
+                  maxlength="20000"
+                  :disabled="disableForm"
+                  @input="formDirty = true"
+                />
+              </label>
+              <p>修改完整文案后，下次生成将重新规划分镜。</p>
+              <button
+                class="text-button"
+                @click="resetForm"
+              >
+                放弃编辑
+              </button>
+            </div>
+            <div
+              v-else-if="displayedDraft.shots.length"
+              class="shot-list"
+            >
+              <button
+                v-for="(shot, index) in displayedDraft.shots"
+                :key="shot.id"
+                class="shot-card"
+                :disabled="readOnly || busy"
+                @click="emit('prompt', `把第${index + 1}个镜头调整为：`)"
+              >
+                <div class="shot-image">
+                  <img
+                    :src="shot.thumbnail_url || imagePath('coffee-cup')"
+                    :alt="shot.visual_prompt"
+                  />
+                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                </div>
+                <div class="shot-description">
+                  <div>
+                    <strong>{{ shot.visual_prompt.split('，')[0] }}</strong>
+                    <span>{{ shot.duration_ms / 1000 }}s</span>
+                  </div>
+                  <p>{{ shot.narration || '纯画面镜头' }}</p>
+                  <small>
+                    {{ shot.shot_size }}
+                    <span>·</span>
+                    {{ shot.camera_motion }}
+                  </small>
+                </div>
+              </button>
+            </div>
+            <div
+              v-else-if="displayedDraft.script"
+              class="plain-script"
+            >
+              <h3>{{ displayedDraft.script.title }}</h3>
+              <p>{{ displayedDraft.script.text }}</p>
+              <span>分镜将在下次生成时更新</span>
+            </div>
+            <div
+              v-else
+              class="tab-empty"
             >
               <Icon
-                name="edit"
+                name="file"
+                :size="28"
+              />
+              <strong>灵感会在这里变成脚本</strong>
+              <span>生成后查看文案与每个镜头的安排</span>
+            </div>
+            <p
+              v-if="displayedDraft.shots.length && !editingScript"
+              class="editor-hint"
+            >
+              <Icon
+                name="sparkles"
                 :size="13"
               />
-              编辑
-            </button>
-          </div>
-          <div
-            v-if="editingScript && form.script"
-            class="script-editor"
-          >
-            <label>
-              作品标题
-              <input
-                v-model="form.script.title"
-                maxlength="100"
-                :disabled="disableForm"
-                @input="formDirty = true"
-              />
-            </label>
-            <label>
-              解说文案
-              <textarea
-                v-model="form.script.text"
-                rows="7"
-                maxlength="20000"
-                :disabled="disableForm"
-                @input="formDirty = true"
-              />
-            </label>
-            <p>修改完整文案后，下次生成将重新规划分镜。</p>
-            <button
-              class="text-button"
-              @click="resetForm"
-            >
-              放弃编辑
-            </button>
-          </div>
-          <div
-            v-else-if="displayedDraft.shots.length"
-            class="shot-list"
-          >
-            <button
-              v-for="(shot, index) in displayedDraft.shots"
-              :key="shot.id"
-              class="shot-card"
-              :disabled="readOnly || busy"
-              @click="emit('prompt', `把第${index + 1}个镜头调整为：`)"
-            >
-              <div class="shot-image">
-                <img
-                  :src="shot.thumbnail_url || imagePath('coffee-cup')"
-                  :alt="shot.visual_prompt"
+              想改某个镜头？直接在对话中告诉我
+            </p>
+          </template>
+          <template v-if="tab === 'assets'">
+            <div class="editor-subheading">
+              <strong>
+                我的素材
+                <span>{{ assets.length }} 个文件</span>
+              </strong>
+              <button
+                class="text-button"
+                :disabled="pending || busy"
+                @click="emit('upload')"
+              >
+                <Icon
+                  name="plus"
+                  :size="14"
                 />
-                <span>{{ String(index + 1).padStart(2, '0') }}</span>
-              </div>
-              <div class="shot-description">
-                <div>
-                  <strong>{{ shot.visual_prompt.split('，')[0] }}</strong>
-                  <span>{{ shot.duration_ms / 1000 }}s</span>
-                </div>
-                <p>{{ shot.narration || '纯画面镜头' }}</p>
-                <small>
-                  {{ shot.shot_size }}
-                  <span>·</span>
-                  {{ shot.camera_motion }}
+                上传
+              </button>
+            </div>
+            <div
+              v-if="assets.length"
+              class="asset-grid"
+            >
+              <div
+                v-for="asset in assets"
+                :key="asset.id"
+                class="asset-card"
+              >
+                <img
+                  v-if="asset.thumbnail_url"
+                  :src="asset.thumbnail_url"
+                  :alt="asset.file_name"
+                />
+                <span
+                  v-else
+                  class="asset-file-icon"
+                >
+                  <Icon
+                    :name="asset.kind === 'audio' ? 'music' : 'video'"
+                    :size="25"
+                  />
+                </span>
+                <strong :title="asset.file_name">{{ asset.file_name }}</strong>
+                <small :class="{ 'danger-text': asset.status === 'failed' }">
+                  {{
+                    asset.status === 'ready'
+                      ? `${(asset.size_bytes / 1024 / 1024).toFixed(1)} MB · 已就绪`
+                      : (asset.error?.message ?? '正在处理')
+                  }}
                 </small>
               </div>
-            </button>
-          </div>
-          <div
-            v-else-if="displayedDraft.script"
-            class="plain-script"
-          >
-            <h3>{{ displayedDraft.script.title }}</h3>
-            <p>{{ displayedDraft.script.text }}</p>
-            <span>分镜将在下次生成时更新</span>
-          </div>
-          <div
-            v-else
-            class="tab-empty"
-          >
-            <Icon
-              name="file"
-              :size="28"
-            />
-            <strong>灵感会在这里变成脚本</strong>
-            <span>生成后查看文案与每个镜头的安排</span>
-          </div>
-          <p
-            v-if="displayedDraft.shots.length && !editingScript"
-            class="editor-hint"
-          >
-            <Icon
-              name="sparkles"
-              :size="13"
-            />
-            想改某个镜头？直接在对话中告诉我
-          </p>
-        </template>
-        <template v-if="tab === 'assets'">
-          <div class="editor-subheading">
-            <strong>
-              我的素材
-              <span>{{ assets.length }} 个文件</span>
-            </strong>
+            </div>
             <button
-              class="text-button"
+              v-else
+              class="upload-zone"
               :disabled="pending || busy"
               @click="emit('upload')"
             >
               <Icon
-                name="plus"
-                :size="14"
+                name="image"
+                :size="28"
               />
-              上传
+              <strong>给故事添一点自己的画面</strong>
+              <span>点击上传图片、视频或音频</span>
+              <small>图片 20MB · 视频 100MB · 音频 50MB</small>
             </button>
-          </div>
-          <div
-            v-if="assets.length"
-            class="asset-grid"
-          >
-            <div
-              v-for="asset in assets"
-              :key="asset.id"
-              class="asset-card"
-            >
-              <img
-                v-if="asset.thumbnail_url"
-                :src="asset.thumbnail_url"
-                :alt="asset.file_name"
-              />
-              <span
-                v-else
-                class="asset-file-icon"
-              >
-                <Icon
-                  :name="asset.kind === 'audio' ? 'music' : 'video'"
-                  :size="25"
+            <template v-if="displayedDraft.shots.length">
+              <div class="editor-subheading asset-heading">
+                <strong>作品画面</strong>
+                <span>演示素材</span>
+              </div>
+              <div class="generated-assets">
+                <img
+                  v-for="shot in displayedDraft.shots"
+                  :key="shot.id"
+                  :src="shot.thumbnail_url || imagePath('coffee-cup')"
+                  :alt="shot.visual_prompt"
                 />
-              </span>
-              <strong :title="asset.file_name">{{ asset.file_name }}</strong>
-              <small :class="{ 'danger-text': asset.status === 'failed' }">
-                {{
-                  asset.status === 'ready'
-                    ? `${(asset.size_bytes / 1024 / 1024).toFixed(1)} MB · 已就绪`
-                    : (asset.error?.message ?? '正在处理')
-                }}
-              </small>
-            </div>
-          </div>
-          <button
-            v-else
-            class="upload-zone"
-            :disabled="pending || busy"
-            @click="emit('upload')"
-          >
-            <Icon
-              name="image"
-              :size="28"
-            />
-            <strong>给故事添一点自己的画面</strong>
-            <span>点击上传图片、视频或音频</span>
-            <small>图片 20MB · 视频 100MB · 音频 50MB</small>
-          </button>
-          <template v-if="displayedDraft.shots.length">
-            <div class="editor-subheading asset-heading">
-              <strong>作品画面</strong>
-              <span>演示素材</span>
-            </div>
-            <div class="generated-assets">
-              <img
-                v-for="shot in displayedDraft.shots"
-                :key="shot.id"
-                :src="shot.thumbnail_url || imagePath('coffee-cup')"
-                :alt="shot.visual_prompt"
-              />
-            </div>
-            <p class="editor-hint">示例预览使用内置画面；上传文件会保存在本机。</p>
+              </div>
+              <p class="editor-hint">示例预览使用内置画面；上传文件会保存在本机。</p>
+            </template>
           </template>
-        </template>
-        <template v-if="tab === 'audio'">
-          <fieldset
-            class="editor-form"
-            :disabled="disableForm"
-          >
-            <label class="field-label">
-              <span>
-                <Icon
-                  name="mic"
-                  :size="15"
+          <template v-if="tab === 'audio'">
+            <fieldset
+              class="editor-form"
+              :disabled="disableForm"
+            >
+              <label class="field-label">
+                <span>
+                  <Icon
+                    name="mic"
+                    :size="15"
+                  />
+                  配音音色
+                </span>
+                <select
+                  v-model="form.audio.voice_id"
+                  @change="formDirty = true"
+                >
+                  <option
+                    v-for="voice in caps.voices"
+                    :key="voice.id"
+                    :value="voice.id"
+                  >
+                    {{ voice.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="range-field">
+                <span>
+                  说话速度
+                  <strong>{{ form.audio.speech_rate.toFixed(1) }}×</strong>
+                </span>
+                <input
+                  v-model.number="form.audio.speech_rate"
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  @input="formDirty = true"
                 />
-                配音音色
-              </span>
-              <select
-                v-model="form.audio.voice_id"
-                @change="formDirty = true"
-              >
-                <option
-                  v-for="voice in caps.voices"
-                  :key="voice.id"
-                  :value="voice.id"
+                <small>
+                  <span>舒缓</span>
+                  <span>轻快</span>
+                </small>
+              </label>
+              <div class="form-divider" />
+              <label class="field-label">
+                <span>
+                  <Icon
+                    name="music"
+                    :size="15"
+                  />
+                  背景音乐
+                </span>
+                <select
+                  :value="musicValue"
+                  @change="musicMode"
                 >
-                  {{ voice.name }}
-                </option>
-              </select>
-            </label>
-            <label class="range-field">
-              <span>
-                说话速度
-                <strong>{{ form.audio.speech_rate.toFixed(1) }}×</strong>
-              </span>
-              <input
-                v-model.number="form.audio.speech_rate"
-                type="range"
-                min="0.5"
-                max="2"
-                step="0.1"
-                @input="formDirty = true"
-              />
-              <small>
-                <span>舒缓</span>
-                <span>轻快</span>
-              </small>
-            </label>
-            <div class="form-divider" />
-            <label class="field-label">
-              <span>
-                <Icon
-                  name="music"
-                  :size="15"
+                  <option value="auto">由灵镜自动匹配</option>
+                  <option value="none">无背景音乐</option>
+                  <option
+                    v-for="track in caps.music_tracks"
+                    :key="track.id"
+                    :value="track.id"
+                  >
+                    {{ track.name }}
+                  </option>
+                  <option
+                    v-for="asset in assets.filter(
+                      (item) => item.kind === 'audio' && item.status === 'ready',
+                    )"
+                    :key="asset.id"
+                    :value="`upload:${asset.id}`"
+                  >
+                    我的素材 · {{ asset.file_name }}
+                  </option>
+                </select>
+              </label>
+              <label class="range-field">
+                <span>
+                  旁白音量
+                  <strong>{{ Math.round(form.audio.narration_volume * 100) }}%</strong>
+                </span>
+                <input
+                  v-model.number="form.audio.narration_volume"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  @input="formDirty = true"
                 />
-                背景音乐
-              </span>
-              <select
-                :value="musicValue"
-                @change="musicMode"
-              >
-                <option value="auto">由灵镜自动匹配</option>
-                <option value="none">无背景音乐</option>
-                <option
-                  v-for="track in caps.music_tracks"
-                  :key="track.id"
-                  :value="track.id"
-                >
-                  {{ track.name }}
-                </option>
-                <option
-                  v-for="asset in assets.filter(
-                    (item) => item.kind === 'audio' && item.status === 'ready',
-                  )"
-                  :key="asset.id"
-                  :value="`upload:${asset.id}`"
-                >
-                  我的素材 · {{ asset.file_name }}
-                </option>
-              </select>
-            </label>
-            <label class="range-field">
-              <span>
-                旁白音量
-                <strong>{{ Math.round(form.audio.narration_volume * 100) }}%</strong>
-              </span>
-              <input
-                v-model.number="form.audio.narration_volume"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                @input="formDirty = true"
+              </label>
+              <label class="range-field">
+                <span>
+                  音乐音量
+                  <strong>{{ Math.round(form.audio.music_volume * 100) }}%</strong>
+                </span>
+                <input
+                  v-model.number="form.audio.music_volume"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  @input="formDirty = true"
+                />
+              </label>
+            </fieldset>
+            <button
+              v-if="caps.music_tracks.some((track) => track.sample_url)"
+              class="audition-button"
+              @click="playMusic"
+            >
+              <Icon
+                :name="auditionPlaying ? 'pause' : 'headphones'"
+                :size="15"
               />
-            </label>
-            <label class="range-field">
-              <span>
-                音乐音量
-                <strong>{{ Math.round(form.audio.music_volume * 100) }}%</strong>
-              </span>
-              <input
-                v-model.number="form.audio.music_volume"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                @input="formDirty = true"
-              />
-            </label>
-          </fieldset>
-          <button
-            v-if="caps.music_tracks.some((track) => track.sample_url)"
-            class="audition-button"
-            @click="playMusic"
-          >
-            <Icon
-              :name="auditionPlaying ? 'pause' : 'headphones'"
-              :size="15"
-            />
-            {{ auditionPlaying ? '停止试听' : '试听示例背景音乐' }}
-          </button>
-          <p class="editor-hint">演示视频使用内置音乐，配音设置会保存到草稿。</p>
-        </template>
-        <template v-if="tab === 'settings'">
-          <fieldset
-            class="editor-form"
-            :disabled="disableForm"
-          >
-            <div class="field-label">
-              <span>画面比例</span>
-              <div class="ratio-options">
+              {{ auditionPlaying ? '停止试听' : '试听示例背景音乐' }}
+            </button>
+            <p class="editor-hint">演示视频使用内置音乐，配音设置会保存到草稿。</p>
+          </template>
+          <template v-if="tab === 'settings'">
+            <fieldset
+              class="editor-form"
+              :disabled="disableForm"
+            >
+              <div class="field-label">
+                <span>画面比例</span>
+                <div class="ratio-options">
+                  <button
+                    v-for="ratio in caps.aspect_ratios"
+                    :key="ratio"
+                    type="button"
+                    :class="{ active: form.settings.aspect_ratio === ratio }"
+                    :aria-pressed="form.settings.aspect_ratio === ratio"
+                    @click="
+                      form.settings.aspect_ratio = ratio;
+                      formDirty = true;
+                    "
+                  >
+                    <i
+                      :class="
+                        ratio === '9:16'
+                          ? 'portrait-icon'
+                          : ratio === '16:9'
+                            ? 'landscape-icon'
+                            : 'square-icon'
+                      "
+                    />
+                    <span>{{ ratio }}</span>
+                  </button>
+                </div>
+              </div>
+              <label class="field-label">
+                <span>目标时长</span>
+                <select
+                  v-model.number="form.settings.target_duration_seconds"
+                  @change="formDirty = true"
+                >
+                  <option
+                    v-for="seconds in [15, 30, 60].filter(
+                      (value) =>
+                        value >= caps.duration_range_seconds.min &&
+                        value <= caps.duration_range_seconds.max,
+                    )"
+                    :key="seconds"
+                    :value="seconds"
+                  >
+                    {{ seconds }} 秒
+                  </option>
+                </select>
+              </label>
+              <label class="field-label">
+                <span>画面风格</span>
+                <select
+                  v-model="form.settings.style_id"
+                  @change="formDirty = true"
+                >
+                  <option
+                    v-for="style in caps.styles"
+                    :key="style.id"
+                    :value="style.id"
+                  >
+                    {{ style.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="field-label">
+                <span>调色预设</span>
+                <select
+                  v-model="form.finishing.color_preset_id"
+                  @change="formDirty = true"
+                >
+                  <option
+                    v-for="preset in caps.color_presets"
+                    :key="preset.id"
+                    :value="preset.id"
+                  >
+                    {{ preset.name }}
+                  </option>
+                </select>
+              </label>
+              <label class="field-label">
+                <span>画面特效</span>
+                <select
+                  v-model="form.finishing.effect_preset_id"
+                  @change="formDirty = true"
+                >
+                  <option
+                    v-for="preset in caps.effect_presets"
+                    :key="preset.id"
+                    :value="preset.id"
+                  >
+                    {{ preset.name }}
+                  </option>
+                </select>
+              </label>
+              <div class="switch-field">
+                <span>
+                  <strong>自动字幕</strong>
+                  <small>让你的故事，更容易被听见</small>
+                </span>
                 <button
-                  v-for="ratio in caps.aspect_ratios"
-                  :key="ratio"
                   type="button"
-                  :class="{ active: form.settings.aspect_ratio === ratio }"
-                  :aria-pressed="form.settings.aspect_ratio === ratio"
+                  class="switch"
+                  :class="{ on: form.finishing.subtitles_enabled }"
+                  role="switch"
+                  :aria-checked="form.finishing.subtitles_enabled"
+                  aria-label="自动字幕"
                   @click="
-                    form.settings.aspect_ratio = ratio;
+                    form.finishing.subtitles_enabled = !form.finishing.subtitles_enabled;
                     formDirty = true;
                   "
                 >
-                  <i
-                    :class="
-                      ratio === '9:16'
-                        ? 'portrait-icon'
-                        : ratio === '16:9'
-                          ? 'landscape-icon'
-                          : 'square-icon'
-                    "
-                  />
-                  <span>{{ ratio }}</span>
+                  <span />
                 </button>
               </div>
-            </div>
-            <label class="field-label">
-              <span>目标时长</span>
-              <select
-                v-model.number="form.settings.target_duration_seconds"
-                @change="formDirty = true"
-              >
-                <option
-                  v-for="seconds in [15, 30, 60].filter(
-                    (value) =>
-                      value >= caps.duration_range_seconds.min &&
-                      value <= caps.duration_range_seconds.max,
-                  )"
-                  :key="seconds"
-                  :value="seconds"
-                >
-                  {{ seconds }} 秒
-                </option>
-              </select>
-            </label>
-            <label class="field-label">
-              <span>画面风格</span>
-              <select
-                v-model="form.settings.style_id"
-                @change="formDirty = true"
-              >
-                <option
-                  v-for="style in caps.styles"
-                  :key="style.id"
-                  :value="style.id"
-                >
-                  {{ style.name }}
-                </option>
-              </select>
-            </label>
-            <label class="field-label">
-              <span>调色预设</span>
-              <select
-                v-model="form.finishing.color_preset_id"
-                @change="formDirty = true"
-              >
-                <option
-                  v-for="preset in caps.color_presets"
-                  :key="preset.id"
-                  :value="preset.id"
-                >
-                  {{ preset.name }}
-                </option>
-              </select>
-            </label>
-            <label class="field-label">
-              <span>画面特效</span>
-              <select
-                v-model="form.finishing.effect_preset_id"
-                @change="formDirty = true"
-              >
-                <option
-                  v-for="preset in caps.effect_presets"
-                  :key="preset.id"
-                  :value="preset.id"
-                >
-                  {{ preset.name }}
-                </option>
-              </select>
-            </label>
-            <div class="switch-field">
-              <span>
-                <strong>自动字幕</strong>
-                <small>让你的故事，更容易被听见</small>
-              </span>
-              <button
-                type="button"
-                class="switch"
-                :class="{ on: form.finishing.subtitles_enabled }"
-                role="switch"
-                :aria-checked="form.finishing.subtitles_enabled"
-                aria-label="自动字幕"
-                @click="
-                  form.finishing.subtitles_enabled = !form.finishing.subtitles_enabled;
-                  formDirty = true;
-                "
-              >
-                <span />
-              </button>
-            </div>
-          </fieldset>
-          <p class="editor-hint">演示成片固定为 30 秒，支持三种比例预览。</p>
-        </template>
-        <div
-          v-if="formDirty && !readOnly"
-          class="save-settings"
-        >
-          <span>修改后需要重新生成</span>
-          <button
-            class="button primary small"
-            :disabled="disableForm"
-            @click="save"
+            </fieldset>
+            <p class="editor-hint">演示成片固定为 30 秒，支持三种比例预览。</p>
+          </template>
+          <div
+            v-if="formDirty && !readOnly"
+            class="save-settings"
           >
-            {{ pending ? '保存中…' : '保存修改' }}
-          </button>
+            <span>修改后需要重新生成</span>
+            <button
+              class="button primary small"
+              :disabled="disableForm"
+              @click="save"
+            >
+              {{ pending ? '保存中…' : '保存修改' }}
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
+    <div
+      v-if="layoutEnabled"
+      class="timeline-separator"
+      role="separator"
+      aria-label="调整时间轴高度"
+      aria-orientation="horizontal"
+      :aria-valuenow="timelineHeight ?? 244"
+      aria-valuemin="140"
+      aria-valuemax="420"
+      tabindex="0"
+      @pointerdown="startTimelineResize"
+      @pointermove="moveTimelineResize"
+      @pointerup="stopTimelineResize"
+      @pointercancel="stopTimelineResize"
+      @lostpointercapture="stopTimelineResize"
+      @keydown="timelineKey"
+    >
+      <span />
+    </div>
+    <VideoTimeline
+      :style="timelineHeight ? { height: `${timelineHeight}px` } : undefined"
+      :draft="version?.snapshot ?? displayedDraft"
+      :duration="(version?.duration_ms ?? 30000) / 1000"
+      :current-time="currentTime"
+      :playing="playing"
+      :available="!!version && !mediaError"
+      @seek="seek"
+      @toggle="togglePlay"
+    />
     <!-- 下载使用当前查看版本的文件；导出也必须绑定这个版本，不能猜测“最新版”。 -->
     <footer class="preview-footer">
       <div class="export-readiness">
@@ -917,7 +1206,7 @@ defineExpose({ openTab });
             name="export"
             :size="16"
           />
-          导出视频
+          导出当前版本
         </button>
       </div>
     </footer>

@@ -6,21 +6,28 @@ import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
 import { api } from './services/api.ts';
 import './style.css';
+import './aceternity.css';
+import './workspace-layout.css';
+import { initializeTheme } from './composables/useTheme.ts';
 
-// 根 App 根据路由读取同一套工作台；占位组件只登记路径，当前没有单独渲染 RouterView。
+// 外观先于项目与路由加载，读取偏好不触碰业务存储。
+initializeTheme();
+
+// 首页展示产品；/workspace 延续原首页的最近项目入口，已有创作与项目路由保持有效。
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: { template: '<span />' } },
+    { path: '/workspace', component: { template: '<span />' } },
     { path: '/create', component: { template: '<span />' } },
     { path: '/projects/:projectId', component: { template: '<span />' } },
     { path: '/:pathMatch(.*)*', redirect: '/create' },
   ],
 });
 
-// 首页优先打开最近的项目；列表为空或读取失败时回到新建页，避免固定跳到已删除的示例。
+// 工作台入口优先打开最近的项目；列表为空或读取失败时回到新建页，不固定打开示例。
 router.beforeEach(async (to) => {
-  if (to.path !== '/') return;
+  if (to.path !== '/workspace') return;
   try {
     const projects = await api.listProjects();
     return projects[0] ? `/projects/${projects[0].id}` : '/create';

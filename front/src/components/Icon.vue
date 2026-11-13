@@ -10,6 +10,24 @@ withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), {
 // 统一 24×24 的路径表，size 只改变显示尺寸，不改变每个图标的坐标系。
 const paths: Record<string, string> = {
   sparkles: 'm12 3 2.8 6.2L21 12l-6.2 2.8L12 21l-2.8-6.2L3 12l6.2-2.8L12 3M20 2v4m-2-2h4',
+  aperture:
+    'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m-4 1 7 12m-2-13-7 12m14-8H6m15 5H7m9 8L9 8m3 13 7-12',
+  undo: 'M3 10h10a7 7 0 0 1 7 7M3 10l5-5m-5 5 5 5',
+  redo: 'M21 10H11a7 7 0 0 0-7 7m17-7-5-5m5 5-5 5',
+  skipBack: 'M5 5v14m14-14L8 12l11 7V5',
+  skipNext: 'M19 5v14M5 5l11 7-11 7V5',
+  layers: 'm12 3 10 5-10 5L2 8l10-5M2 12l10 5 10-5M2 16l10 5 10-5',
+  cursor: 'm4 3 6 18 3-8 8-3L4 3',
+  zoomIn: 'M17 17l5 5M7 10h6m-3-3v6m7-3a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
+  text: 'M4 5V3h16v2M12 3v18m-4 0h8',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12m13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  lock: 'M5 10h14v11H5V10m3 0V6a4 4 0 0 1 8 0v4',
+  upload: 'M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6',
+  grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
+  settings:
+    'm9 3-1 3-3 1-2 3 2 2v3l3 2 1 3h6l1-3 3-2v-3l2-2-2-3-3-1-1-3H9m6 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  plug: 'M8 3v5m8-5v5M6 8h12v4a6 6 0 0 1-12 0V8m6 10v4',
+  home: 'm3 10 9-7 9 7v11h-6v-7H9v7H3V10',
   plus: 'M12 5v14M5 12h14',
   search: 'm20 20-4.5-4.5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
   video: 'M4 5h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2m14 4 4-2v10l-4-2',

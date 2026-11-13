@@ -1,0 +1,46 @@
+{
+  "round": "2",
+  "results": [
+    {
+      "view": "home-desktop",
+      "width": 1440,
+      "overflow": false,
+      "cards": [
+        {
+          "height": 398,
+          "header": 236,
+          "illustration": 236
+        },
+        {
+          "height": 398,
+          "header": 210,
+          "illustration": 210
+        },
+        {
+          "height": 398,
+          "header": 213,
+          "illustration": 216
+        },
+        {
+          "height": 398,
+          "header": 236,
+          "illustration": 236
+        }
+      ],
+      "beamPaths": 51,
+      "animatedGradients": 200
+    },
+    {
+      "view": "home-mobile",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "view": "workspace-collapsed",
+      "width": 1440,
+      "overflow": false,
+      "sidebar": 60
+    }
+  ],
+  "errors": []
+}

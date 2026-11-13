@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 页面总装配：把左侧导航、中间对话、右侧预览和弹窗连接到 useStudio。业务数据由组合函数管理，此文件主要协调界面入口。
+ * 页面总装配：把左侧素材库、中央预览与时间轴、右侧对话和弹窗连接到 useStudio。业务数据由组合函数管理，此文件主要协调界面入口。
  */
 
-import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref, toRef, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useStudio } from './composables/useStudio.ts';
 import { themes, imagePath } from './domain/content.ts';
 import type { Project } from './domain/types.ts';
@@ -13,10 +13,47 @@ import Conversation from './components/Conversation.vue';
 import PreviewPanel from './components/PreviewPanel.vue';
 import Modal from './components/Modal.vue';
 import Icon from './components/Icon.vue';
+import ThemeSwitcher from './components/ThemeSwitcher.vue';
+import LandingPage from './components/LandingPage.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
+import { useAppSettings } from './composables/useAppSettings.ts';
+import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
 
 // 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
-  router = useRouter();
+  router = useRouter(),
+  route = useRoute();
+const isLanding = computed(() => route.path === '/');
+const sidebarExpanded = ref(true);
+const workspaceRoot = ref<HTMLElement | null>(null),
+  sidebar = ref<InstanceType<typeof Sidebar> | null>(null),
+  settingsOpen = ref(false);
+const { general } = useAppSettings();
+const {
+  state: layoutState,
+  timelineDisplayHeight,
+  isDesktop,
+  workspaceStyle,
+  resizing,
+  draggedPanel,
+  dropTarget,
+  resetLayout,
+  startDrag,
+  dragOver,
+  drop,
+  endDrag,
+  movePanel,
+  beginResize,
+  resizeMove,
+  endResize,
+  resizeKey,
+  setTimelineHeight,
+} = useWorkspaceLayout(
+  workspaceRoot,
+  sidebarExpanded,
+  toRef(() => general.value.rememberLayout),
+  () => sidebar.value?.pinOpen(),
+);
 const {
   projects,
   current,
@@ -57,6 +94,13 @@ const exportResolution = ref('720p'),
   exportError = ref('');
 const title = computed(() => current.value?.project.title ?? '新的创作');
 const exportJob = computed(() => (exportJobId.value ? jobs.value[exportJobId.value] : null));
+// 路由导航会丢弃尚未保存的设置弹窗副本，不让首页往返意外保留打开状态。
+watch(
+  () => route.path,
+  () => {
+    settingsOpen.value = false;
+  },
+);
 // 切项目时收起临时面板和菜单，手机端才能回到新项目的对话入口。
 watch(projectId, () => {
   previewOpen.value = false;
@@ -100,7 +144,7 @@ async function confirmManage() {
   }
 }
 /**
- * 展开右侧作品面板，并通过子组件公开的方法切换到指定详情标签。
+ * 展开中央作品面板，并通过子组件公开的方法切换到指定详情标签。
  */
 function openPanel(tab = 'script') {
   previewOpen.value = true;
@@ -204,8 +248,20 @@ async function scenario(kind: 'failure' | 'question') {
 }
 </script>
 <template>
+  <LandingPage v-if="isLanding" />
   <div
+    v-else
+    ref="workspaceRoot"
     class="studio-app"
+    :class="{
+      'sidebar-is-collapsed': !sidebarExpanded,
+      'layout-resizing': resizing,
+      'layout-dragging': draggedPanel,
+    }"
+    :style="workspaceStyle"
+    :data-drop-target="dropTarget"
+    @dragover="dragOver"
+    @drop="drop"
     @keydown.esc="
       moreOpen = false;
       sidebarOpen = false;
@@ -213,20 +269,80 @@ async function scenario(kind: 'failure' | 'question') {
   >
     <!-- 左侧负责项目导航；回传的动作都进入父级流程，不在导航组件内写业务数据。 -->
     <Sidebar
+      ref="sidebar"
+      :layout-enabled="isDesktop"
       :projects="projects"
       :selected-id="projectId"
       :open="sidebarOpen"
+      :shots="selectedVersion?.snapshot.shots ?? current?.draft.shots ?? []"
+      :assets="assets"
+      :busy="busy || pending"
+      :duration="(selectedVersion?.duration_ms ?? 30000) / 1000"
       @new="newProject"
       @select="router.push(`/projects/${$event}`)"
       @templates="modal = 'templates'"
-      @guide="modal = 'guide'"
       @rename="openManage('rename', $event)"
       @delete="openManage('delete', $event)"
       @close="sidebarOpen = false"
+      @upload="conversation?.attach()"
+      @seek="preview?.seek($event)"
+      @panel="openPanel"
+      @resize="sidebarExpanded = $event"
+      @home="router.push('/')"
+      @settings="settingsOpen = true"
+      @panel-drag-start="startDrag"
+      @panel-drag-end="endDrag"
+      @panel-move="movePanel"
     />
-    <!-- 中间对话和右侧作品共享 useStudio 数据，通过事件完成三栏联动。 -->
+    <div
+      v-for="index in [0, 1]"
+      :key="index"
+      class="pane-separator"
+      :style="{ gridColumn: index * 2 + 2 }"
+      role="separator"
+      aria-orientation="vertical"
+      :aria-label="`调整${panelLabels[layoutState.order[index]!]}与${panelLabels[layoutState.order[index + 1]!]}宽度`"
+      :aria-valuenow="
+        Math.round(
+          (layoutState.weights[layoutState.order[index]!]! /
+            (layoutState.weights[layoutState.order[index]!]! +
+              layoutState.weights[layoutState.order[index + 1]!]!)) *
+            100,
+        )
+      "
+      aria-valuemin="0"
+      aria-valuemax="100"
+      tabindex="0"
+      @pointerdown="beginResize(index, $event)"
+      @pointermove="resizeMove"
+      @pointerup="endResize"
+      @pointercancel="endResize"
+      @lostpointercapture="endResize"
+      @keydown="resizeKey(index, $event)"
+    >
+      <span />
+    </div>
+    <!-- 右侧对话和中央作品共享 useStudio 数据，通过事件完成三栏联动。 -->
     <div class="workspace">
       <header class="topbar">
+        <a
+          class="topbar-brand"
+          href="/"
+          aria-label="返回产品首页"
+          @click.prevent="router.push('/')"
+        >
+          <span class="brand-icon">
+            <Icon
+              name="aperture"
+              :size="24"
+            />
+          </span>
+          <span>
+            Explain
+            <span class="brand-light">Craft</span>
+            <small>VIDEO STUDIO</small>
+          </span>
+        </a>
         <div class="breadcrumbs">
           <button
             class="icon-button mobile-menu"
@@ -235,7 +351,7 @@ async function scenario(kind: 'failure' | 'question') {
           >
             <Icon name="menu" />
           </button>
-          <span class="breadcrumb-home">创作空间</span>
+          <span class="breadcrumb-home">工作空间</span>
           <Icon
             class="breadcrumb-chevron"
             name="chevron"
@@ -250,6 +366,32 @@ async function scenario(kind: 'failure' | 'question') {
             <Icon
               name="edit"
               :size="13"
+            />
+          </button>
+        </div>
+        <div class="history-controls">
+          <button
+            class="icon-button"
+            aria-label="撤销草稿编辑"
+            title="撤销未保存的草稿编辑"
+            :disabled="!preview?.canUndo"
+            @click="preview?.undo()"
+          >
+            <Icon
+              name="undo"
+              :size="17"
+            />
+          </button>
+          <button
+            class="icon-button"
+            aria-label="重做草稿编辑"
+            title="重做未保存的草稿编辑"
+            :disabled="!preview?.canRedo"
+            @click="preview?.redo()"
+          >
+            <Icon
+              name="redo"
+              :size="17"
             />
           </button>
         </div>
@@ -272,14 +414,13 @@ async function scenario(kind: 'failure' | 'question') {
                     : '已自动保存'
             }}
           </span>
-          <button
+          <span
             v-if="studio.api.mode === 'demo'"
             class="mode-badge"
-            @click="modal = 'guide'"
           >
             <span />
             演示模式
-          </button>
+          </span>
           <button
             class="icon-button top-help"
             aria-label="查看使用指南"
@@ -301,7 +442,23 @@ async function scenario(kind: 'failure' | 'question') {
               :size="20"
             />
           </button>
-          <div class="more-container">
+          <ThemeSwitcher />
+          <button
+            class="button primary top-export"
+            aria-label="导出视频"
+            :disabled="!selectedVersion || busy || pending"
+            @click="openExport"
+          >
+            <Icon
+              name="export"
+              :size="15"
+            />
+            导出视频
+          </button>
+          <div
+            v-if="current"
+            class="more-container"
+          >
             <button
               class="icon-button"
               aria-label="更多项目操作"
@@ -314,18 +471,6 @@ async function scenario(kind: 'failure' | 'question') {
               v-if="moreOpen"
               class="toolbar-menu"
             >
-              <button
-                @click="
-                  modal = 'guide';
-                  moreOpen = false;
-                "
-              >
-                <Icon
-                  name="help"
-                  :size="15"
-                />
-                使用指南
-              </button>
               <button
                 v-if="current"
                 @click="openManage('rename', current.project)"
@@ -413,6 +558,11 @@ async function scenario(kind: 'failure' | 'question') {
         <Conversation
           v-else
           ref="conversation"
+          :layout-enabled="isDesktop"
+          :send-shortcut="general.sendShortcut"
+          @panel-drag-start="startDrag"
+          @panel-drag-end="endDrag"
+          @panel-move="movePanel"
           :messages="messages"
           :jobs="jobs"
           :draft="current?.draft ?? null"
@@ -450,6 +600,12 @@ async function scenario(kind: 'failure' | 'question') {
         />
         <PreviewPanel
           ref="preview"
+          :layout-enabled="isDesktop"
+          :timeline-height="isDesktop ? timelineDisplayHeight : undefined"
+          @timeline-height="setTimelineHeight"
+          @panel-drag-start="startDrag"
+          @panel-drag-end="endDrag"
+          @panel-move="movePanel"
           :project-id="projectId"
           :draft="current?.draft ?? null"
           :revision="current?.project.draft_revision ?? 1"
@@ -500,6 +656,20 @@ async function scenario(kind: 'failure' | 'question') {
         </button>
       </div>
     </Transition>
+    <SettingsPanel
+      :open="settingsOpen"
+      @close="settingsOpen = false"
+      @reset-layout="resetLayout"
+      @saved="
+        (persisted) => {
+          settingsOpen = false;
+          studio.notify(
+            persisted ? '工作台设置已保存。' : '设置已应用，当前浏览器暂时无法保存偏好。',
+            persisted ? 'success' : 'info',
+          );
+        }
+      "
+    />
     <!-- 弹窗统一复用 Modal：具体内容与确认按钮由页面传入。 -->
     <Modal
       :open="modal === 'templates'"
@@ -544,7 +714,7 @@ async function scenario(kind: 'failure' | 'question') {
         <div>
           <span>01</span>
           <section>
-            <h3>告诉灵镜，你的想法</h3>
+            <h3>告诉 Copilot，你的想法</h3>
             <p>说清主题和想要的感觉，也可以带上自己的图片、视频或音乐。</p>
           </section>
         </div>
@@ -559,7 +729,7 @@ async function scenario(kind: 'failure' | 'question') {
           <span>03</span>
           <section>
             <h3>随时调整，直到满意</h3>
-            <p>直接说“第二个镜头换一下”，或在右侧保存设置，再更新视频。</p>
+            <p>直接说“第二个镜头换一下”，或在中央面板保存设置，再更新视频。</p>
           </section>
         </div>
       </div>

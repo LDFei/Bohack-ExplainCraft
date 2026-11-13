@@ -11,3 +11,5 @@ coverage/
 uv.lock
 public/media/
 docs/screenshots/
+# 官方 registry 的原始快照保留下载字节，用于 SHA-256 来源核对。
+docs/aceternity/upstream/
