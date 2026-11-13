@@ -1,6 +1,8 @@
+# Git 从仓库根目录调用入口；没有前端变更时不启动 Node 或 Python 工具。
 if git diff --cached --quiet -- front/; then
   exit 0
 fi
 
+# 先在 front/ 找到本地工具，再让 lint-staged 按仓库根目录匹配 front/** 路径。
 cd front
 npx --no-install lint-staged --cwd .. --config "$PWD/.lintstagedrc.json"

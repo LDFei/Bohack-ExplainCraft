@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 作品预览与可编辑草稿面板。播放器读取成片，表单编辑当前草稿；历史版本以只读快照展示。
+ */
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { copy, emptyDraft, imagePath } from '../domain/content.ts';
 import type {
@@ -42,11 +46,13 @@ const tab = ref('script'),
   video = ref<HTMLVideoElement | null>(null),
   playing = ref(false),
   mediaError = ref(false);
+// 表单使用独立副本；formRevision 保留编辑起点，formDirty 防止后台刷新冲掉未保存输入。
 const form = ref<Draft>(emptyDraft()),
   formRevision = ref(1),
   formDirty = ref(false),
   editingScript = ref(false),
   auditionPlaying = ref(false);
+// 历史版本只读；显示的是它自己的 snapshot，不是今天最新的草稿。
 const readOnly = computed(() => !!props.version && props.version.id !== props.latestVersionId);
 const displayedDraft = computed(() =>
   readOnly.value ? props.version!.snapshot : (props.draft ?? emptyDraft()),
@@ -57,16 +63,21 @@ const tabs = [
   { id: 'audio', name: '音频', icon: 'music' },
   { id: 'settings', name: '设置', icon: 'sliders' },
 ];
+// 制作进行中或尚未创建项目时，不允许表单与后台任务同时修改草稿。
 const disableForm = computed(
   () => readOnly.value || props.busy || props.pending || !props.projectId,
 );
 let audition: HTMLAudioElement | null = null;
+/**
+ * 把当前显示的草稿复制到本地表单，并记住修订号；编辑表单不会直接修改父级数据。
+ */
 function resetForm() {
   form.value = copy(displayedDraft.value);
   formRevision.value = props.revision;
   formDirty.value = false;
   editingScript.value = false;
 }
+// 换项目或成片版本时，清空旧播放与试听状态，并重新建立表单副本。
 watch(
   () => [props.projectId, props.version?.id],
   () => {
@@ -78,12 +89,14 @@ watch(
   },
   { immediate: true },
 );
+// 来自其他页面的新修订仅在本地没有未保存编辑时回填；否则由保存时的冲突检测处理。
 watch(
   () => props.revision,
   () => {
     if (!formDirty.value) resetForm();
   },
 );
+// 草稿对象的深层更新同样不能覆盖用户尚未保存的表单。
 watch(
   () => props.draft,
   () => {
@@ -91,11 +104,17 @@ watch(
   },
   { deep: true },
 );
+/**
+ * 停止并释放独立的音乐试听对象，防止切换版本或离开页面后声音继续播放。
+ */
 function stopAudition() {
   audition?.pause();
   audition = null;
   auditionPlaying.value = false;
 }
+/**
+ * 切换示例背景音乐的播放状态；只播放服务提供的 sample_url，不在前端生成配音。
+ */
 async function playMusic() {
   if (auditionPlaying.value) {
     stopAudition();
@@ -121,6 +140,9 @@ async function playMusic() {
     stopAudition();
   }
 }
+/**
+ * 把下拉值拆成自动、无音乐、曲库或上传四种来源，并清空不属于该来源的 ID。
+ */
 function musicMode(event: Event) {
   const value = (event.target as HTMLSelectElement).value;
   if (value === 'auto' || value === 'none') {
@@ -139,6 +161,7 @@ function musicMode(event: Event) {
   formDirty.value = true;
   stopAudition();
 }
+// 把互斥的音乐来源编码成一个下拉框值，upload: 前缀用于区别附件 ID 和曲库 ID。
 const musicValue = computed(() =>
   form.value.audio.music_mode === 'library'
     ? form.value.audio.music_id!
@@ -146,6 +169,10 @@ const musicValue = computed(() =>
       ? `upload:${form.value.audio.music_asset_id}`
       : form.value.audio.music_mode,
 );
+/**
+ * 比较本地表单和原草稿，只提交变化的顶层分组。
+ * 移除服务端只读音乐字段，并携带开始编辑时的 revision；冲突时保留本地表单。
+ */
 async function save() {
   const changes: DraftChanges = {},
     original = props.draft ?? emptyDraft();
@@ -155,6 +182,7 @@ async function save() {
       if (key === 'finishing') changes.finishing = copy(form.value.finishing);
       if (key === 'audio') {
         changes.audio = copy(form.value.audio);
+        // 真实接口不允许客户端写“最终解析出的音乐素材”，所以发送前移除只读字段。
         delete changes.audio.resolved_music_asset_id;
       }
     }
@@ -167,6 +195,9 @@ async function save() {
   }
   if (await props.onSave(changes, formRevision.value)) resetForm();
 }
+/**
+ * 通过真实 video 元素切换播放或暂停，浏览器拒绝播放时给出提示。
+ */
 async function togglePlay() {
   if (!video.value) return;
   if (video.value.paused) {
@@ -177,6 +208,9 @@ async function togglePlay() {
     }
   } else video.value.pause();
 }
+/**
+ * 公开给父组件的标签切换入口；对话中的“查看脚本”使用它定位右侧内容。
+ */
 function openTab(id: string) {
   tab.value = id;
 }
@@ -236,6 +270,7 @@ defineExpose({ openTab });
         </button>
       </div>
     </header>
+    <!-- 播放器读取成片文件；下面的表单修改的是 Draft，两者通过再次生成才同步。 -->
     <div class="preview-content">
       <div
         class="preview-stage"
@@ -852,6 +887,7 @@ defineExpose({ openTab });
         </div>
       </div>
     </div>
+    <!-- 下载使用当前查看版本的文件；导出也必须绑定这个版本，不能猜测“最新版”。 -->
     <footer class="preview-footer">
       <div class="export-readiness">
         <span>

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 项目导航组件。过滤已加载的项目、按日期分组，并把新建、改名、删除等意图交给父组件。
+ */
+
 import { computed, ref } from 'vue';
 import type { Project } from '../domain/types.ts';
 import { imagePath, inferTheme, themes } from '../domain/content.ts';
@@ -15,6 +19,7 @@ const emit = defineEmits<{
 }>();
 const query = ref(''),
   menuId = ref('');
+// 只筛选已加载项目；按浏览器本地日期分成今天、昨天和更早，不伪装成服务端全量搜索。
 const groups = computed(() => {
   const today = new Date().toDateString(),
     yesterday = new Date(Date.now() - 86400000).toDateString();
@@ -38,6 +43,9 @@ const groups = computed(() => {
     },
   ].filter((group) => group.items.length);
 });
+/**
+ * 关闭项目操作菜单，通知父组件切换路由，并在手机端收起导航抽屉。
+ */
 function select(id: string) {
   menuId.value = '';
   emit('select', id);
@@ -146,6 +154,7 @@ function select(id: string) {
         placeholder="搜索创作记录"
       />
     </label>
+    <!-- 历史记录只展示父级已加载的项目，菜单操作通过事件通知父组件。 -->
     <div class="history-list">
       <section
         v-for="group in groups"

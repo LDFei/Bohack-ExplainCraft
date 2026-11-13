@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 页面总装配：把左侧导航、中间对话、右侧预览和弹窗连接到 useStudio。业务数据由组合函数管理，此文件主要协调界面入口。
+ */
+
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useStudio } from './composables/useStudio.ts';
@@ -10,6 +14,7 @@ import PreviewPanel from './components/PreviewPanel.vue';
 import Modal from './components/Modal.vue';
 import Icon from './components/Icon.vue';
 
+// 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
   router = useRouter();
 const {
@@ -52,11 +57,13 @@ const exportResolution = ref('720p'),
   exportError = ref('');
 const title = computed(() => current.value?.project.title ?? '新的创作');
 const exportJob = computed(() => (exportJobId.value ? jobs.value[exportJobId.value] : null));
+// 切项目时收起临时面板和菜单，手机端才能回到新项目的对话入口。
 watch(projectId, () => {
   previewOpen.value = false;
   sidebarOpen.value = false;
   moreOpen.value = false;
 });
+// 额外追踪导出任务的终态；成功之后把素材 ID 交给下载动作。
 watch(exportJob, (job) => {
   if (job?.status === 'succeeded' && job.result?.asset_id) {
     exportedAsset.value = job.result.asset_id;
@@ -67,12 +74,18 @@ watch(exportJob, (job) => {
     modalPending.value = false;
   }
 });
+/**
+ * 打开改名或删除弹窗，保存本次操作对应的项目；不会立即修改数据。
+ */
 function openManage(type: 'rename' | 'delete', project: Project) {
   managedProject.value = project;
   titleInput.value = project.title;
   modal.value = type;
   moreOpen.value = false;
 }
+/**
+ * 提交改名或删除操作。只有服务层确认成功才关闭弹窗，失败时保留输入方便重试。
+ */
 async function confirmManage() {
   if (!managedProject.value) return;
   modalPending.value = true;
@@ -86,22 +99,37 @@ async function confirmManage() {
     modalPending.value = false;
   }
 }
+/**
+ * 展开右侧作品面板，并通过子组件公开的方法切换到指定详情标签。
+ */
 function openPanel(tab = 'script') {
   previewOpen.value = true;
   preview.value?.openTab(tab);
 }
+/**
+ * 按版本 ID 加载成片并展开预览；查看历史版本不会把旧草稿写回当前项目。
+ */
 function openVersion(id: string) {
   void studio.selectVersion(id);
   previewOpen.value = true;
 }
+/**
+ * 切回最近成功的成片，让历史只读状态回到可以继续修改的当前草稿。
+ */
 function latest() {
   if (current.value?.project.latest_video_version_id)
     void studio.selectVersion(current.value.project.latest_video_version_id);
 }
+/**
+ * 用已保存的脚本和设置发起更新；与“保存设置”分开，避免把旧预览误认为新视频。
+ */
 function updateVideo() {
   intent.value = versions.value.length ? 'revise' : 'generate';
   void studio.send('normal', '按当前已保存的脚本与设置更新视频。');
 }
+/**
+ * 打开导出弹窗并清空上一次导出状态；默认清晰度来自服务能力。
+ */
 function openExport() {
   exportedAsset.value = '';
   exportJobId.value = '';
@@ -109,6 +137,10 @@ function openExport() {
   exportResolution.value = caps.value.exports.preview_resolution;
   modal.value = 'export';
 }
+/**
+ * 导出当前查看的版本。缓存文件直接提供下载；异步结果通过任务 ID 持续追踪。
+ * 导出基于成片版本快照，不把后续未生成的草稿修改混入这个文件。
+ */
 async function exportVideo() {
   if (!selectedVersion.value) return;
   modalPending.value = true;
@@ -132,25 +164,40 @@ async function exportVideo() {
     modalPending.value = false;
   }
 }
+/**
+ * 先收起手机端作品和导航面板，再进入空白创作页；此时不创建后端空项目。
+ */
 async function newProject() {
   previewOpen.value = false;
   sidebarOpen.value = false;
   await studio.newProject();
 }
+/**
+ * 在空白创作中填入可编辑的模板提示词，仅填输入框，不自动启动生成。
+ */
 async function useTemplate(text: string) {
   modal.value = null;
   await newProject();
   studio.useExample(text);
   conversation.value?.focus();
 }
+/**
+ * 把镜头编辑建议送到对话输入框，并聚焦输入，供用户补全后发送。
+ */
 function prompt(text: string) {
   studio.useExample(text);
   previewOpen.value = false;
   conversation.value?.focus();
 }
+/**
+ * 非提交状态下关闭弹窗；提交中保留弹窗，避免同一个动作被反复触发。
+ */
 function closeModal() {
   if (!modalPending.value) modal.value = null;
 }
+/**
+ * 从帮助面板启动失败或追问演示；页面只在演示模式展示此入口。
+ */
 async function scenario(kind: 'failure' | 'question') {
   modal.value = null;
   await studio.scenario(kind);
@@ -164,6 +211,7 @@ async function scenario(kind: 'failure' | 'question') {
       sidebarOpen = false;
     "
   >
+    <!-- 左侧负责项目导航；回传的动作都进入父级流程，不在导航组件内写业务数据。 -->
     <Sidebar
       :projects="projects"
       :selected-id="projectId"
@@ -176,6 +224,7 @@ async function scenario(kind: 'failure' | 'question') {
       @delete="openManage('delete', $event)"
       @close="sidebarOpen = false"
     />
+    <!-- 中间对话和右侧作品共享 useStudio 数据，通过事件完成三栏联动。 -->
     <div class="workspace">
       <header class="topbar">
         <div class="breadcrumbs">
@@ -451,6 +500,7 @@ async function scenario(kind: 'failure' | 'question') {
         </button>
       </div>
     </Transition>
+    <!-- 弹窗统一复用 Modal：具体内容与确认按钮由页面传入。 -->
     <Modal
       :open="modal === 'templates'"
       title="让灵感，先走一步"

@@ -1,5 +1,9 @@
+/**
+ * 本地演示能力、主题内容及纯工具函数。真实服务接入后，界面选项应以 /capabilities 返回值为准。
+ */
 import type { Capabilities, Draft, StageKey, Theme } from './types.ts';
 
+// 界面文案与稳定阶段 ID 分开保存；后端只需要按同一 ID 返回进度。
 export const stageLabels: Record<StageKey, string> = {
   planning: '理解你的想法',
   script: '创作文案',
@@ -11,6 +15,7 @@ export const stageLabels: Record<StageKey, string> = {
   render: '输出成片',
 };
 export const stageKeys = Object.keys(stageLabels) as StageKey[];
+// 演示能力只公布已经打包的 720p 文件，避免提供实际上无法下载的导出规格。
 export const capabilities: Capabilities = {
   defaults: {
     target_duration_seconds: 30,
@@ -60,6 +65,7 @@ export const capabilities: Capabilities = {
   event_retention_seconds: 86400,
 };
 
+// 三类本地素材模板：用于展示前端闭环，不是用户任意提示词的真实 AI 生成结果。
 export const themes = {
   coffee: {
     title: '一杯咖啡的慢时光',
@@ -126,22 +132,44 @@ export const themes = {
   },
 } as const;
 
+/**
+ * 将本地示例图片名转换成静态资源 URL；返回的是浏览器路径，不是磁盘路径。
+ */
 export const imagePath = (name: string) => `/media/${name}.jpg`;
+/**
+ * 深拷贝仅含普通 JSON 字段的业务数据，隔离草稿、历史快照和页面表单。
+ * 不适用于 File、Blob、DOM、函数或需要保留原类型的 Date、Map。
+ */
 export const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+/**
+ * 通过少量关键词选择咖啡、旅行或产品示例；这是演示规则，不是大模型理解。
+ */
 export const inferTheme = (text: string): Theme =>
   /旅行|山野|风景|山峰|露营|湖泊/.test(text)
     ? 'travel'
     : /产品|水杯|保温|商品|耳机/.test(text)
       ? 'product'
       : 'coffee';
+/**
+ * 把业务比例 9:16 转成文件名中的 9x16，匹配内置视频命名。
+ */
 export const ratioKey = (ratio: string) => ratio.replace(':', 'x');
+/**
+ * 按示例主题与比例定位已打包的 MP4，不在浏览器执行视频生成。
+ */
 export const videoPath = (theme: Theme, ratio: string) => `/media/${theme}-${ratioKey(ratio)}.mp4`;
+/**
+ * 返回 720p 示例的真实宽高，竖屏、横屏和方形以短边 720px 为基准。
+ */
 export const dimensions = (ratio: string) =>
   ratio === '16:9'
     ? { width: 1280, height: 720 }
     : ratio === '1:1'
       ? { width: 720, height: 720 }
       : { width: 720, height: 1280 };
+/**
+ * 生成一份独立空草稿，包含默认音频、字幕和失效阶段；每次调用都创建新对象。
+ */
 export function emptyDraft(): Draft {
   return {
     brief: null,
