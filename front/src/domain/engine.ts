@@ -1,3 +1,6 @@
+/**
+ * 演示任务状态机。通过显式 now 推进项目记录，方便刷新恢复与确定性测试；不执行真实 AI 生成。
+ */
 import {
   copy,
   dimensions,
@@ -22,17 +25,33 @@ import type {
   VideoVersion,
 } from './types.ts';
 
+/** 业务异常同时携带稳定 code 与中文 message，让界面可以解释失败而不展示技术堆栈。 */
 export class StudioError extends Error {
   code: string;
+  /**
+   * 创建带业务错误码的异常；页面使用 message 提示用户，code 用于判断冲突或可重试原因。
+   */
   constructor(code: string, message: string) {
     super(message);
     this.code = code;
   }
 }
+/**
+ * 组合业务前缀与随机 UUID，避免不同项目、消息和任务使用相同 ID。
+ */
 export const makeId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
+/**
+ * 把毫秒时间戳转换成 UTC ISO 时间字符串，供持久化和接口对象使用。
+ */
 const iso = (now: number) => new Date(now).toISOString();
+/**
+ * 判断任务是否仍占用项目：排队、运行、待回答和正在取消均算活动状态。
+ */
 export const isActive = (job?: Job | null) =>
   !!job && ['queued', 'running', 'waiting_input', 'cancelling'].includes(job.status);
+/**
+ * 创建一个项目在演示数据库中的完整记录；初始只有空草稿，没有消息、任务或成片。
+ */
 export function createRecord(now = Date.now(), projectId = makeId('prj')): ProjectRecord {
   return {
     project: {
@@ -55,6 +74,9 @@ export function createRecord(now = Date.now(), projectId = makeId('prj')): Proje
     event_seq: 0,
   };
 }
+/**
+ * 把用户或助手消息追加到记录并返回新消息；助手先处于 pending，后续由任务推进补全。
+ */
 function message(
   record: ProjectRecord,
   role: 'user' | 'assistant',
@@ -77,18 +99,34 @@ function message(
   record.messages.push(result);
   return result;
 }
+/**
+ * 拒绝在同一个项目里并发启动任务或修改草稿，避免两次结果相互覆盖。
+ */
 function assertIdle(record: ProjectRecord) {
   if (record.project.active_job_id)
     throw new StudioError('PROJECT_BUSY', '当前创作仍在进行，请先完成或停止。');
 }
+/**
+ * 检查调用者看到的草稿修订号；过期页面必须先刷新，不能直接覆盖新内容。
+ */
 function assertRevision(record: ProjectRecord, expected: number) {
   if (expected !== record.project.draft_revision)
     throw new StudioError('REVISION_CONFLICT', '草稿已更新，请刷新后再提交；你的输入会保留。');
 }
+/**
+ * 更新项目修改时间并递增演示事件序号，通知页面有新的持久化状态需要读取。
+ */
 function touch(record: ProjectRecord, now: number) {
   record.project.updated_at = iso(now);
   record.event_seq++;
 }
+/**
+ * 校验需求和素材后建立排队任务，记录输入快照及开始时间。
+ * parent 表示重试来源：重试新建助手回复，但不重复插入原用户消息。
+ * @param input 本次消息的完整输入，含期望修订号、素材和修改基底。
+ * @param scenario 仅演示使用的正常、失败或追问分支。
+ * @returns 已加入记录、处于 queued 状态的新任务。
+ */
 export function startJob(
   record: ProjectRecord,
   input: MessageInput,
@@ -132,6 +170,7 @@ export function startJob(
     started_at: null,
     finished_at: null,
   };
+  // 重试复用原用户需求，只增加新的助手消息，避免对话里出现重复需求。
   if (!parent) {
     const user = message(record, 'user', input.text.trim(), job.id, now);
     user.asset_ids = [...input.asset_ids];
@@ -145,6 +184,7 @@ export function startJob(
       ? inferTheme(record.draft.brief.subject)
       : inferTheme(input.text));
   record.runs[job.id] = {
+    // 冻结这次任务的输入，避免后续表单继续编辑时悄悄改变已经受理的需求。
     input: copy(input),
     scenario,
     theme,
@@ -160,12 +200,17 @@ export function startJob(
   touch(record, now);
   return job;
 }
+/**
+ * 把内置主题映射到脚本和分镜，并用有限关键词演示语速、风格或镜头修改。
+ * 上传素材在这里建立引用；不会把上传文件真正合成进内置视频。
+ */
 function prepareDraft(record: ProjectRecord, job: Job, now: number) {
   const run = record.runs[job.id]!;
   const content = themes[run.theme];
   if (!record.draft.script) {
     record.draft.script = { title: content.title, text: content.lines.join('\n') };
   }
+  // 保留用户已经保存的文案；只有没有有效分镜时，才根据文案重新规划示例镜头。
   if (!record.draft.shots.length) {
     const lines = record.draft.script.text
       .split(/\n+/)
@@ -194,6 +239,7 @@ function prepareDraft(record: ProjectRecord, job: Job, now: number) {
       style: '温暖自然，细腻真实',
     };
   const text = run.input.text;
+  // 演示修改仅识别少量关键词并改草稿；真实内容重生成应由 Rust 编排服务负责。
   if (job.kind === 'revise') {
     if (/慢|温柔/.test(text)) record.draft.audio.speech_rate = 0.9;
     if (/轻快|快一点/.test(text)) {
@@ -226,6 +272,9 @@ function prepareDraft(record: ProjectRecord, job: Job, now: number) {
   run.checkpoint_revision = record.project.draft_revision;
   touch(record, now);
 }
+/**
+ * 统一收尾：记录结束时间、释放活动任务并更新项目摘要；已有成片始终保留。
+ */
 function terminal(record: ProjectRecord, job: Job, now: number) {
   job.finished_at = iso(now);
   record.project.active_job_id = null;
@@ -237,6 +286,12 @@ function terminal(record: ProjectRecord, job: Job, now: number) {
         : 'draft';
   touch(record, now);
 }
+/**
+ * 按传入时间推进演示状态机，原地更新 record；由快照读取和轮询调用。
+ * 约 10 秒后绑定内置成片，追问和故障也由此模拟；不调用真实模型或渲染队列。
+ * @param record 当前项目的内部记录，会被原地更新。
+ * @param now 当前毫秒时间戳；测试可传入固定时间，页面通常使用 Date.now()。
+ */
 export function advance(record: ProjectRecord, now: number) {
   const job = record.jobs.find((item) => item.id === record.project.active_job_id);
   if (!job || !isActive(job)) return;
@@ -244,6 +299,7 @@ export function advance(record: ProjectRecord, now: number) {
   const assistant = record.messages.find(
     (item) => item.role === 'assistant' && item.job_id === job.id,
   )!;
+  // 先处理取消，再考虑完成：确保取消请求之后的迟到结果不能发布新成片。
   if (job.status === 'cancelling') {
     if (now - (run.cancelled_ms ?? now) < 500) return;
     job.status = 'cancelled';
@@ -255,6 +311,7 @@ export function advance(record: ProjectRecord, now: number) {
     terminal(record, job, now);
     return;
   }
+  // 等待回答不继续推进渲染；问题过期后进入失败终态，释放项目占用。
   if (job.status === 'waiting_input') {
     if (job.question && now >= Date.parse(job.question.expires_at)) {
       job.status = 'failed';
@@ -275,6 +332,7 @@ export function advance(record: ProjectRecord, now: number) {
   job.status = 'running';
   job.started_at ??= iso(run.started_ms + 450);
   assistant.status = 'streaming';
+  // 仅讨论的分支只产出文本，不动草稿、分镜和成片版本。
   if (job.kind === 'chat') {
     if (elapsed < 1500) {
       assistant.text = '正在整理适合你的创作建议…';
@@ -289,6 +347,7 @@ export function advance(record: ProjectRecord, now: number) {
     terminal(record, job, now);
     return;
   }
+  // 以下时间阈值是可演示流程的模拟节奏，不是实际模型服务的耗时估算。
   if (run.scenario === 'question' && !run.answered && elapsed >= 2500) {
     job.status = 'waiting_input';
     record.project.status = 'waiting_input';
@@ -317,6 +376,7 @@ export function advance(record: ProjectRecord, now: number) {
       i < index ? 100 : i === index ? Math.floor((elapsed % 1250) / 12.5) : 0;
   });
   assistant.text = `${job.kind === 'revise' ? '收到，正在根据你的修改更新作品。' : '好呀，我会为你制作一支有故事感的短片。'}${index >= 2 ? '脚本与分镜已准备好，接下来让画面和声音相遇。' : '先整理创作方向，再把灵感拆成一个个镜头。'}`;
+  // 模拟中断时保留此前已经保存的草稿，供重试或手工调整。
   if (run.scenario === 'failure' && elapsed >= 4200) {
     job.status = 'failed';
     job.error = {
@@ -332,7 +392,9 @@ export function advance(record: ProjectRecord, now: number) {
     terminal(record, job, now);
     return;
   }
+  // 只有成功出口才追加新版本并更新 latest_video_version_id；失败或取消都不覆盖旧作品。
   if (elapsed >= 10000) {
+    // 根据修改位置失效下游产物；这里只标记需要更新，保存本身不发布成片。
     record.draft.invalidated_stages = [];
     record.project.draft_revision++;
     const version: VideoVersion = {
@@ -348,6 +410,7 @@ export function advance(record: ProjectRecord, now: number) {
       ...dimensions(record.draft.settings.aspect_ratio),
       playback_url: videoPath(run.theme, record.draft.settings.aspect_ratio),
       url_expires_at: iso(now + 86400000),
+      // 必须深拷贝：历史成片若直接引用当前草稿，后续编辑会把旧版本一起改掉。
       snapshot: copy(record.draft),
       exports: [],
     };
@@ -381,6 +444,9 @@ export function advance(record: ProjectRecord, now: number) {
     terminal(record, job, now);
   } else touch(record, now);
 }
+/**
+ * 把活动任务标记为 cancelling 并记录取消时间；稍后的 advance 完成收尾，不发布迟到成片。
+ */
 export function cancelJob(record: ProjectRecord, jobId: string, now: number) {
   const job = record.jobs.find((item) => item.id === jobId);
   if (!job) throw new StudioError('NOT_FOUND', '没有找到这次创作。');
@@ -390,16 +456,25 @@ export function cancelJob(record: ProjectRecord, jobId: string, now: number) {
   record.runs[jobId]!.cancelled_ms = now;
   touch(record, now);
 }
+/**
+ * 使用原输入建立新任务，同时保留原助手记录和已保存草稿。
+ * 若失败后草稿已经改变，拒绝旧重试，要求用户按当前草稿重新生成。
+ */
 export function retryJob(record: ProjectRecord, jobId: string, expected: number, now: number) {
   const job = record.jobs.find((item) => item.id === jobId);
   if (!job || !(job.status === 'cancelled' || (job.status === 'failed' && job.error?.retryable)))
     throw new StudioError('JOB_NOT_RETRYABLE', '这次创作暂时不能重试。');
   assertRevision(record, expected);
   const run = record.runs[jobId]!;
+  // 旧任务的输入与当前草稿不一致时，不能按旧检查点继续，避免把新编辑覆盖。
   if (record.project.draft_revision !== run.checkpoint_revision)
     throw new StudioError('RETRY_INPUT_CHANGED', '草稿已经改变，请根据当前内容重新生成。');
   return startJob(record, { ...run.input, expected_draft_revision: expected }, now, 'normal', job);
 }
+/**
+ * 核对仍然有效的问题 ID，保存回答并恢复同一个任务。
+ * 演示时调整开始时间，从追问节点之后继续；重复回答不能再开启第二次生成。
+ */
 export function answerJob(
   record: ProjectRecord,
   jobId: string,
@@ -420,6 +495,7 @@ export function answerJob(
   message(record, 'user', value.trim(), jobId, now);
   const run = record.runs[jobId]!;
   run.answered = true;
+  // 演示恢复到追问发生之后的时间点；仍沿用原 job_id，不另开一次任务。
   run.started_ms = now - 2600;
   job.question = null;
   job.status = 'running';
@@ -430,6 +506,12 @@ export function answerJob(
   );
   if (assistant) assistant.blocks = [{ type: 'progress', job_id: job.id }];
 }
+/**
+ * 校验并保存用户编辑的顶层草稿分组，递增修订号并标记需要重算的阶段。
+ * 完整脚本变动会清空旧分镜；分镜旁白变动会同步完整文案，成片要另行更新。
+ * @param changes 需要整体替换的草稿顶层分组。
+ * @param expected 用户开始提交时看到的草稿修订号。
+ */
 export function patchDraft(
   record: ProjectRecord,
   changes: DraftChanges,
@@ -473,6 +555,7 @@ export function patchDraft(
     )
       throw new StudioError('ASSET_NOT_READY', '请选择已上传的音频。');
   }
+  // 顶层分组整体替换；复制输入可避免保存后继续修改表单影响数据库内对象。
   Object.assign(record.draft, copy(changes));
   if (changes.script) record.draft.shots = [];
   if (changes.shots && record.draft.script)
@@ -487,6 +570,9 @@ export function patchDraft(
   record.project.draft_dirty = true;
   touch(record, now);
 }
+/**
+ * 从演示内部记录构造页面快照，并深拷贝隔离引用；不暴露内部 runs 调度信息。
+ */
 export function snapshot(record: ProjectRecord): Snapshot {
   return copy({
     project: record.project,
@@ -499,6 +585,9 @@ export function snapshot(record: ProjectRecord): Snapshot {
     event_cursor: String(record.event_seq),
   });
 }
+/**
+ * 首次使用时构造三份已完成案例，复用同一状态机产生成片数据，便于直接展示工作台。
+ */
 export function seedDatabase(now = Date.now()): Database {
   const seeded: { theme: Theme; id: string; ago: number }[] = [
     { theme: 'coffee', id: 'demo-coffee', ago: 1800000 },

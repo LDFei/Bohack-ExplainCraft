@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * 对话展示与输入组件。通过 props 接收状态，通过 emit 通知父级；不直接调用模型、操作数据库或创建任务。
+ */
+
 import { computed, nextTick, ref, watch } from 'vue';
 import { imagePath, stageLabels, themes } from '../domain/content.ts';
 import type {
@@ -50,7 +54,9 @@ const scroller = ref<HTMLElement | null>(null),
 const nearBottom = ref(true),
   answers = ref<Record<string, string>>({}),
   dragging = ref(false);
+// 计算属性只派生展示内容；没有消息时展示欢迎页，有消息时展示对话。
 const hasMessages = computed(() => props.messages.length > 0);
+// 输入框附件是已上传素材的选中子集；移除选择不等于删除历史素材。
 const attachments = computed(() =>
   props.assets.filter((asset) => props.selectedAssets.includes(asset.id)),
 );
@@ -60,15 +66,22 @@ const samples = [
   { icon: 'mountain', theme: 'travel', label: '旅行记录', hint: '把沿途风景，留成回忆' },
 ] as const;
 const quickEdits = ['配音再温柔一点', '第二个镜头换成咖啡特写', '让节奏更轻快'];
+/**
+ * 滚动到最新消息，并恢复自动跟随；用于新内容提示和用户主动回到底部。
+ */
 function scrollBottom() {
   if (scroller.value)
     scroller.value.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' });
   nearBottom.value = true;
 }
+/**
+ * 记录用户是否接近底部。距离超过 90px 时，不让新消息打断用户阅读上文。
+ */
 function onScroll() {
   const el = scroller.value;
   if (el) nearBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90;
 }
+// 等待 Vue 把新消息渲染进 DOM 后再滚动；用户读上文时不自动抢滚动位置。
 watch(
   () => [
     props.messages.length,
@@ -80,22 +93,32 @@ watch(
     if (nearBottom.value) scrollBottom();
   },
 );
+/**
+ * 按输入文字撑开文本框，最高 150px；先重置高度，删除内容时才能缩回。
+ */
 function resize() {
   if (textarea.value) {
     textarea.value.style.height = 'auto';
     textarea.value.style.height = `${Math.min(150, textarea.value.scrollHeight)}px`;
   }
 }
+// 输入文字或选择模板之后，下一次 DOM 更新时重新计算文本框高度。
 watch(
   () => props.input,
   () => nextTick(resize),
 );
+/**
+ * 处理发送快捷键：Enter 发送，Shift+Enter 换行；中文输入法选字时不触发发送。
+ */
 function keydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     emit('send');
   }
 }
+/**
+ * 将下拉框修改作为完整 settings 对象交给父组件；时长必须由字符串转成数字。
+ */
 function updateSetting(key: keyof Settings, event: Event) {
   const value = (event.target as HTMLSelectElement).value;
   emit('update:settings', {
@@ -103,9 +126,15 @@ function updateSetting(key: keyof Settings, event: Event) {
     [key]: key === 'target_duration_seconds' ? Number(value) : value,
   });
 }
+/**
+ * 根据消息卡片引用的版本 ID 查找成片元数据；不存在时返回 undefined，模板跳过该卡片。
+ */
 function version(id?: string) {
   return props.versions.find((item) => item.id === id);
 }
+/**
+ * 把任务状态和当前阶段转换成用户能理解的进度标题，避免直接显示内部枚举。
+ */
 function jobLabel(job: Job) {
   return job.status === 'succeeded'
     ? '所有镜头，已准备就绪'
@@ -121,17 +150,33 @@ function jobLabel(job: Job) {
               ? stageLabels[job.current_stage]
               : '正在安排你的创作';
 }
+/**
+ * 复制文件选择结果后通知父组件上传，再清空原生控件，允许再次选择同一文件。
+ * 必须先复制 FileList：清空 input 会改变它，异步上传不能继续读取这个实时列表。
+ */
 function openFile(event: Event) {
   const element = event.target as HTMLInputElement;
   const files = Array.from(element.files ?? []);
   if (files.length) emit('upload', files);
   element.value = '';
 }
+/**
+ * 接收拖入素材并退出拖放提示；实际文件校验和保存统一交给父级服务处理。
+ */
 function drop(event: DragEvent) {
   dragging.value = false;
   if (event.dataTransfer?.files.length && !props.pending) emit('upload', event.dataTransfer.files);
 }
-defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.value?.click() });
+defineExpose({
+  /**
+   * 供父组件聚焦需求输入框，例如选完模板或点击修改某个镜头之后。
+   */
+  focus: () => textarea.value?.focus(),
+  /**
+   * 供父组件打开原生文件选择器，复用对话区域的同一个上传入口。
+   */
+  attach: () => fileInput.value?.click(),
+});
 </script>
 <template>
   <main
@@ -167,6 +212,7 @@ defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.val
       </span>
       <span>每个好故事，都从一个想法开始</span>
     </div>
+    <!-- 对话区独立滚动，角色决定气泡样式，blocks 决定业务卡片。 -->
     <div
       ref="scroller"
       class="message-scroll"
@@ -235,6 +281,7 @@ defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.val
         v-else
         class="message-list"
       >
+        <!-- 消息按稳定 ID 渲染，避免刷新时把同一条消息当成新消息重复插入。 -->
         <article
           v-for="message in messages"
           :key="message.id"
@@ -548,6 +595,7 @@ defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.val
       />
       回到最新消息
     </button>
+    <!-- 输入区固定底部；制作中仍可输入下一条草稿，但不允许并发发送。 -->
     <div class="composer-region">
       <div
         v-if="historical"

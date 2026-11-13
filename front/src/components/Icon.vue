@@ -1,8 +1,13 @@
 <script setup lang="ts">
+/**
+ * 统一 SVG 图标。name 对应 paths 表中的路径，未知名称回退为 sparkles，避免每个组件复制一套图标。
+ */
+
 withDefaults(defineProps<{ name: string; size?: number; stroke?: number }>(), {
   size: 20,
   stroke: 1.7,
 });
+// 统一 24×24 的路径表，size 只改变显示尺寸，不改变每个图标的坐标系。
 const paths: Record<string, string> = {
   sparkles: 'm12 3 2.8 6.2L21 12l-6.2 2.8L12 21l-2.8-6.2L3 12l6.2-2.8L12 3M20 2v4m-2-2h4',
   plus: 'M12 5v14M5 12h14',

@@ -1,3 +1,4 @@
+/* 全局字体和主要颜色变量；品牌主色在此集中定义。 */
 :root {
   font-family:
     'Noto Sans SC',
@@ -20,6 +21,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+/* 基础重置：统一盒模型、控件字体、焦点样式和滚动条。 */
 * {
   box-sizing: border-box;
 }
@@ -105,6 +107,7 @@ fieldset {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+/* 视觉隐藏但保留可访问性，原生文件控件由显式上传按钮触发。 */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -132,6 +135,7 @@ fieldset {
   background: #efedf7;
   color: var(--purple);
 }
+/* 通用按钮和状态样式，组件不重复维护自己的主色与禁用状态。 */
 .button {
   display: inline-flex;
   align-items: center;
@@ -199,6 +203,7 @@ fieldset {
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
+/* 加载反馈动画；减少动态效果的系统设置会在文件末尾统一覆盖。 */
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -217,6 +222,7 @@ fieldset {
   }
 }
 
+/* 工作台占满视口，内部三栏各自管理滚动，避免输入框被整个页面推出屏幕。 */
 .studio-app {
   display: flex;
   height: 100vh;
@@ -224,6 +230,7 @@ fieldset {
   min-height: 500px;
   overflow: hidden;
 }
+/* 左侧项目导航：固定宽度，历史列表滚动，账户区固定底部。 */
 .sidebar {
   width: 230px;
   flex-shrink: 0;
@@ -565,6 +572,7 @@ fieldset {
   display: none;
 }
 
+/* 中间与右侧的共同容器；min-width: 0 允许长文本在 flex 子项里正常收缩。 */
 .workspace {
   display: flex;
   flex-direction: column;
@@ -670,6 +678,7 @@ fieldset {
 .mobile-workspace-tabs {
   display: none;
 }
+/* min-height: 0 是内部滚动成立的关键，缺少它会让长消息撑开整个工作台。 */
 .workspace-content {
   display: flex;
   flex: 1;
@@ -700,6 +709,7 @@ fieldset {
   height: 26px;
 }
 
+/* 对话区由顶部说明、可滚动消息和底部输入框组成。 */
 .conversation {
   display: flex;
   flex-direction: column;
@@ -849,6 +859,7 @@ fieldset {
 .thinking span {
   margin-left: 6px;
 }
+/* 结构化消息卡片：方案、进度、问题和成片分别显示，避免靠一长段文字表达状态。 */
 .plan-card {
   border: 1px solid #e9e4f4;
   border-radius: 10px;
@@ -1180,6 +1191,7 @@ fieldset {
   z-index: 3;
 }
 
+/* 输入框固定在对话列底部；上传、模式和参数控件共用这一块空间。 */
 .composer-region {
   padding: 12px 29px 14px;
   flex-shrink: 0;
@@ -1433,6 +1445,7 @@ fieldset {
   font-size: 14px;
 }
 
+/* 空项目欢迎页和示例入口；点击示例只填写提示词。 */
 .empty-scroll {
   display: flex;
   align-items: center;
@@ -1558,6 +1571,7 @@ fieldset {
   font-size: 11px;
 }
 
+/* 右侧作品列：头部和导出按钮固定，脚本/素材/音频/设置内容单独滚动。 */
 .preview-panel {
   display: flex;
   flex-direction: column;
@@ -1634,6 +1648,7 @@ fieldset {
   display: flex;
   flex-direction: column;
 }
+/* 根据成片实际比例限制播放器尺寸；播放器外的标签只是界面覆盖层，不会写入导出文件。 */
 .preview-stage {
   --preview-height: clamp(230px, 33.5vh, 330px);
   position: relative;
@@ -1834,6 +1849,7 @@ fieldset {
   gap: 5px;
   margin-top: 12px;
 }
+/* 详情标签与编辑区域，编辑的是草稿，播放器仍展示最近一次成功成片。 */
 .editor-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -2002,6 +2018,7 @@ fieldset {
   font-size: 11px;
   color: #7b7282;
 }
+/* 预览下载与导出操作固定在右列底部，独立于详情内容的滚动。 */
 .preview-footer {
   padding: 13px 20px 18px;
   flex-shrink: 0;
@@ -2034,6 +2051,7 @@ fieldset {
   display: none;
 }
 
+/* 草稿表单控件；历史版、制作中和未创建项目时由组件统一禁用。 */
 .editor-form {
   display: flex;
   flex-direction: column;
@@ -2336,6 +2354,7 @@ fieldset {
   border-radius: 4px;
 }
 
+/* 弹窗、提示和导出确认层；真正的键盘焦点逻辑在 Modal.vue 中。 */
 .modal-backdrop {
   position: fixed;
   z-index: 100;
@@ -2649,6 +2668,7 @@ fieldset {
   opacity: 0;
 }
 
+/* 宽屏略增导航与作品列宽度，同时控制中间阅读行宽。 */
 @media (min-width: 1550px) {
   .sidebar {
     width: 248px;
@@ -2675,6 +2695,7 @@ fieldset {
     font-size: 14px;
   }
 }
+/* 较窄桌面压缩固定列，保留中间对话的可读宽度。 */
 @media (max-width: 1250px) and (min-width: 1201px) {
   .sidebar {
     width: 209px;
@@ -2709,6 +2730,7 @@ fieldset {
     gap: 2px;
   }
 }
+/* 平板宽度把右侧改成可打开的抽屉，避免三栏挤在同一行。 */
 @media (max-width: 1200px) {
   .sidebar {
     width: 220px;
@@ -2752,6 +2774,7 @@ fieldset {
     padding: 0 24px;
   }
 }
+/* 手机仅显示对话或作品之一，导航改为抽屉，主要操作仍位于视口内。 */
 @media (max-width: 767px) {
   .studio-app {
     min-height: 400px;
@@ -3096,6 +3119,7 @@ fieldset {
     font-size: 13px;
   }
 }
+/* 较矮窗口降低预览和留白高度，优先保证输入及导出按钮可用。 */
 @media (max-height: 720px) and (min-width: 768px) {
   .sidebar {
     padding-top: 22px;
@@ -3123,6 +3147,7 @@ fieldset {
     min-height: 44px;
   }
 }
+/* 尊重系统减少动画设置；状态仍通过文字和图标表达。 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,8 +1,14 @@
+/**
+ * 浏览器端到端测试：从用户可见的控件操作页面，验证播放、上传、状态恢复和移动端交互。
+ */
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 
+/**
+ * 从空白页输入一句话并点击生成，等待项目路由创建，供多个浏览器场景复用。
+ */
 async function startFresh(page: Page, text = '做一个温暖的咖啡店宣传视频') {
   await page.goto('/create');
   await page.getByRole('textbox', { name: '视频创作需求' }).fill(text);
@@ -10,7 +16,9 @@ async function startFresh(page: Page, text = '做一个温暖的咖啡店宣传�
   await expect(page).toHaveURL(/\/projects\/prj_/);
 }
 
+// 通过真实播放器和浏览器下载验证成片不是空链接；下载结果必须含 MP4 文件头。
 test('initial workspace plays a real local video and downloads a valid MP4', async ({ page }) => {
+  // 收集未捕获的页面异常，不能只看控件存在就判断页面没有运行错误。
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
@@ -31,6 +39,7 @@ test('initial workspace plays a real local video and downloads a valid MP4', asy
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: '导出视频', exact: true }).click();
   await expect(dialog.getByText('视频文件已准备就绪')).toBeVisible();
+  // 先订阅下载事件再点击按钮，避免下载开始太快导致测试错过事件。
   const downloaded = page.waitForEvent('download');
   await dialog.getByRole('button', { name: '下载视频', exact: true }).click();
   const download = await downloaded;
@@ -42,6 +51,7 @@ test('initial workspace plays a real local video and downloads a valid MP4', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
+// 制作中整页刷新，再等任务完成，检查消息与版本都没有重复创建。
 test('one-sentence generation survives refresh and produces one version', async ({ page }) => {
   await startFresh(page);
   await expect(page.getByRole('button', { name: '停止生成', exact: true })).toBeVisible();
@@ -54,17 +64,20 @@ test('one-sentence generation survives refresh and produces one version', async 
   );
 });
 
+// 等待超过原任务完成时间，确认停止后的页面不会突然出现迟到成片。
 test('cancelled generation stays cancelled after the original completion time', async ({
   page,
 }) => {
   await startFresh(page);
   await page.getByRole('button', { name: '停止生成', exact: true }).click();
   await expect(page.getByText('本次制作已停止。', { exact: false })).toBeVisible();
+  // 此处特意等过演示任务的十秒完成点，用来验证取消竞态，而不是等待页面控件加载。
   await page.waitForTimeout(11000);
   await expect(page.getByRole('button', { name: '下载预览', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '继续这次制作', exact: true })).toBeVisible();
 });
 
+// 先检查讨论无副作用，再检查修改生成新版以及历史快照的只读保护。
 test('discussion does not create a new version; revision preserves the historical snapshot', async ({
   page,
 }) => {
@@ -95,6 +108,7 @@ test('discussion does not create a new version; revision preserves the historica
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeEnabled();
 });
 
+// 编辑与生成是两步：先出现“尚未生成”提示，再由更新动作产生带新脚本的成片。
 test('manual script save marks the draft dirty and regenerates storyboard without erasing text', async ({
   page,
 }) => {
@@ -114,6 +128,7 @@ test('manual script save marks the draft dirty and regenerates storyboard withou
   await expect(page.locator('.shot-card')).toHaveCount(2);
 });
 
+// 上传真实图片后刷新验证文件恢复，再用伪造 PNG 内容验证实际解码校验。
 test('upload persists across reload and rejects a corrupt image', async ({ page }) => {
   await page.goto('/create');
   await page.locator('input[type=file]').setInputFiles(resolve('public/media/coffee-cup.jpg'));
@@ -139,6 +154,7 @@ test('upload persists across reload and rejects a corrupt image', async ({ page 
   await expect(page.locator('.asset-card')).toHaveCount(1);
 });
 
+// 从帮助面板覆盖失败重试与补充信息两条异常恢复路径。
 test('failed task can retry and a clarification can continue the original task', async ({
   page,
 }) => {
@@ -159,6 +175,7 @@ test('failed task can retry and a clarification can continue the original task',
   );
 });
 
+// 在手机尺寸下完成生成、作品查看和返回新建，并检查没有横向溢出。
 test('mobile workspace switches panels and completes a creation without horizontal overflow', async ({
   page,
 }) => {
@@ -176,6 +193,7 @@ test('mobile workspace switches panels and completes a creation without horizont
   await expect(page.getByRole('heading', { name: /把灵感，.*变成看得见的故事/ })).toBeVisible();
 });
 
+// 保存配置不能覆盖旧视频；同时检查改名持久化、确认删除和首页落点恢复。
 test('settings save keeps the old video, rename persists, and confirmed deletion returns to creation', async ({
   page,
 }) => {
@@ -202,6 +220,7 @@ test('settings save keeps the old video, rename persists, and confirmed deletion
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeVisible();
 });
 
+// 模板只填输入框；任务运行中切换项目后，原项目结果不能串到当前作品。
 test('templates only fill the composer, and switching projects cannot receive another project result', async ({
   page,
 }) => {

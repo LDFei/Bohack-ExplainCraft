@@ -3,6 +3,7 @@ name: Frontend code quality
 on:
   push:
     branches: [main, develop]
+    # 前端变更才运行；队友仅改后端时不要求执行这套 Node/Python 检查。
     paths:
       - 'front/**'
       - '.github/workflows/check.yml'
@@ -26,6 +27,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
+        # defaults 只影响 run 命令，下面两个 action 的缓存路径仍要显式写 front/。
         working-directory: front
     env:
       HUSKY: '0'
@@ -45,6 +47,7 @@ jobs:
       - name: Install frontend tools
         run: npm ci
       - name: Check formatting
+        # 检查失败就停止，不在远端悄悄改文件，避免本机与仓库代码不一致。
         run: npm run format:check
       - name: Run logic tests
         run: npm test
