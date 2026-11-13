@@ -1,0 +1,38 @@
+{
+  "name": "lingjing-video-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0"
+  },
+  "scripts": {
+    "prepare": "cd .. && husky front/.husky",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "format": "npm run format:web && npm run format:python",
+    "format:web": "prettier --write .",
+    "format:python": "uv run --frozen --only-dev ruff format .",
+    "format:check": "npm run format:check:web && npm run format:check:python",
+    "format:check:web": "prettier --check .",
+    "format:check:python": "uv run --frozen --only-dev ruff format --check ."
+  },
+  "dependencies": {
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "prettier": "3.10.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vue-tsc": "^3.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "Vue.volar",
+    "esbenp.prettier-vscode",
+    "EditorConfig.EditorConfig",
+    "ms-python.python",
+    "charliermarsh.ruff",
+    "tamasfe.even-better-toml"
+  ]
+}

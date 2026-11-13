@@ -1,0 +1,19 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 40 40"
+>
+  <rect
+    width="40"
+    height="40"
+    rx="12"
+    fill="#6554e8"
+  />
+  <path
+    fill="white"
+    d="m20 8 3.4 8.6L32 20l-8.6 3.4L20 32l-3.4-8.6L8 20l8.6-3.4z"
+  />
+  <path
+    fill="#d5caff"
+    d="m30 6 1.1 2.9L34 10l-2.9 1.1L30 14l-1.1-2.9L26 10l2.9-1.1z"
+  />
+</svg>
