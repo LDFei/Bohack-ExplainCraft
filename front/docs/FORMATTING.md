@@ -2,7 +2,7 @@
 
 ## 一键整理
 
-在项目根目录执行：
+在前端根目录 `front/` 执行：
 
 ```bash
 npm ci
@@ -10,7 +10,7 @@ npm run format
 npm run format:check
 ```
 
-整个项目的格式命令需要 Node.js 24.12+ 和
+前端工程的格式命令需要 Node.js 24.12+ 和
 [uv](https://docs.astral.sh/uv/getting-started/installation/)。uv 按提交的 uv.lock 安装 Ruff 到本项目的 .venv，不修改全局 Python 环境。平时只改前端时不需要调用 Python 格式工具。
 
 | 命令                       | 用途                                                              |
@@ -48,11 +48,16 @@ VS Code 已提供 `.vscode/settings.json`
 
 Python 文件的提交整理需要 uv；如果缺少工具或格式整理失败，提交会停止并显示原因。可以修复后重新提交。
 
-GitHub 的 Code
-quality 流程会对 main、develop 的推送和合并请求执行格式检查、逻辑测试与构建。这样通过其他编辑器或未启用本地入口提交的格式差异也能被发现。未设置分支保护规则，检查本身不会禁止直接推送。
+前端提交前入口位于 `front/.husky/pre-commit`，从 Git 根目录判断本次是否有前端文件变更；只有 `front/`
+的暂存文件会进入格式工具。仅提交队友的后端文件时跳过，不要求安装 Node.js 或 uv。
+
+GitHub 的 Frontend code quality 流程仅对 main、develop 上涉及 `front/`
+或前端工作流的推送和合并请求执行格式检查、逻辑测试与构建。后端可单独配置自己的检查。未设置分支保护规则，检查本身不会禁止直接推送。
 
 ## 新增文件和后续开发
 
-在现有目录正常新增源文件，沿用根目录规则即可。无需逐文件添加格式设置。给 AI 开发工具的持续约定位于根目录 AGENTS.md。
+在 `front/`
+内正常新增源文件，沿用前端根目录规则即可。无需逐文件添加格式设置。给 AI 开发工具的前端持续约定位于
+`front/AGENTS.md`，仓库协作边界位于仓库根目录 AGENTS.md。
 
 后续 Rust 后端加入后，按 Cargo 工程接入 rustfmt；当前仓库只有前端和一个 Python 媒体辅助脚本，不额外引入 Rust 工具链。

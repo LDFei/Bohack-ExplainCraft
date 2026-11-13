@@ -1,6 +1,8 @@
 # 第一版保存与后续改造
 
-本项目通过 GitHub 保存完整源码、文档、测试、依赖锁文件、截图和演示媒体。node_modules、dist、测试临时产物和本机环境配置不提交；使用
+前端工程位于仓库的
+`front/`。本项目通过 GitHub 保存完整源码、文档、测试、依赖锁文件、截图和演示媒体。node_modules、dist、测试临时产物和本机环境配置不提交；在
+`front/` 使用
 `npm ci` 和 `npm run build` 可以重新安装依赖、生成构建文件。
 
 浏览器里的创作记录和个人上传文件属于本机网站数据，不是项目源码，不会随 Git 上传。仓库中包含 public/media 内的全部内置演示媒体。
@@ -16,7 +18,8 @@
 第一版包括三栏 Vue 工作台、演示任务流程、素材上传、草稿与版本、视频播放下载、相关文档和测试；真实 Rust 和 AI 生成后端尚未接通。不要移动或删除
 `v0.1.0` 标签，也无需为了重新开始而覆盖 main 或 develop 的历史。
 
-下面的命令均在项目根目录执行。首次上传后，本地已经切到 develop。
+下面的 Git 命令在仓库根目录执行。当前版本的前端 npm 命令需要进入 `front/`；原始 `v0.1.0`
+采用旧的根目录前端布局，所以切到该标签后在仓库根目录运行 npm。首次上传后，本地已经切到 develop。
 
 ## 平时保存后续修改
 
@@ -24,7 +27,7 @@
 
 ```bash
 git status
-git add .
+git add front
 git commit -m "继续改造前端页面与创作流程"
 git push origin develop
 ```
@@ -52,6 +55,7 @@ git push -u origin redesign-from-v1
 
 ```bash
 git switch develop
+cd front
 npm ci
 npm run dev
 ```

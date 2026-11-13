@@ -1,10 +1,16 @@
-name: Code quality
+name: Frontend code quality
 
 on:
   push:
     branches: [main, develop]
+    paths:
+      - 'front/**'
+      - '.github/workflows/check.yml'
   pull_request:
     branches: [main, develop]
+    paths:
+      - 'front/**'
+      - '.github/workflows/check.yml'
 
 permissions:
   contents: read
@@ -15,9 +21,12 @@ concurrency:
 
 jobs:
   quality:
-    name: Format, test and build
+    name: Frontend format, test and build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: front
     env:
       HUSKY: '0'
     steps:
@@ -26,11 +35,13 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: front/package-lock.json
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: '0.11.25'
           python-version: '3.12'
           enable-cache: true
+          cache-dependency-glob: front/uv.lock
       - name: Install frontend tools
         run: npm ci
       - name: Check formatting

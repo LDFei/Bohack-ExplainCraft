@@ -1,0 +1,4 @@
+{
+  "front/**/*.{js,mjs,cjs,ts,tsx,vue,css,scss,html,json,jsonc,md,mdx,yml,yaml,svg}": "prettier --write --ignore-unknown",
+  "front/**/*.py": "uv run --project front --frozen --only-dev ruff format --force-exclude"
+}
