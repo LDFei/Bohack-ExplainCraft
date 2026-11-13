@@ -1,0 +1,70 @@
+[package]
+name = "explaincraft-backend"
+version = "0.1.0"
+edition = "2021"
+description = "灵镜 AI 视频创作空间的 Rust 后端：HTTP 接口、SQLite 持久化、制作流程编排与模型供应商适配。"
+publish = false
+
+# 库：被独立服务（src/main.rs）与桌面应用（front/src-tauri）共用。
+[lib]
+name = "explaincraft_backend"
+path = "src/lib.rs"
+
+# 独立运行的后端服务。
+[[bin]]
+name = "explaincraft-backend"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+# 启动时读取 back/.env（模型密钥等本地配置，不入库）。
+dotenvy = "0.15"
+futures = "0.3"
+hex = "0.4"
+hmac = "0.12"
+# quercus 模式下把 JPEG / WebP 画面转为 PNG（quercus 0.7.1 的 mjpeg 解码在该路径取不到帧）。
+image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp"] }
+# 调用硅基流动（文案 / 图片 / 背景音）与本地 ComfyUI（配音）。
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+uuid = { version = "1", features = ["v4"] }
+# 剪辑引擎（可选）：`--features quercus` 启用，需要 FFmpeg 开发包（FFMPEG_DIR）。
+quercus-engine-rs = { version = "=0.7.1", optional = true }
+
+[features]
+default = []
+# 使用 quercus-engine 执行剪辑指令并导出真实成片（PROVIDER_RENDERER=quercus）。
+quercus = ["dep:quercus-engine-rs", "dep:image"]
+
+# quercus 0.7.1 与 ffmpeg-sys-next 的 Windows 兼容修复版（源码与说明见 quercus-engine/）。
+[patch.crates-io]
+quercus-core = { path = "../../quercus-engine/crates/quercus-core" }
+quercus-undo = { path = "../../quercus-engine/crates/quercus-undo" }
+quercus-codec = { path = "../../quercus-engine/crates/quercus-codec" }
+quercus-node = { path = "../../quercus-engine/crates/quercus-node" }
+quercus-otio = { path = "../../quercus-engine/crates/quercus-otio" }
+quercus-render = { path = "../../quercus-engine/crates/quercus-render" }
+quercus-audio = { path = "../../quercus-engine/crates/quercus-audio" }
+quercus-timeline = { path = "../../quercus-engine/crates/quercus-timeline" }
+quercus-storage = { path = "../../quercus-engine/crates/quercus-storage" }
+quercus-task = { path = "../../quercus-engine/crates/quercus-task" }
+quercus-ofx-plugin = { path = "../../quercus-engine/crates/quercus-ofx-plugin" }
+quercus-engine = { path = "../../quercus-engine/crates/quercus-engine" }
+quercus-engine-rs = { path = "../../quercus-engine/crates/quercus-engine-rs" }
+ffmpeg-sys-next = { path = "../../quercus-engine/patches/ffmpeg-sys-next" }
+
+[profile.dev.package."*"]
+opt-level = 1

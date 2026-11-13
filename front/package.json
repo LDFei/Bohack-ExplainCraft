@@ -9,6 +9,10 @@
   "scripts": {
     "prepare": "cd .. && husky front/.husky",
     "dev": "vite --host 127.0.0.1",
+    "dev:http": "vite --host 127.0.0.1 --mode http",
+    "tauri": "tauri",
+    "desktop:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/tauri.ps1 dev --features quercus",
+    "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/tauri.ps1 build --features quercus",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test tests/*.test.ts",
@@ -26,6 +30,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "husky": "9.1.7",

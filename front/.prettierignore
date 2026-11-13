@@ -11,3 +11,5 @@ coverage/
 uv.lock
 public/media/
 docs/screenshots/
+src-tauri/target
+src-tauri/gen

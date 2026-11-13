@@ -273,6 +273,8 @@ export interface Capabilities {
   };
   /** 后端保证可补发事件的保留秒数。 */
   event_retention_seconds: number;
+  /** 后端仍在使用演示供应商（示例素材）时为 true；本地演示模式下不存在。 */
+  demo_mode?: boolean;
 }
 /** 某一种媒体允许的 MIME 类型和单文件字节上限。 */
 export interface FileLimit {

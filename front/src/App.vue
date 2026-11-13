@@ -42,6 +42,10 @@ const {
   messages,
   playing,
 } = studio;
+// 已连接 Rust 后端，但后端模型仍是演示供应商（使用示例素材），需要继续向用户说明演示边界。
+const backendDemo = computed(() => studio.api.mode === 'http' && !!caps.value.demo_mode);
+// 本地演示或后端演示时都显示演示标识、说明和演示情景入口。
+const showDemo = computed(() => studio.api.mode === 'demo' || backendDemo.value);
 const sidebarOpen = ref(false),
   previewOpen = ref(false),
   moreOpen = ref(false);
@@ -273,12 +277,12 @@ async function scenario(kind: 'failure' | 'question') {
             }}
           </span>
           <button
-            v-if="studio.api.mode === 'demo'"
+            v-if="showDemo"
             class="mode-badge"
             @click="modal = 'guide'"
           >
             <span />
-            演示模式
+            {{ backendDemo ? '后端演示' : '演示模式' }}
           </button>
           <button
             class="icon-button top-help"
@@ -427,7 +431,7 @@ async function scenario(kind: 'failure' | 'question') {
           :pending="pending"
           :uploading="uploading"
           :historical="historical"
-          :demo="studio.api.mode === 'demo'"
+          :demo="showDemo"
           @update:input="input = $event"
           @update:intent="intent = $event"
           @update:settings="Object.assign(settings, $event)"
@@ -564,20 +568,25 @@ async function scenario(kind: 'failure' | 'question') {
         </div>
       </div>
       <div
-        v-if="studio.api.mode === 'demo'"
+        v-if="showDemo"
         class="demo-explanation"
       >
         <Icon
           name="info"
           :size="18"
         />
-        <p>
+        <p v-if="backendDemo">
+          已连接 Rust
+          后端，创作记录和上传文件保存在服务端。文案、画面、配音与音乐目前由演示模型提供，成片使用内置的
+          30 秒示例视频。
+        </p>
+        <p v-else>
           当前是可交互演示版。创作记录和上传文件保存在本机，视频使用内置的 30
           秒示例画面与音乐，尚未调用真实 AI 生成服务。
         </p>
       </div>
       <div
-        v-if="studio.api.mode === 'demo'"
+        v-if="showDemo"
         class="demo-scenarios"
       >
         <span>也可以体验制作中的小插曲</span>

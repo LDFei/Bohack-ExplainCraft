@@ -5,13 +5,14 @@
 ```text
 Bohack-ExplainCraft/
 ├── front/                  前端工程：Vue、页面、测试、文档及演示素材
+├── back/                   后端工程：Rust（axum + SQLite），制作流程编排与模型接口
 ├── .github/workflows/      自动检查；当前前端检查仅覆盖 front/
 ├── AGENTS.md               仓库协作约定
 └── README.md               全仓库入口
 ```
 
-后端由队友在仓库根目录添加独立目录（例如
-`back/`），自行维护 Rust 工程及其工具配置。当前没有创建后端实现或占位工程。
+后端位于 `back/`，自行维护 Rust 工程及其工具配置，说明见 [back/README.md](back/README.md)。
+前后端联调：先在 `back/` 运行 `./cargo.ps1 run`，再在 `front/` 运行 `npm run dev:http`。
 
 ## 前端运行
 
