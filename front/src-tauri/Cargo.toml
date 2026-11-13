@@ -1,0 +1,48 @@
+[package]
+name = "lingjing-desktop"
+version = "0.1.0"
+description = "灵镜 · AI 视频创作空间桌面应用：Tauri 窗口 + 进程内嵌入的 Rust 后端。"
+edition = "2021"
+publish = false
+
+# 按 Tauri 约定，逻辑写在 lib.rs，main.rs 只调用 run()。桌面端只需要 rlib。
+[lib]
+name = "lingjing_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+# 业务后端（HTTP 接口、SQLite、制作流程、模型供应商），与独立服务共用同一套代码。
+explaincraft-backend = { path = "../../back" }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["net", "sync"] }
+tracing = "0.1"
+
+[features]
+default = []
+# quercus 剪辑引擎（真实成片），需要 FFmpeg 开发包；见 back/README.md。
+quercus = ["explaincraft-backend/quercus"]
+
+# 依赖的 Windows 兼容修复版必须在最外层工程声明（Cargo 只认根工程的 [patch]）。
+[patch.crates-io]
+quercus-core = { path = "../../../quercus-engine/crates/quercus-core" }
+quercus-undo = { path = "../../../quercus-engine/crates/quercus-undo" }
+quercus-codec = { path = "../../../quercus-engine/crates/quercus-codec" }
+quercus-node = { path = "../../../quercus-engine/crates/quercus-node" }
+quercus-otio = { path = "../../../quercus-engine/crates/quercus-otio" }
+quercus-render = { path = "../../../quercus-engine/crates/quercus-render" }
+quercus-audio = { path = "../../../quercus-engine/crates/quercus-audio" }
+quercus-timeline = { path = "../../../quercus-engine/crates/quercus-timeline" }
+quercus-storage = { path = "../../../quercus-engine/crates/quercus-storage" }
+quercus-task = { path = "../../../quercus-engine/crates/quercus-task" }
+quercus-ofx-plugin = { path = "../../../quercus-engine/crates/quercus-ofx-plugin" }
+quercus-engine = { path = "../../../quercus-engine/crates/quercus-engine" }
+quercus-engine-rs = { path = "../../../quercus-engine/crates/quercus-engine-rs" }
+ffmpeg-sys-next = { path = "../../../quercus-engine/patches/ffmpeg-sys-next" }
+
+[profile.dev.package."*"]
+opt-level = 1

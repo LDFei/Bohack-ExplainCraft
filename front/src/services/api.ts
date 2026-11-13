@@ -565,10 +565,23 @@ class DemoApi implements StudioApi {
   }
 }
 
-/** Rust 接口适配，路径对应 docs/API.md；目前没有真实后端，仍需配合登录、分页和媒体续期联调。 */
+/**
+ * 桌面应用（Tauri）在页面脚本运行前注入的内嵌后端地址，如 `http://127.0.0.1:52341/api/v1`。
+ * 浏览器中不存在；存在时说明运行在桌面端，必须走真实后端接口。
+ */
+const desktopApiBase = (window as Window & { __EXPLAINCRAFT_API__?: string }).__EXPLAINCRAFT_API__;
+
+/**
+ * Rust 后端接口适配，路径对应 docs/API.md。桌面端连接内嵌后端，浏览器联调经 Vite 代理连接 back/。
+ * 登录、长列表分页和播放地址过期续期尚未接入。
+ */
 class HttpApi implements StudioApi {
   readonly mode = 'http' as const;
-  private base = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+  // 桌面端使用注入的绝对地址（页面来源与后端端口不同）；浏览器联调走 Vite 代理的相对地址。
+  private base = (desktopApiBase || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(
+    /\/$/,
+    '',
+  );
   /**
    * 读取登录会话令牌并生成 Bearer 请求头；开发令牌只在 DEV 模式作为后备来源。
    */
@@ -579,28 +592,58 @@ class HttpApi implements StudioApi {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
   /**
-   * 封装 JSON 请求、鉴权、幂等 key 和业务异常，统一取响应中的 data。
-   * 204 没有响应体，不能继续 JSON.parse；任务是否成功仍需看 Job.status。
+   * 读取统一响应：成功返回 data，失败转换为 StudioError。
+   * 后端未启动时开发代理返回的 502 等页面不是 JSON，这里给出可读提示而不是解析异常。
    */
-  private async request<T>(path: string, method = 'GET', body?: unknown, key?: string): Promise<T> {
-    const response = await fetch(`${this.base}${path}`, {
+  private async unwrap<T>(response: Response, fallback: string): Promise<T> {
+    // 删除接口返回空响应，先处理它，避免对不存在的 JSON 正文解析报错。
+    if (response.status === 204) return undefined as T;
+    let payload: { data?: T; error?: { code?: string; message?: string } } | null = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload)
+      throw new StudioError(
+        payload?.error?.code || (response.status >= 500 ? 'BACKEND_UNAVAILABLE' : 'REQUEST_FAILED'),
+        payload?.error?.message ||
+          (response.status >= 500 ? '暂时连不上创作服务，请确认后端已启动后重试。' : fallback),
+      );
+    return payload.data as T;
+  }
+  /**
+   * 发出请求；网络层失败（后端未启动、断网）时转换为可读的业务错误。
+   */
+  private async send(path: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(`${this.base}${path}`, init);
+    } catch {
+      throw new StudioError('NETWORK_ERROR', '网络连接中断，请检查网络或后端服务后重试。');
+    }
+  }
+  /**
+   * 封装 JSON 请求、鉴权、幂等 key 和业务异常，统一取响应中的 data。
+   * 任务是否成功仍需看 Job.status；extraHeaders 用于少数接口的附加请求头。
+   */
+  private async request<T>(
+    path: string,
+    method = 'GET',
+    body?: unknown,
+    key?: string,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<T> {
+    const response = await this.send(path, {
       method,
       headers: {
         ...this.headers(),
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(key ? { 'Idempotency-Key': key } : {}),
+        ...extraHeaders,
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    // 删除接口返回空响应，先处理它，避免对不存在的 JSON 正文解析报错。
-    if (response.status === 204) return undefined as T;
-    const payload = await response.json();
-    if (!response.ok)
-      throw new StudioError(
-        payload.error?.code || 'REQUEST_FAILED',
-        payload.error?.message || '请求失败，请稍后再试。',
-      );
-    return payload.data as T;
+    return this.unwrap<T>(response, '请求失败，请稍后再试。');
   }
   /**
    * 调用 GET /capabilities，读取真实后端已经接通的可选参数与上传限制。
@@ -642,8 +685,16 @@ class HttpApi implements StudioApi {
   /**
    * 把生成、修改或讨论意图提交到统一消息入口，复用调用者提供的幂等 key。
    */
-  async sendMessage(id: string, input: MessageInput, key: string) {
-    await this.request(`/projects/${id}/messages`, 'POST', input, key);
+  async sendMessage(
+    id: string,
+    input: MessageInput,
+    key: string,
+    scenario: DemoScenario = 'normal',
+  ) {
+    // 演示情景只在后端仍使用演示供应商时生效，接入真实模型后后端会忽略这个请求头。
+    const headers: Record<string, string> =
+      scenario === 'normal' ? {} : { 'X-Demo-Scenario': scenario };
+    await this.request(`/projects/${id}/messages`, 'POST', input, key, headers);
   }
   /**
    * PATCH 发生变化的草稿分组，并携带编辑时的修订号供后端做冲突检测。
@@ -669,18 +720,12 @@ class HttpApi implements StudioApi {
     const body = new FormData();
     body.append('file', file);
     onProgress(0);
-    const response = await fetch(`${this.base}/projects/${id}/assets`, {
+    const response = await this.send(`/projects/${id}/assets`, {
       method: 'POST',
       headers: { ...this.headers(), 'Idempotency-Key': makeId('key') },
       body,
     });
-    const payload = await response.json();
-    if (!response.ok)
-      throw new StudioError(
-        payload.error?.code || 'UPLOAD_FAILED',
-        payload.error?.message || '上传失败。',
-      );
-    let asset = payload.data.asset as Asset;
+    let asset = (await this.unwrap<{ asset: Asset }>(response, '上传失败。')).asset;
     // HTTP 201 表示文件已受理，不一定已经解析完成；只有 ready 才能参与制作。
     for (let attempt = 0; asset.status === 'processing' && attempt < 30; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -809,6 +854,7 @@ class HttpApi implements StudioApi {
 }
 
 // 只在这一处选择服务实现，避免各组件自行判断环境、拼接口或写本机存储。
+// 桌面端总是连接内嵌后端；浏览器中由 VITE_STUDIO_MODE 决定（demo 为纯前端演示）。
 export const api: StudioApi =
-  import.meta.env.VITE_STUDIO_MODE === 'http' ? new HttpApi() : new DemoApi();
+  desktopApiBase || import.meta.env.VITE_STUDIO_MODE === 'http' ? new HttpApi() : new DemoApi();
 export { isActive };

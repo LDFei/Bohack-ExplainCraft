@@ -1,8 +1,13 @@
 # 一句话生成视频：前后端接口文档
 
-版本：v0.1 设计稿 · 日期：2026-11-13 · 前端：Vue · 后端：Rust
+版本：v0.2 · 日期：2026-11-14 · 前端：Vue · 后端：Rust · 桌面端：Tauri 2
 
-本文是根据业务流程制定的接口约定，供开发和联调使用。当前已实现使用本地演示数据的 Vue 前端，并提供 HTTP 调用适配；真实 Rust 接口尚未实现。登录方式、生成供应商、可选音色和导出规格接入时再与实际能力对齐，示例 ID 均为占位业务 ID。
+本文是前后端的接口约定，供开发和联调使用。Rust 后端（`back/`）已按本文实现全部接口，并有两种运行形态：
+
+- **桌面应用**（主要形态）：`front/src-tauri` 在应用进程内启动后端，监听本机随机端口，见第 10 节；
+- **独立服务**：直接运行 `back/`，供浏览器经 Vite 代理联调和接口测试。
+
+两种形态的接口完全相同。登录模块尚未接入，鉴权方式见第 2 节。示例 ID 均为占位业务 ID；与实现不一致之处以本文的“实现说明”段落为准。
 
 ## 1. 产品流程与接口边界
 
@@ -25,7 +30,9 @@
 
 ## 2. 基础约定
 
-- 基础路径：`/api/v1`。下文接口路径均省略这个前缀。
+- 基础路径：`/api/v1`。下文接口路径均省略这个前缀。桌面端的完整前缀是
+  `http://127.0.0.1:<端口>/api/v1`，
+  由桌面壳注入给前端（第 10 节）；浏览器联调时使用相对地址，由 Vite 代理转发。
 - JSON 使用 `snake_case`；ID 是不透明字符串，前端不能根据格式推导含义。
 - 时间使用 UTC RFC 3339；成片、镜头和素材时长使用整数毫秒
   `duration_ms`。用户输入的目标时长单独命名为 `target_duration_seconds`。
@@ -33,6 +40,10 @@
 - 普通请求及事件流统一使用
   `Authorization: Bearer <access_token>`。鉴权签发复用项目实际登录模块，本文不另行设计登录接口。
 - Rust 必须校验项目、素材、任务、视频版本属于当前用户；只知道 ID 不能获得访问权限。
+- 实现说明：登录模块接入前，后端 `AUTH_MODE=dev`（默认）时，没有令牌的请求视为本机用户
+  `local_user`，
+  携带不同令牌视为不同用户（用于验证跨用户隔离）；`AUTH_MODE=strict`
+  时缺少令牌返回 401。桌面端为单用户，不携带令牌。
 - 普通成功响应使用 `data` 和 `request_id`；删除返回 HTTP 204，不返回 JSON。
 
 成功示例：
@@ -192,29 +203,34 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 
 ## 4. 接口总览
 
-| 方法   | 路径                                                   | 作用                         |
-| ------ | ------------------------------------------------------ | ---------------------------- |
-| GET    | `/capabilities`                                        | 可用参数、默认值、上传限制   |
-| POST   | `/projects`                                            | 创建空项目 / 新对话          |
-| GET    | `/projects`                                            | 左侧历史项目列表             |
-| GET    | `/projects/{project_id}`                               | 完整工作台快照及恢复游标     |
-| PATCH  | `/projects/{project_id}`                               | 修改项目标题                 |
-| DELETE | `/projects/{project_id}`                               | 删除无活动任务的项目         |
-| POST   | `/projects/{project_id}/messages`                      | 发起生成、对话修改或普通问答 |
-| GET    | `/projects/{project_id}/messages`                      | 分页加载更早的消息           |
-| PATCH  | `/projects/{project_id}/draft`                         | 保存脚本、分镜和参数修改     |
-| POST   | `/projects/{project_id}/assets`                        | 上传素材                     |
-| GET    | `/projects/{project_id}/assets`                        | 素材列表                     |
-| GET    | `/assets/{asset_id}`                                   | 查询素材处理状态             |
-| GET    | `/assets/{asset_id}/download`                          | 获取短期下载链接             |
-| GET    | `/jobs/{job_id}`                                       | 查询完整任务状态             |
-| POST   | `/jobs/{job_id}/answers`                               | 回答任务追问并继续           |
-| POST   | `/jobs/{job_id}/cancel`                                | 请求停止任务                 |
-| POST   | `/jobs/{job_id}/retry`                                 | 失败或取消后创建重试任务     |
-| GET    | `/projects/{project_id}/events`                        | SSE：文本增量与制作进度      |
-| GET    | `/projects/{project_id}/versions`                      | 成片版本列表                 |
-| GET    | `/projects/{project_id}/versions/{version_id}`         | 版本详情、播放地址、历史草稿 |
-| POST   | `/projects/{project_id}/versions/{version_id}/exports` | 导出指定成片                 |
+| 方法   | 路径                                                   | 作用                                           |
+| ------ | ------------------------------------------------------ | ---------------------------------------------- |
+| GET    | `/capabilities`                                        | 可用参数、默认值、上传限制                     |
+| POST   | `/projects`                                            | 创建空项目 / 新对话                            |
+| GET    | `/projects`                                            | 左侧历史项目列表                               |
+| GET    | `/projects/{project_id}`                               | 完整工作台快照及恢复游标                       |
+| PATCH  | `/projects/{project_id}`                               | 修改项目标题                                   |
+| DELETE | `/projects/{project_id}`                               | 删除无活动任务的项目                           |
+| POST   | `/projects/{project_id}/messages`                      | 发起生成、对话修改或普通问答                   |
+| GET    | `/projects/{project_id}/messages`                      | 分页加载更早的消息                             |
+| PATCH  | `/projects/{project_id}/draft`                         | 保存脚本、分镜和参数修改                       |
+| POST   | `/projects/{project_id}/assets`                        | 上传素材                                       |
+| GET    | `/projects/{project_id}/assets`                        | 素材列表                                       |
+| GET    | `/assets/{asset_id}`                                   | 查询素材处理状态                               |
+| GET    | `/assets/{asset_id}/download`                          | 获取短期下载链接                               |
+| GET    | `/jobs/{job_id}`                                       | 查询完整任务状态                               |
+| POST   | `/jobs/{job_id}/answers`                               | 回答任务追问并继续                             |
+| POST   | `/jobs/{job_id}/cancel`                                | 请求停止任务                                   |
+| POST   | `/jobs/{job_id}/retry`                                 | 失败或取消后创建重试任务                       |
+| GET    | `/projects/{project_id}/events`                        | SSE：文本增量与制作进度                        |
+| GET    | `/projects/{project_id}/versions`                      | 成片版本列表                                   |
+| GET    | `/projects/{project_id}/versions/{version_id}`         | 版本详情、播放地址、历史草稿                   |
+| POST   | `/projects/{project_id}/versions/{version_id}/exports` | 导出指定成片                                   |
+| GET    | `/media/{asset_id}?exp=&sig=[&dl=1]`                   | 签名媒体文件（播放、缩略图、下载），支持 Range |
+| GET    | `/library/{file}`                                      | 示例曲库试听（公开，仅限白名单文件）           |
+
+另有不带前缀的 `GET /health`（返回
+`ok`），用于检查后端是否已启动。媒体与曲库地址由后端在响应中给出，前端原样使用即可，不要自行拼接。
 
 ## 5. 接口详情
 
@@ -263,6 +279,12 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 ```
 
 上面的范围是首版拟定值，不代表现有供应商支持情况。后端只能返回已经接通的能力；前端不能把示例中的风格、音色、分辨率写死。分辨率指短边：720p 竖屏为 720×1280，横屏为 1280×720，方形为 720×720。
+
+实现说明：当前返回值为目标时长 15～60 秒；风格 `warm / cinematic / minimal / energetic`；音色
+`voice_warm`（温柔女声）、`voice_calm`（沉稳男声）、`voice_bright`（元气女声）；调色
+`natural / warm / cool`；特效 `none / fade`；导出只开放 `720p`（复用预览文件）。另有扩展字段
+`demo_mode`（boolean）：只要有任一环节仍在使用演示供应商就为
+`true`，前端据此显示“后端演示”标识和演示情景入口；全部换成真实模型后为 `false`。
 
 ### 5.2 创建、查询和管理项目
 
@@ -394,8 +416,10 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 }
 ```
 
-HTTP
-202 表示已受理，不能显示“视频生成完成”。这两个消息 ID 已持久化；后续从消息列表或快照获得完整 Message。
+HTTP 202 表示已受理，不能显示“视频生成完成”。
+
+实现说明：仅当后端使用演示供应商（`demo_mode=true`）时，可以附带请求头
+`X-Demo-Scenario: failure | question`，用于体验“画面阶段失败后重试”和“追问补充信息”两个流程；使用真实模型时后端忽略这个请求头。这两个消息 ID 已持久化；后续从消息列表或快照获得完整 Message。
 
 `GET /projects/{project_id}/messages?cursor=<opaque>&limit=50` → 200，返回
 `items: Message[] / next_cursor`。首次取最近一页，cursor 向更早翻页；每一页内部按时间正序，默认 50、最大 100。未知的 block 类型显示通用结果卡片，不让页面报错。
@@ -548,7 +572,7 @@ HTTP
     "file_name": "咖啡店宣传片-v1.mp4",
     "mime_type": "video/mp4",
     "size_bytes": 12582912,
-    "download_url": "/media/download/ast_export_001?signature=example",
+    "download_url": "http://127.0.0.1:52341/api/v1/media/ast_export_001?exp=1794575273&sig=b857…&dl=1",
     "expires_at": "2026-11-13T09:35:00Z"
   },
   "request_id": "req_006"
@@ -556,6 +580,12 @@ HTTP
 ```
 
 下载、播放 URL 有效期拟定 5 分钟，以实际 expires_at/url_expires_at 为准。播放过期重新取 version，下载过期重新取 download。地址可以是后端媒体代理或对象存储签名 URL，不暴露供应商密钥和服务器文件路径。播放器资源应支持 Range 请求；下载文件应设置 Content-Disposition。
+
+实现说明：媒体地址格式为
+`{PUBLIC_ORIGIN}/api/v1/media/{asset_id}?exp=<Unix 秒>&sig=<签名>[&dl=1]`。签名为 HMAC-SHA256，覆盖素材 ID、过期时间和是否下载，改动任何一项都会失效。有效期默认 30 分钟（`MEDIA_URL_TTL_SECONDS`），过期或签名不符返回
+`403 URL_EXPIRED`。`PUBLIC_ORIGIN` 为空时（浏览器经 Vite 代理）地址为相对路径；桌面端为
+`http://127.0.0.1:<端口>`。`dl=1` 时响应带 `Content-Disposition: attachment`，中文文件名按 RFC
+5987 编码。
 
 ## 6. SSE：聊天文本与制作进度
 
@@ -622,23 +652,33 @@ SSE 的事件格式和 Last-Event-ID 依据
 
 ## 7. 错误与界面处理
 
-| 错误码                  | 常见触发                     | 界面处理                                        |
-| ----------------------- | ---------------------------- | ----------------------------------------------- |
-| `VALIDATION_ERROR`      | 参数、枚举值或媒体内容不合法 | 标记具体字段；details.fields 返回字段路径与原因 |
-| `PROJECT_BUSY`          | 同项目正在制作或停止         | 显示当前任务，不重复提交                        |
-| `REVISION_CONFLICT`     | 多窗口或旧页面修改草稿       | 拉取最新草稿，保留本地输入待用户重试            |
-| `IDEMPOTENCY_CONFLICT`  | 相同幂等 key 被用于不同请求  | 修正客户端 key 使用，不自动重发新任务           |
-| `ASSET_NOT_READY`       | 素材仍在解析                 | 等待 ready 后允许发送                           |
-| `BASE_VERSION_MISMATCH` | revise 使用的已不是最新成片  | 刷新最新版本，再确认修改对象                    |
-| `QUESTION_NOT_ACTIVE`   | 问题失效、已回答或任务已停止 | 刷新任务；不要重复恢复生成                      |
-| `RETRY_INPUT_CHANGED`   | 失败后草稿已经改变           | 改为基于当前草稿发起新任务                      |
-| `JOB_NOT_RETRYABLE`     | 当前状态或错误不允许重试     | 展示原因，允许用户修改需求后重新生成            |
-| `JOB_ALREADY_FINISHED`  | 取消时任务已完成             | 按最终结果更新界面                              |
-| `QUOTA_EXCEEDED`        | 用户额度不足                 | 展示后端可读原因，不循环自动重试                |
-| `PROVIDER_UNAVAILABLE`  | 外部模型或素材服务不可用     | 任务失败卡片提供重试                            |
-| `RENDER_FAILED`         | 剪辑或编码失败               | 保留检查点和旧成片，提供重试                    |
-| `INPUT_TIMEOUT`         | 待回答问题过期               | 解释原因，允许重新发起                          |
-| `EVENT_CURSOR_EXPIRED`  | 断线过久                     | 静默重取快照并恢复                              |
+| 错误码                  | 常见触发                              | 界面处理                                        |
+| ----------------------- | ------------------------------------- | ----------------------------------------------- |
+| `VALIDATION_ERROR`      | 参数、枚举值或媒体内容不合法          | 标记具体字段；details.fields 返回字段路径与原因 |
+| `PROJECT_BUSY`          | 同项目正在制作或停止                  | 显示当前任务，不重复提交                        |
+| `REVISION_CONFLICT`     | 多窗口或旧页面修改草稿                | 拉取最新草稿，保留本地输入待用户重试            |
+| `IDEMPOTENCY_CONFLICT`  | 相同幂等 key 被用于不同请求           | 修正客户端 key 使用，不自动重发新任务           |
+| `ASSET_NOT_READY`       | 素材仍在解析                          | 等待 ready 后允许发送                           |
+| `BASE_VERSION_MISMATCH` | revise 使用的已不是最新成片           | 刷新最新版本，再确认修改对象                    |
+| `QUESTION_NOT_ACTIVE`   | 问题失效、已回答或任务已停止          | 刷新任务；不要重复恢复生成                      |
+| `RETRY_INPUT_CHANGED`   | 失败后草稿已经改变                    | 改为基于当前草稿发起新任务                      |
+| `JOB_NOT_RETRYABLE`     | 当前状态或错误不允许重试              | 展示原因，允许用户修改需求后重新生成            |
+| `JOB_ALREADY_FINISHED`  | 取消时任务已完成                      | 按最终结果更新界面                              |
+| `QUOTA_EXCEEDED`        | 用户额度不足                          | 展示后端可读原因，不循环自动重试                |
+| `PROVIDER_UNAVAILABLE`  | 外部模型或素材服务不可用              | 任务失败卡片提供重试                            |
+| `RENDER_FAILED`         | 剪辑或编码失败                        | 保留检查点和旧成片，提供重试                    |
+| `INPUT_TIMEOUT`         | 待回答问题过期                        | 解释原因，允许重新发起                          |
+| `EVENT_CURSOR_EXPIRED`  | 断线过久                              | 静默重取快照并恢复                              |
+| `BAD_REQUEST`           | JSON 语法错误、缺少幂等 key、游标无效 | 属于客户端问题，修正请求                        |
+| `UNAUTHORIZED`          | strict 鉴权下缺少令牌                 | 引导登录                                        |
+| `NOT_FOUND`             | 资源不存在或不属于当前用户            | 刷新列表                                        |
+| `UNSUPPORTED_FILE`      | 按文件头识别的类型不在允许范围（415） | 提示支持的格式                                  |
+| `FILE_TOO_LARGE`        | 超过该类型的大小上限（413）           | 提示压缩后再上传                                |
+| `INVALID_FILE`          | 空文件或无法解码（422）               | 提示更换文件                                    |
+| `FILE_LIMIT`            | 项目上传素材数达到上限                | 提示删除素材或新建项目                          |
+| `UNSUPPORTED_EXPORT`    | 导出规格未开放                        | 只展示 capabilities 中的规格                    |
+| `URL_EXPIRED`           | 媒体地址过期或签名不符（403）         | 重新获取版本或下载地址                          |
+| `INTERNAL_ERROR`        | 服务内部错误（500，可重试）           | 提示稍后重试；详情只写入后端日志                |
 
 普通 API 错误使用 error 对象；异步错误使用 Job.error，不能把 Rust
 panic、堆栈或供应商原始报错直接展示给用户。429/503 可以返回 Retry-After；前端仅对幂等请求和查询执行受控重试。
@@ -668,4 +708,80 @@ Rust 框架不限定，业务层至少分为 HTTP 接口、持久化项目数据
 阶段输入摘要、输出素材和检查点落库；每个任务的执行尝试持有独立 fencing
 token，旧 worker、超时调用和取消后迟到的结果均不能覆盖新状态。服务重启后恢复未完成任务，或把无法恢复的任务标记为可重试失败，不能永久显示“制作中”。
 
-首版联调应覆盖：一句话无素材生成；上传素材生成；只换某个镜头；只改配音；手动保存设置后再更新；waiting_input 回答；网络重发不重复生成；刷新恢复；事件游标过期；任务失败重试；输入变更阻止旧重试；取消与完成竞态；多窗口版本冲突；播放/下载地址过期；导出复用；跨用户资源隔离；生成失败后旧成片仍可播放。以上为待实现验收项，当前未执行真实后端测试。
+实现现状（`back/`，axum + SQLite）：
+
+- 以上要求均已实现：状态与 SSE 事件在同一事务提交；`jobs.attempt` 作为 fencing
+  token；重启时把中断的任务放回队列，从检查点继续。
+- 联调场景由 `back/tests/smoke.py`
+  自动覆盖，共 58 项检查：一句话生成；上传素材生成；只换某个镜头；只改配音；手动保存设置后再更新；waiting_input 回答；网络重发不重复生成；事件游标校验；任务失败重试；输入变更阻止旧重试；取消；多窗口版本冲突；导出复用；跨用户资源隔离；删除。
+- 真实模型闭环已跑通（20 秒竖屏成片）：GLM-5.3 负责文案、分镜和剪辑指令，Qwen-Image 生成画面，MiniMax-H3 生成背景音，本地 breezeTTS2 配音，quercus-engine 剪辑出片。
+- 尚未覆盖：播放 / 下载地址过期后的前端自动续期、事件游标过期（410）的端到端演练、登录与令牌校验。
+
+## 10. 桌面应用（Tauri）
+
+桌面应用位于 `front/src-tauri`，按 Tauri 2 的标准结构组织：JS 工程就是 `front/`，Rust 工程在
+`src-tauri/`。业务后端没有复制一份，`src-tauri` 以库的形式依赖
+`back/`（`explaincraft_backend::serve`）。
+
+启动顺序：
+
+1. 读取本地配置：应用配置目录下的 `.env`；调试构建再读取仓库里的 `back/.env`。已存在的环境变量优先。
+2. 在 `127.0.0.1`
+   上绑定一个空闲端口，在应用进程内启动后端。数据库和生成的文件保存在应用数据目录（Windows：`%APPDATA%\com.explaincraft.lingjing`），演示素材作为应用资源打包（`media/`）。
+3. 创建主窗口，并在页面脚本运行前注入接口地址：
+
+   ```js
+   window.__EXPLAINCRAFT_API__ = 'http://127.0.0.1:52341/api/v1';
+   ```
+
+   前端检测到这个变量时总是使用 HTTP 接口，并以它作为接口前缀，见 `front/src/services/api.ts`。
+
+4. 退出应用时通知后端停止。未完成的任务状态在数据库中，下次启动会继续执行。
+
+与浏览器联调的差异：
+
+| 项目     | 桌面应用                                                | 浏览器 + Vite 代理 |
+| -------- | ------------------------------------------------------- | ------------------ |
+| 接口前缀 | 注入的绝对地址 `http://127.0.0.1:<端口>/api/v1`         | 相对地址 `/api/v1` |
+| 媒体地址 | 后端返回绝对地址（`PUBLIC_ORIGIN` 由桌面壳设置）        | 相对地址           |
+| 跨域     | 页面来源是 `http://tauri.localhost`，后端允许跨域       | 同源（经代理）     |
+| 安全策略 | CSP 只允许连接 `'self'`、`ipc:` 与 `http://127.0.0.1:*` | 无                 |
+| 鉴权     | 单用户 `local_user`                                     | 同左（dev 模式）   |
+
+桌面端只使用 Tauri 的默认权限（`capabilities/default.json`），前端不调用任何自定义 Tauri 命令，全部业务都通过 HTTP 接口完成。因此同一套前端代码可以同时运行在浏览器和桌面端。
+
+## 11. 后端内部：制作流程与剪辑指令（不对前端暴露）
+
+制作阶段与模型分工（`back/src/pipeline.rs`、`back/src/providers/`）：
+
+| 阶段 key                             | 执行者                                                        |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `planning` / `script` / `storyboard` | llm1：选题、文案、分镜（GLM-5.3）                             |
+| `visuals`                            | llm2：每个镜头并发生成画面（Qwen-Image）                      |
+| `audio`                              | llm4 配音（breezeTTS2）与 llm3 背景音乐（MiniMax-H3）同时进行 |
+| `edit`                               | llm1 输出剪辑指令（见下）                                     |
+| `finishing`                          | 按调色 / 特效预设整理剪辑方案与转场                           |
+| `render`                             | quercus-engine 执行剪辑指令并导出 MP4                         |
+
+剪辑指令是 llm1 以 JSON 输出、由剪辑库逐条执行的操作序列（`back/src/providers/edit_ops.rs`）：
+
+```json
+[
+  { "op": "create_sequence", "width": 720, "height": 1280, "fps": 30 },
+  { "op": "import_media", "ref": "v1", "asset_id": "ast_…" },
+  {
+    "op": "place_clip",
+    "media": "v1",
+    "track": "video",
+    "track_index": 0,
+    "start_ms": 0,
+    "end_ms": 7000,
+    "media_in_ms": 0,
+    "clip": "shot1"
+  },
+  { "op": "add_crossfade", "previous": "shot1", "next": "shot2", "half_ms": 300 }
+]
+```
+
+后端会逐条校验模型的输出：第一条必须是
+`create_sequence`；素材必须属于本次剪辑；引用的别名必须已经导入；时间不能越界；所有素材都要用到。校验不通过时，退回按时间线生成的标准指令，保证剪辑阶段不会因为模型输出出错而失败。这些结构只在后端内部使用，不会出现在接口响应中。
