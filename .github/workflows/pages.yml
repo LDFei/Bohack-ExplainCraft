@@ -2,8 +2,7 @@ name: Deploy cover and studio to GitHub Pages
 
 on:
   push:
-    # 合并前也可以从功能分支直接发布预览，合并后由 main 覆盖。
-    branches: [main, feat/split-cover-studio]
+    branches: [main]
     # 只有封面前端或其部署配置变化才重新发布，后端目录改动不触发。
     paths:
       - 'front/**'
