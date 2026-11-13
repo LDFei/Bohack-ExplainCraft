@@ -1,7 +1,6 @@
-//! HTTP 接口（docs/API.md 第 4～6 节），基础路径 /api/v1。
+//! 进程内业务路由（docs/API.md 第 4～6 节），由 Tauri commands 调用。
 
 mod assets;
-mod events;
 mod jobs;
 mod projects;
 
@@ -21,21 +20,17 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use crate::util::{elapsed, iso, now, now_iso, request_id};
 
-/// HTTP 访问日志中间件：打印方法、路径、状态码与耗时。
+/// 内部调用日志：打印方法、路径、状态码与耗时。
 ///
 /// - 写操作（POST / PATCH / DELETE）和所有出错的请求打印为 info / warn / error；
 /// - 成功的 GET 打印为 debug：前端每收到一个事件都会重新拉取快照，逐条打印会淹没流程日志；
 /// - 只记录路径，不记录查询串：媒体地址的签名、游标等不进入日志；
-/// - SSE 连接在建立时就返回 200，耗时只代表建立连接所用的时间。
 pub async fn access_log(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let method = request.method().clone();
     let path = request.uri().path().to_string();
     let started = std::time::Instant::now();
     let response = next.run(request).await;
     let status = response.status();
-    if path == "/health" {
-        return response;
-    }
     let took = elapsed(started);
     if status.is_server_error() {
         tracing::error!(target: "http", "{method} {path} → {} ({took})", status.as_u16());
@@ -74,7 +69,6 @@ pub fn router(state: AppState) -> Router {
             "/projects/{project_id}/assets",
             get(assets::list).post(assets::upload),
         )
-        .route("/projects/{project_id}/events", get(events::stream))
         .route("/projects/{project_id}/versions", get(jobs::versions))
         .route(
             "/projects/{project_id}/versions/{version_id}",
@@ -96,7 +90,6 @@ pub fn router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(110 * 1024 * 1024));
     let prefix = state.config.public_prefix.clone();
     Router::new()
-        .route("/health", get(|| async { "ok" }))
         .nest(&prefix, api)
         .fallback(|| async { ApiError::not_found("接口不存在。") })
         .with_state(state)
@@ -108,6 +101,24 @@ pub fn router(state: AppState) -> Router {
 /// 有令牌则按令牌区分用户（便于验证跨用户隔离）；strict 模式必须携带令牌。
 pub struct CurrentUser(pub String);
 
+/// 从 command 请求头解析当前用户，规则与原接口提取器一致。
+pub fn user_from_headers(state: &AppState, headers: &HeaderMap) -> ApiResult<CurrentUser> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    match (token, state.config.auth_mode) {
+        (Some(token), _) => {
+            let digest = Sha256::digest(token.as_bytes());
+            Ok(CurrentUser(format!("usr_{}", hex::encode(&digest[..8]))))
+        }
+        (None, AuthMode::Dev) => Ok(CurrentUser("local_user".into())),
+        (None, AuthMode::Strict) => Err(ApiError::unauthorized()),
+    }
+}
+
 impl FromRequestParts<AppState> for CurrentUser {
     type Rejection = ApiError;
 
@@ -115,21 +126,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let token = parts
-            .headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(str::trim)
-            .filter(|t| !t.is_empty());
-        match (token, state.config.auth_mode) {
-            (Some(token), _) => {
-                let digest = Sha256::digest(token.as_bytes());
-                Ok(CurrentUser(format!("usr_{}", hex::encode(&digest[..8]))))
-            }
-            (None, AuthMode::Dev) => Ok(CurrentUser("local_user".into())),
-            (None, AuthMode::Strict) => Err(ApiError::unauthorized()),
-        }
+        user_from_headers(state, &parts.headers)
     }
 }
 

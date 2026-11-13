@@ -53,3 +53,7 @@ jobs:
         run: npm test
       - name: Build frontend
         run: npm run build
+      - name: Verify static website bundle
+        run: npm run check:website
+      - name: Build desktop frontend
+        run: npm run build:studio

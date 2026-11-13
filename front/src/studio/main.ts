@@ -6,6 +6,7 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import App from '../App.vue';
 import { api } from '../services/api.ts';
 import '../style.css';
+import '../aceternity.css';
 import '../themes.css';
 import '../workspace-layout.css';
 import { initializeTheme } from '../composables/useTheme.ts';

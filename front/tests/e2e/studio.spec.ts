@@ -188,7 +188,7 @@ test('mobile workspace switches panels and completes a creation without horizont
   await page.getByRole('button', { name: '我的作品', exact: false }).click();
   await expect(page.getByRole('button', { name: '下载预览', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-  await page.screenshot({ path: 'docs/screenshots/mobile.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/mobile-workspace.png', fullPage: true });
   await page.getByRole('button', { name: '打开项目导航' }).click();
   await expect(page.getByRole('button', { name: '新建创作', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '新建创作', exact: true }).click();

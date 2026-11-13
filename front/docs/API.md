@@ -2,12 +2,9 @@
 
 版本：v0.2 · 日期：2026-11-14 · 前端：Vue · 后端：Rust · 桌面端：Tauri 2
 
-本文是前后端的接口约定，供开发和联调使用。Rust 后端（`back/`）已按本文实现全部接口，并有两种运行形态：
-
-- **桌面应用**（主要形态）：`front/src-tauri` 在应用进程内启动后端，监听本机随机端口，见第 10 节；
-- **独立服务**：直接运行 `back/`，供浏览器经 Vite 代理联调和接口测试。
-
-两种形态的接口完全相同。登录模块尚未接入，鉴权方式见第 2 节。示例 ID 均为占位业务 ID；与实现不一致之处以本文的“实现说明”段落为准。
+本文是 Tauri 工作台与进程内 Rust 后端的业务约定。workspace 根目录的 `src-tauri`
+通过 `#[tauri::command]`
+处理调用，见第 10 节；没有 TCP 监听或独立 Web 服务。登录模块尚未接入，鉴权方式见第 2 节。示例 ID 均为占位业务 ID；与实现不一致之处以本文的“实现说明”段落为准。
 
 ## 1. 产品流程与接口边界
 
@@ -30,21 +27,20 @@
 
 ## 2. 基础约定
 
-- 基础路径：`/api/v1`。下文接口路径均省略这个前缀。桌面端的完整前缀是
-  `http://127.0.0.1:<端口>/api/v1`，
-  由桌面壳注入给前端（第 10 节）；浏览器联调时使用相对地址，由 Vite 代理转发。
+- `/api/v1` 是内部业务处理器的路径前缀，不是可访问的网络地址。前端实际调用第 10 节列出的
+  Tauri commands。
 - JSON 使用 `snake_case`；ID 是不透明字符串，前端不能根据格式推导含义。
 - 时间使用 UTC RFC 3339；成片、镜头和素材时长使用整数毫秒
   `duration_ms`。用户输入的目标时长单独命名为 `target_duration_seconds`。
 - JSON 请求使用 `Content-Type: application/json`，文件上传使用 `multipart/form-data`。
-- 普通请求及事件流统一使用
+- 普通 commands 及事件轮询统一使用
   `Authorization: Bearer <access_token>`。鉴权签发复用项目实际登录模块，本文不另行设计登录接口。
 - Rust 必须校验项目、素材、任务、视频版本属于当前用户；只知道 ID 不能获得访问权限。
 - 实现说明：登录模块接入前，后端 `AUTH_MODE=dev`（默认）时，没有令牌的请求视为本机用户
   `local_user`，
   携带不同令牌视为不同用户（用于验证跨用户隔离）；`AUTH_MODE=strict`
   时缺少令牌返回 401。桌面端为单用户，不携带令牌。
-- 普通成功响应使用 `data` 和 `request_id`；删除返回 HTTP 204，不返回 JSON。
+- 普通成功响应使用 `data` 和 `request_id`；删除返回状态 204，不返回 JSON。
 
 成功示例：
 
@@ -222,15 +218,14 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 | POST   | `/jobs/{job_id}/answers`                               | 回答任务追问并继续                             |
 | POST   | `/jobs/{job_id}/cancel`                                | 请求停止任务                                   |
 | POST   | `/jobs/{job_id}/retry`                                 | 失败或取消后创建重试任务                       |
-| GET    | `/projects/{project_id}/events`                        | SSE：文本增量与制作进度                        |
+| IPC    | `project_events`                                       | 轮询文本与制作进度事件                         |
 | GET    | `/projects/{project_id}/versions`                      | 成片版本列表                                   |
 | GET    | `/projects/{project_id}/versions/{version_id}`         | 版本详情、播放地址、历史草稿                   |
 | POST   | `/projects/{project_id}/versions/{version_id}/exports` | 导出指定成片                                   |
 | GET    | `/media/{asset_id}?exp=&sig=[&dl=1]`                   | 签名媒体文件（播放、缩略图、下载），支持 Range |
 | GET    | `/library/{file}`                                      | 示例曲库试听（公开，仅限白名单文件）           |
 
-另有不带前缀的 `GET /health`（返回
-`ok`），用于检查后端是否已启动。媒体与曲库地址由后端在响应中给出，前端原样使用即可，不要自行拼接。
+媒体与曲库地址由后端在响应中给出，前端原样使用即可，不要自行拼接。
 
 ## 5. 接口详情
 
@@ -572,7 +567,7 @@ HTTP 202 表示已受理，不能显示“视频生成完成”。
     "file_name": "咖啡店宣传片-v1.mp4",
     "mime_type": "video/mp4",
     "size_bytes": 12582912,
-    "download_url": "http://127.0.0.1:52341/api/v1/media/ast_export_001?exp=1794575273&sig=b857…&dl=1",
+    "download_url": "explaincraft://localhost/api/v1/media/ast_export_001?exp=1794575273&sig=b857…&dl=1",
     "expires_at": "2026-11-13T09:35:00Z"
   },
   "request_id": "req_006"
@@ -583,39 +578,24 @@ HTTP 202 表示已受理，不能显示“视频生成完成”。
 
 实现说明：媒体地址格式为
 `{PUBLIC_ORIGIN}/api/v1/media/{asset_id}?exp=<Unix 秒>&sig=<签名>[&dl=1]`。签名为 HMAC-SHA256，覆盖素材 ID、过期时间和是否下载，改动任何一项都会失效。有效期默认 30 分钟（`MEDIA_URL_TTL_SECONDS`），过期或签名不符返回
-`403 URL_EXPIRED`。`PUBLIC_ORIGIN` 为空时（浏览器经 Vite 代理）地址为相对路径；桌面端为
-`http://127.0.0.1:<端口>`。`dl=1` 时响应带 `Content-Disposition: attachment`，中文文件名按 RFC
-5987 编码。
+`403 URL_EXPIRED`。macOS / Linux 使用 `explaincraft://localhost`，Windows 使用
+`http://explaincraft.localhost`，均由 Tauri 自定义协议处理。`dl=1` 时响应带
+`Content-Disposition: attachment`，中文文件名按 RFC 5987 编码。
 
-## 6. SSE：聊天文本与制作进度
+## 6. 项目事件轮询
 
-`GET /projects/{project_id}/events?after=<event_cursor>`，请求
-`Accept: text/event-stream`。鉴权和普通请求相同。前端使用支持 Authorization 的 fetch 流读取 SSE；原生 EventSource 的构造参数不提供自定义 Authorization
-header，因此本方案不直接依赖它，也不把 token 放进 URL。
+前端每 700ms 调用 `project_events`，参数为 `projectId` 和排他游标 `after`。command
+非阻塞返回 `changed` 与最新 `cursor`；有变化时前端停止本轮轮询，重新获取项目快照，再从新游标继续。
 
-响应头：`Content-Type: text/event-stream; charset=utf-8`、`Cache-Control: no-cache`。服务端和代理关闭缓冲，约每 15 秒发送一次
-`: ping` 注释；心跳不分配事件 ID。
-
-```text
-id: 105
-event: job.updated
-data: {"project_id":"prj_001","job_id":"job_001","status":"running","current_stage":"visuals","progress_percent":42,"message":"正在准备第2个镜头的画面"}
-
-id: 106
-event: message.delta
-data: {"message_id":"msg_002","delta_seq":3,"text_delta":"正在为你准备温暖的咖啡店画面。"}
-
-id: 107
-event: draft.updated
-data: {"project_id":"prj_001","draft_revision":6}
-
-id: 108
-event: video.created
-data: {"project_id":"prj_001","job_id":"job_001","video_version_id":"ver_001"}
-
+```json
+{
+  "changed": true,
+  "cursor": "108"
+}
 ```
 
-每个事件以空行结尾，data 是单行 JSON。分块读取时，一个网络块可能只有半条事件，也可能含多条事件；前端使用 SSE 解析器或保留未完成缓冲，不能直接对每个网络块 JSON.parse。
+事件类型与数据仍持久化在 SQLite，业务状态与事件在同一事务提交。前端以快照为最终展示依据，
+不直接拼接事件正文，也不存在 SSE、EventSource 或网络流解析。
 
 | 事件                | data 必需内容                                                        | 前端行为                             |
 | ------------------- | -------------------------------------------------------------------- | ------------------------------------ |
@@ -632,23 +612,22 @@ data: {"project_id":"prj_001","job_id":"job_001","video_version_id":"ver_001"}
 
 恢复与一致性约定：
 
-1. 进入项目先 GET 项目快照，再用返回的 event_cursor 连接事件流。after 为排他游标，只补发之后的事件；初始项目游标为
+1. 进入项目先获取项目快照，再用返回的 event_cursor 轮询事件。after 为排他游标，只读取之后的事件；初始项目游标为
    `"0"`。
 2. 事件 ID 是项目内单调递增的十进制字符串；前端按原字符串去重，不转为 JavaScript
    Number。状态变更和对应事件在同一事务提交，进程重启后仍能重放。
 3. 事件至少保留 capabilities 中的 event_retention_seconds。游标不属于项目或位于未来返回 400；历史游标已被清理返回
    `410 EVENT_CURSOR_EXPIRED`。前端重新取快照，从新游标继续。
-4. fetch 流的重连需要前端自行实现，建议 1/2/4/8 秒退避，上限 15 秒；携带最后已应用的 after，不能通过重新 POST 消息恢复。`message.delta`
+4. `changed=true` 后先获取新快照，再从新游标继续，不能通过重新发送消息恢复进度。`message.delta`
    同时按 delta_seq 去重。
-5. 原生 Last-Event-ID 和 after 均可由服务端支持；本 Vue 方案统一传 after，二者同时存在且不一致时返回 400。首次未带游标时返回 400，避免连接与取快照间漏事件。
+5. after 必须属于当前项目且不能位于未来；无效游标返回 400，避免快照与轮询之间漏事件。
 6. 项目快照里的消息 text 是已经持久化的完整当前文本；每个 Message 额外包含
    `last_delta_seq`（初始 0）。从快照恢复时同步这个值，防止对已包含的增量重复追加。
-7. 网络关闭不等于任务失败或取消。多次重连失败时退化为每 3 秒查询项目快照；重新建立连接前刷新快照。页面离开后停止本地监听和轮询。
-8. 收到终态先关闭本轮连接，再获取最终快照，避免“先取新快照、后收到旧事件”造成回退。其他需要刷新快照的事件也使用“关闭流→读快照→从新游标重连”；串行执行并合并重复刷新请求。最终业务结果以持久化快照为准。
-9. 订阅时和连接期间都要校验鉴权；登录过期时关闭流，前端续期后按游标重连。项目删除后关闭连接，后续查询返回 404。
+7. 停止轮询不等于任务失败或取消。页面离开后停止本地轮询；command 失败时先刷新快照，再恢复轮询。
+8. 收到变化先停止本轮轮询，再获取最终快照；串行执行并合并重复刷新请求。最终业务结果以持久化快照为准。
+9. 每次轮询都校验鉴权；项目删除后停止轮询，后续查询返回 404。
 
-SSE 的事件格式和 Last-Event-ID 依据
-[WHATWG Server-sent events](https://html.spec.whatwg.org/dev/server-sent-events.html)；游标保留、持久化和退避上限是本项目约定。
+事件类型、游标保留和持久化是本项目约定，传输使用 Tauri IPC。
 
 ## 7. 错误与界面处理
 
@@ -691,7 +670,7 @@ panic、堆栈或供应商原始报错直接展示给用户。429/503 可以返�
 2. 用户首次发送时 POST projects，得到 project_id；保留创建幂等 key，防止网络重试创建多个项目。
 3. 有附件则逐个上传并等待 ready；有显式设置则 PATCH draft，拿到最新 draft_revision。
 4. POST messages，intent=generate，拿到 job_id。
-5. GET 项目快照，从 event_cursor 连接 SSE；开始显示已经持久化的消息与进度。
+5. 获取项目快照，从 event_cursor 轮询 `project_events`；开始显示已经持久化的消息与进度。
 6. 若 waiting_input，提交 answers；若失败，按 retryable 决定是否显示重试。
 7. 成功后 GET version 播放；用户可以直接下载预览文件，也可以选择导出规格。
 
@@ -703,56 +682,45 @@ messages，intent=revise，带最新 expected_draft_revision 和 base_video_vers
 
 ## 9. Rust 实现与联调验收
 
-Rust 框架不限定，业务层至少分为 HTTP 接口、持久化项目数据、后台任务编排、供应商适配、媒体渲染与文件访问。队列和执行状态须可恢复，不能仅在请求处理函数中启动一个无持久记录的临时任务。
+业务层至少分为 Tauri
+commands、持久化项目数据、后台任务编排、供应商适配、媒体渲染与文件访问。队列和执行状态须可恢复，不能仅在请求处理函数中启动一个无持久记录的临时任务。
 
 阶段输入摘要、输出素材和检查点落库；每个任务的执行尝试持有独立 fencing
 token，旧 worker、超时调用和取消后迟到的结果均不能覆盖新状态。服务重启后恢复未完成任务，或把无法恢复的任务标记为可重试失败，不能永久显示“制作中”。
 
-实现现状（`back/`，axum + SQLite）：
+实现现状（`src-tauri/`，axum + SQLite）：
 
-- 以上要求均已实现：状态与 SSE 事件在同一事务提交；`jobs.attempt` 作为 fencing
+- 以上要求均已实现：状态与项目事件在同一事务提交；`jobs.attempt` 作为 fencing
   token；重启时把中断的任务放回队列，从检查点继续。
-- 联调场景由 `back/tests/smoke.py`
-  自动覆盖，共 58 项检查：一句话生成；上传素材生成；只换某个镜头；只改配音；手动保存设置后再更新；waiting_input 回答；网络重发不重复生成；事件游标校验；任务失败重试；输入变更阻止旧重试；取消；多窗口版本冲突；导出复用；跨用户资源隔离；删除。
 - 真实模型闭环已跑通（20 秒竖屏成片）：GLM-5.3 负责文案、分镜和剪辑指令，Qwen-Image 生成画面，MiniMax-H3 生成背景音，本地 breezeTTS2 配音，quercus-engine 剪辑出片。
 - 尚未覆盖：播放 / 下载地址过期后的前端自动续期、事件游标过期（410）的端到端演练、登录与令牌校验。
 
 ## 10. 桌面应用（Tauri）
 
-桌面应用位于 `front/src-tauri`，按 Tauri 2 的标准结构组织：JS 工程就是 `front/`，Rust 工程在
-`src-tauri/`。业务后端没有复制一份，`src-tauri` 以库的形式依赖
-`back/`（`explaincraft_backend::serve`）。
+桌面应用位于 workspace 根目录的 `src-tauri/`，按 Tauri 2 的标准结构组织：JS 工程是 `front/`，Rust
+workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后端均在这个 crate 中。
 
 启动顺序：
 
-1. 读取本地配置：应用配置目录下的 `.env`；调试构建再读取仓库里的 `back/.env`。已存在的环境变量优先。
-2. 在 `127.0.0.1`
-   上绑定一个空闲端口，在应用进程内启动后端。数据库和生成的文件保存在应用数据目录（Windows：`%APPDATA%\com.explaincraft.lingjing`），演示素材作为应用资源打包（`media/`）。
-3. 创建主窗口，并在页面脚本运行前注入接口地址：
+1. 读取本地配置：应用配置目录下的 `.env`；调试构建再读取 `src-tauri/.env`。已存在的环境变量优先。
+2. 创建
+   `AppState`、SQLite 和后台 worker。数据库和生成的文件保存在应用数据目录（Windows：`%APPDATA%\com.explaincraft.lingjing`），演示素材作为应用资源打包（`media/`）。
+3. 创建主窗口。前端使用 `@tauri-apps/api/core` 的 `invoke` 调用 commands；浏览器演示不包含这些调用。
+4. 退出应用时停止异步运行时。未完成的任务状态在数据库中，下次启动会继续执行。
 
-   ```js
-   window.__EXPLAINCRAFT_API__ = 'http://127.0.0.1:52341/api/v1';
-   ```
+业务入口包括 `capabilities`、`list_projects`、`create_project`、`get_project`、`send_message`、
+`patch_draft`、`list_assets`、`upload_asset`、`get_job`、`cancel_job`、`retry_job`、`answer_job`、
+`list_versions`、`get_version`、`export_video`、`download_asset` 和 `project_events` 等 20 个
+`#[tauri::command]`。上传通过原始 IPC 字节传递 multipart，避免 base64 膨胀。
 
-   前端检测到这个变量时总是使用 HTTP 接口，并以它作为接口前缀，见 `front/src/services/api.ts`。
+媒体文件通过 `explaincraft` 自定义协议读取并保留签名、Range 与下载响应头。CSP 只允许 IPC
+和对应媒体协议，不开放本机 HTTP 端口。dev 鉴权模式使用单用户 `local_user`。
 
-4. 退出应用时通知后端停止。未完成的任务状态在数据库中，下次启动会继续执行。
-
-与浏览器联调的差异：
-
-| 项目     | 桌面应用                                                | 浏览器 + Vite 代理 |
-| -------- | ------------------------------------------------------- | ------------------ |
-| 接口前缀 | 注入的绝对地址 `http://127.0.0.1:<端口>/api/v1`         | 相对地址 `/api/v1` |
-| 媒体地址 | 后端返回绝对地址（`PUBLIC_ORIGIN` 由桌面壳设置）        | 相对地址           |
-| 跨域     | 页面来源是 `http://tauri.localhost`，后端允许跨域       | 同源（经代理）     |
-| 安全策略 | CSP 只允许连接 `'self'`、`ipc:` 与 `http://127.0.0.1:*` | 无                 |
-| 鉴权     | 单用户 `local_user`                                     | 同左（dev 模式）   |
-
-桌面端只使用 Tauri 的默认权限（`capabilities/default.json`），前端不调用任何自定义 Tauri 命令，全部业务都通过 HTTP 接口完成。因此同一套前端代码可以同时运行在浏览器和桌面端。
+桌面端只使用 Tauri 的默认权限（`capabilities/default.json`）和应用自有 commands。浏览器工作台仅使用无后端的演示状态机。
 
 ## 11. 后端内部：制作流程与剪辑指令（不对前端暴露）
 
-制作阶段与模型分工（`back/src/pipeline.rs`、`back/src/providers/`）：
+制作阶段与模型分工（`src-tauri/src/pipeline.rs`、`src-tauri/src/providers/`）：
 
 | 阶段 key                             | 执行者                                                        |
 | ------------------------------------ | ------------------------------------------------------------- |
@@ -763,7 +731,7 @@ token，旧 worker、超时调用和取消后迟到的结果均不能覆盖新�
 | `finishing`                          | 按调色 / 特效预设整理剪辑方案与转场                           |
 | `render`                             | quercus-engine 执行剪辑指令并导出 MP4                         |
 
-剪辑指令是 llm1 以 JSON 输出、由剪辑库逐条执行的操作序列（`back/src/providers/edit_ops.rs`）：
+剪辑指令是 llm1 以 JSON 输出、由剪辑库逐条执行的操作序列（`src-tauri/src/providers/edit_ops.rs`）：
 
 ```json
 [

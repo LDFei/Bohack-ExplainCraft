@@ -1,7 +1,7 @@
 //! 运行配置。
 //!
 //! 所有配置都从环境变量读取，并带有适合本机演示的默认值，因此不设置任何变量也能直接启动。
-//! 变量的完整列表与说明见 `back/README.md` 的“配置”一节。
+//! 变量的完整列表与说明见 `src-tauri/README.md` 的“配置”一节。
 
 use std::env;
 use std::path::PathBuf;
@@ -9,8 +9,6 @@ use std::path::PathBuf;
 /// 后端运行配置，启动时由 [`Config::from_env`] 一次性读取，之后只读共享。
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// 监听地址，默认 `127.0.0.1:8787`。
-    pub bind: String,
     /// SQLite 数据库文件路径。
     pub database_path: PathBuf,
     /// 上传、生成与渲染文件的存放目录，按项目分子目录。
@@ -19,8 +17,7 @@ pub struct Config {
     pub demo_media_dir: PathBuf,
     /// 对外暴露的接口前缀（不含末尾斜杠），用于路由挂载和拼接媒体地址。
     pub public_prefix: String,
-    /// 对外访问的源（如桌面端的 `http://127.0.0.1:52341`）。为空时媒体地址使用相对路径，
-    /// 适合前端与后端同源（Vite 代理）的部署；桌面端页面来源与后端不同，必须设置。
+    /// 自定义媒体协议的源（如 `explaincraft://localhost`）。
     pub public_origin: String,
     /// 媒体签名密钥；为空时每次启动随机生成（重启后旧链接失效，前端重新查询即可）。
     pub media_secret: Option<String>,
@@ -32,7 +29,7 @@ pub struct Config {
     pub max_concurrent_jobs: usize,
     /// 追问的等待时长（秒），超时后任务以 `INPUT_TIMEOUT` 失败。
     pub question_ttl_seconds: i64,
-    /// SSE 事件保留时长（秒），更早的事件会被清理，旧游标返回 410。
+    /// 项目事件保留时长（秒），更早的事件会被清理，旧游标返回 410。
     pub event_retention_seconds: i64,
     /// 鉴权模式，见 [`AuthMode`]。
     pub auth_mode: AuthMode,
@@ -66,7 +63,7 @@ pub struct Config {
     pub breeze_voice_female: String,
 }
 
-/// 一个云端模型的访问信息。密钥只从环境变量 / back/.env 读取，绝不写进代码或日志。
+/// 一个云端模型的访问信息。密钥只从环境变量 / src-tauri/.env 读取，绝不写进代码或日志。
 #[derive(Clone)]
 pub struct ModelAccess {
     /// API 密钥。
@@ -113,7 +110,7 @@ fn number<T: std::str::FromStr>(name: &str, default: T) -> T {
 }
 
 impl Config {
-    /// 返回给前端的地址前缀：`PUBLIC_ORIGIN` + 接口前缀（如 `http://127.0.0.1:52341/api/v1`）。
+    /// 返回给前端的媒体地址前缀：`PUBLIC_ORIGIN` + 接口前缀。
     pub fn public_base(&self) -> String {
         format!("{}{}", self.public_origin, self.public_prefix)
     }
@@ -124,7 +121,6 @@ impl Config {
     pub fn from_env() -> Self {
         let data_dir = PathBuf::from(var("DATA_DIR", "data"));
         Self {
-            bind: var("BIND_ADDR", "127.0.0.1:8787"),
             database_path: env::var("DATABASE_PATH")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| data_dir.join("explaincraft.sqlite3")),

@@ -55,7 +55,7 @@ impl SiliconFlow {
     ) -> ProviderResult<Value> {
         if access.api_key.is_empty() {
             return Err(ProviderError::unavailable(format!(
-                "{what}未配置密钥，请在 back/.env 中设置。"
+                "{what}未配置密钥，请在 src-tauri/.env 中设置。"
             )));
         }
         let response = self

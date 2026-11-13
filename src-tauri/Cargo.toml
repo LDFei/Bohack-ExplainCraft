@@ -1,0 +1,46 @@
+[package]
+name = "lingjing-desktop"
+version = "0.1.0"
+description = "灵镜 · AI 视频创作空间桌面应用：Tauri 窗口 + 进程内嵌入的 Rust 后端。"
+edition = "2021"
+publish = false
+
+# 按 Tauri 约定，逻辑写在 lib.rs，main.rs 只调用 run()。桌面端只需要 rlib。
+[lib]
+name = "lingjing_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+futures = "0.3"
+hex = "0.4"
+hmac = "0.12"
+http-body-util = "0.1"
+image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+uuid = { version = "1", features = ["v4"] }
+quercus-engine-rs = { version = "=0.7.1", optional = true }
+
+[features]
+default = []
+# quercus 剪辑引擎（真实成片），需要 FFmpeg 开发包；见 README.md。
+quercus = ["dep:quercus-engine-rs", "dep:image"]

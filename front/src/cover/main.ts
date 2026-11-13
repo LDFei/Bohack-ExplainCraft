@@ -8,7 +8,7 @@ import '../aceternity.css';
 import '../themes.css';
 import { initializeTheme } from '../composables/useTheme.ts';
 
-// 主题偏好与工作区共用同一份存储，封面切换主题后进入工作台仍然生效。
+// 官网和桌面端使用同一套主题变量；各自只保存当前设备的显示偏好。
 initializeTheme();
 
 createApp(CoverApp).mount('#app');

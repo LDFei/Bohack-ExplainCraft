@@ -17,6 +17,7 @@ import ThemeSwitcher from './components/ThemeSwitcher.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useAppSettings } from './composables/useAppSettings.ts';
 import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
+import { WEBSITE_URL } from './domain/links.ts';
 
 // 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
@@ -78,7 +79,7 @@ const {
   playing,
 } = studio;
 // 已连接 Rust 后端，但后端模型仍是演示供应商（使用示例素材），需要继续向用户说明演示边界。
-const backendDemo = computed(() => studio.api.mode === 'http' && !!caps.value.demo_mode);
+const backendDemo = computed(() => studio.api.mode === 'tauri' && !!caps.value.demo_mode);
 // 本地演示或后端演示时都显示演示标识、说明和演示情景入口。
 const showDemo = computed(() => studio.api.mode === 'demo' || backendDemo.value);
 const sidebarOpen = ref(false),
@@ -167,10 +168,10 @@ function latest() {
     void studio.selectVersion(current.value.project.latest_video_version_id);
 }
 /**
- * 返回封面首页。封面与工作区是两个独立页面，这里用整页跳转而不是路由，避免工作区路由接管封面地址。
+ * 打开独立 GitHub Pages 官网；桌面产物本身不再包含官网页面。
  */
 function goHome() {
-  window.location.assign('./');
+  window.location.assign(WEBSITE_URL);
 }
 /**
  * 用已保存的脚本和设置发起更新；与“保存设置”分开，避免把旧预览误认为新视频。
@@ -333,7 +334,7 @@ async function scenario(kind: 'failure' | 'question') {
       <header class="topbar">
         <a
           class="topbar-brand"
-          href="./"
+          :href="WEBSITE_URL"
           aria-label="返回产品首页"
         >
           <span class="brand-icon">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 产品首页：官方 Beams / Bento 的 Vue 移植与可播放的本地示例；不声称已接入真实 AI 或 TTS。 */
+/** 独立产品官网：展示桌面端能力与本地示例，所有创作入口统一下载桌面应用。 */
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import BackgroundBeams from './aceternity/BackgroundBeams.vue';
 import BentoGrid from './aceternity/BentoGrid.vue';
@@ -7,6 +7,7 @@ import BentoGridItem from './aceternity/BentoGridItem.vue';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 import { mediaUrl } from '../domain/assets.ts';
+import { DOWNLOAD_URL } from '../domain/links.ts';
 import ThemeSwitcher from './ThemeSwitcher.vue';
 const previewOpen = ref(false),
   musicPlaying = ref(false),
@@ -27,7 +28,7 @@ function syncMotion() {
 }
 onMounted(() => media.addEventListener('change', syncMotion));
 let audio: HTMLAudioElement | null = null;
-/** 试听的是真实本地背景音乐，明确区别于尚未接通的 TTS 音色。 */
+/** 试听官网内置的背景音乐；桌面端的配音能力由 Rust 后端供应商提供。 */
 async function toggleMusic() {
   mediaError.value = '';
   if (musicPlaying.value) {
@@ -98,8 +99,8 @@ onBeforeUnmount(() => {
       <nav aria-label="首页导航">
         <a href="#features">创作能力</a>
         <a href="#workflow">工作流程</a>
-        <a href="studio.html#/workspace">
-          进入工作台
+        <a :href="DOWNLOAD_URL">
+          立即下载
           <Icon
             name="arrowRight"
             :size="14"
@@ -109,10 +110,10 @@ onBeforeUnmount(() => {
       <div class="landing-nav-actions">
         <ThemeSwitcher />
         <a
-          href="studio.html#/create"
+          :href="DOWNLOAD_URL"
           class="button primary nav-start"
         >
-          开始创作
+          立即下载
           <Icon
             name="plus"
             :size="14"
@@ -146,10 +147,10 @@ onBeforeUnmount(() => {
             </p>
             <div class="hero-actions">
               <a
-                href="studio.html#/create"
+                :href="DOWNLOAD_URL"
                 class="button primary hero-cta"
               >
-                开始你的创作
+                立即下载
                 <Icon
                   name="arrowRight"
                   :size="17"
@@ -173,7 +174,7 @@ onBeforeUnmount(() => {
                 name="info"
                 :size="12"
               />
-              可交互前端演示 · 当前使用本地示例素材
+              桌面创作应用 · 项目与生成文件保存在本机
             </p>
           </div>
           <div
@@ -339,7 +340,7 @@ onBeforeUnmount(() => {
         <BentoGrid>
           <BentoGridItem
             title="AI 脚本生成"
-            description="写下一句想法，体验从创作方案到分镜脚本的演示流程。文案可编辑，镜头可继续调整。"
+            description="写下一句想法，由创作方案生成分镜脚本。文案可编辑，镜头可继续调整。"
             wide
           >
             <template #header>
@@ -384,10 +385,10 @@ onBeforeUnmount(() => {
             </template>
             <template #action>
               <a
-                href="studio.html#/create"
+                :href="DOWNLOAD_URL"
                 class="bento-action"
               >
-                从一句话开始
+                立即下载
                 <Icon
                   name="arrowRight"
                   :size="13"
@@ -397,7 +398,7 @@ onBeforeUnmount(() => {
           </BentoGridItem>
           <BentoGridItem
             title="语音合成与配乐"
-            description="配置音色、语速与背景音乐。演示提供本地配乐试听，真实 TTS 待接入。"
+            description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
           >
             <template #header>
               <div
@@ -446,7 +447,7 @@ onBeforeUnmount(() => {
           </BentoGridItem>
           <BentoGridItem
             title="动态视频生成"
-            description="在对话中体验制作与修改，查看阶段进度。演示播放内置视频，真实 AI 生成待接入。"
+            description="在对话中制作与修改，查看每个阶段的进度，并保留历史版本。"
           >
             <template #header>
               <div class="feature-motion">
@@ -479,10 +480,10 @@ onBeforeUnmount(() => {
             </template>
             <template #action>
               <a
-                href="studio.html#/workspace"
+                :href="DOWNLOAD_URL"
                 class="bento-action"
               >
-                进入视频工作台
+                立即下载
                 <Icon
                   name="arrowRight"
                   :size="13"
@@ -524,8 +525,8 @@ onBeforeUnmount(() => {
                     <span>720p</span>
                     <span>30 fps</span>
                   </div>
-                  <a href="studio.html#/workspace">
-                    打开预览与导出
+                  <a :href="DOWNLOAD_URL">
+                    立即下载
                     <Icon
                       name="export"
                       :size="14"
@@ -598,10 +599,10 @@ onBeforeUnmount(() => {
           </li>
         </ol>
         <a
-          href="studio.html#/create"
+          :href="DOWNLOAD_URL"
           class="button primary"
         >
-          开始第一个故事
+          立即下载
           <Icon
             name="arrowRight"
             :size="15"
@@ -621,9 +622,9 @@ onBeforeUnmount(() => {
         ExplainCraft
       </a>
       <span>给灵感一个镜头。</span>
-      <p>本地演示 · 尚未接入真实 AI、TTS 与渲染服务</p>
-      <a href="studio.html#/workspace">
-        回到工作台
+      <p>Rust + Tauri 桌面应用 · 本地项目与可恢复制作任务</p>
+      <a :href="DOWNLOAD_URL">
+        立即下载
         <Icon
           name="arrowRight"
           :size="12"

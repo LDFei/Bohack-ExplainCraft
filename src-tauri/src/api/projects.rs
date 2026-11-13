@@ -310,7 +310,7 @@ fn check_assets(
 /// `POST /projects/{id}/messages`：唯一的创作入口（幂等）。
 ///
 /// 在一个事务内写入用户消息、assistant 消息、任务和幂等记录，提交后再唤醒 worker。
-/// 返回 202 只表示已受理，制作进度通过 SSE 推送。
+/// 返回 202 只表示已受理，制作进度通过事件 command 查询。
 pub async fn send_message(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,

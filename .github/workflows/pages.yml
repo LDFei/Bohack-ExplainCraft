@@ -1,9 +1,9 @@
-name: Deploy cover and studio to GitHub Pages
+name: Deploy website to GitHub Pages
 
 on:
   push:
     branches: [main]
-    # 只有封面前端或其部署配置变化才重新发布，后端目录改动不触发。
+    # 前端源码或其部署配置变化时重新发布，Rust 后端改动不触发。
     paths:
       - 'front/**'
       - '.github/workflows/pages.yml'
@@ -37,15 +37,17 @@ jobs:
           cache-dependency-path: front/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Build cover and studio entries
+      - name: Build website
         # 仓库页面的地址是 https://<owner>.github.io/<repo>/，因此 base 取仓库名。
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
-        run: npm run build
+        run: npm run build:website
+      - name: Verify static website bundle
+        run: npm run check:website
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: front/dist
+          path: front/dist/website
 
   deploy:
     name: Publish to Pages

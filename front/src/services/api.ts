@@ -1,5 +1,5 @@
 /**
- * 数据访问边界。DemoApi 使用本机存储与状态机，HttpApi 映射 Rust 接口；页面只依赖 StudioApi。
+ * 数据访问边界。DemoApi 使用本机存储与状态机，TauriApi 调用 Rust commands；页面只依赖 StudioApi。
  */
 import {
   advance,
@@ -29,6 +29,7 @@ import type {
   Snapshot,
   VideoVersion,
 } from '../domain/types.ts';
+import { invoke } from '@tauri-apps/api/core';
 
 // localStorage 只保存 JSON 元数据；实际二进制附件放在 IndexedDB，避免大文件挤占字符串存储。
 const STORAGE_KEY = 'lingjing-studio-v1';
@@ -142,7 +143,7 @@ async function hydrate(record: ProjectRecord): Promise<ProjectRecord> {
 }
 /** 页面依赖的统一服务合同；切换演示与 HTTP 不需要改组件中的业务操作。 */
 export interface StudioApi {
-  readonly mode: 'demo' | 'http';
+  readonly mode: 'demo' | 'tauri';
   /**
    * 读取界面可选项、默认值、上传限制和导出规格。
    */
@@ -541,7 +542,7 @@ class DemoApi implements StudioApi {
   }
   /**
    * 每 700ms 检查并推进当前演示任务，仅在事件序号变化时通知页面刷新。
-   * 返回清理函数，路由离开时停止轮询；演示模式不建立网络 SSE 连接。
+   * 返回清理函数，路由离开时停止轮询。
    */
   watch(id: string, _cursor: string, onChange: () => void, onError: () => void) {
     const timer = window.setInterval(() => {
@@ -565,23 +566,27 @@ class DemoApi implements StudioApi {
   }
 }
 
-/**
- * 桌面应用（Tauri）在页面脚本运行前注入的内嵌后端地址，如 `http://127.0.0.1:52341/api/v1`。
- * 浏览器中不存在；存在时说明运行在桌面端，必须走真实后端接口。
- */
-const desktopApiBase = (window as Window & { __EXPLAINCRAFT_API__?: string }).__EXPLAINCRAFT_API__;
+/** Tauri 注入的 IPC 入口只存在于桌面 WebView，官网和浏览器演示均为 false。 */
+const isTauri = '__TAURI_INTERNALS__' in window;
+
+/** Tauri command 的统一 JSON 响应。 */
+interface CommandReply {
+  status: number;
+  body: { data?: unknown; error?: { code?: string; message?: string } } | null;
+}
+
+/** 项目事件轮询结果。 */
+interface EventPoll {
+  changed: boolean;
+  cursor: string;
+}
 
 /**
- * Rust 后端接口适配，路径对应 docs/API.md。桌面端连接内嵌后端，浏览器联调经 Vite 代理连接 back/。
+ * Tauri commands 适配，业务规则由进程内 Rust AppState 处理；没有 HTTP 请求或外部服务。
  * 登录、长列表分页和播放地址过期续期尚未接入。
  */
-class HttpApi implements StudioApi {
-  readonly mode = 'http' as const;
-  // 桌面端使用注入的绝对地址（页面来源与后端端口不同）；浏览器联调走 Vite 代理的相对地址。
-  private base = (desktopApiBase || import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(
-    /\/$/,
-    '',
-  );
+class TauriApi implements StudioApi {
+  readonly mode = 'tauri' as const;
   /**
    * 读取登录会话令牌并生成 Bearer 请求头；开发令牌只在 DEV 模式作为后备来源。
    */
@@ -592,95 +597,85 @@ class HttpApi implements StudioApi {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
   /**
-   * 读取统一响应：成功返回 data，失败转换为 StudioError。
-   * 后端未启动时开发代理返回的 502 等页面不是 JSON，这里给出可读提示而不是解析异常。
+   * 读取 command 统一响应：成功返回 data，失败转换为 StudioError。
    */
-  private async unwrap<T>(response: Response, fallback: string): Promise<T> {
+  private async unwrap<T>(reply: CommandReply, fallback: string): Promise<T> {
     // 删除接口返回空响应，先处理它，避免对不存在的 JSON 正文解析报错。
-    if (response.status === 204) return undefined as T;
-    let payload: { data?: T; error?: { code?: string; message?: string } } | null = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (!response.ok || !payload)
+    if (reply.status === 204) return undefined as T;
+    const payload = reply.body;
+    if (reply.status >= 400 || !payload)
       throw new StudioError(
-        payload?.error?.code || (response.status >= 500 ? 'BACKEND_UNAVAILABLE' : 'REQUEST_FAILED'),
+        payload?.error?.code || (reply.status >= 500 ? 'BACKEND_UNAVAILABLE' : 'REQUEST_FAILED'),
         payload?.error?.message ||
-          (response.status >= 500 ? '暂时连不上创作服务，请确认后端已启动后重试。' : fallback),
+          (reply.status >= 500 ? 'Tauri 后端暂时无法处理请求，请重试。' : fallback),
       );
     return payload.data as T;
   }
   /**
-   * 发出请求；网络层失败（后端未启动、断网）时转换为可读的业务错误。
-   */
-  private async send(path: string, init: RequestInit): Promise<Response> {
-    try {
-      return await fetch(`${this.base}${path}`, init);
-    } catch {
-      throw new StudioError('NETWORK_ERROR', '网络连接中断，请检查网络或后端服务后重试。');
-    }
-  }
-  /**
-   * 封装 JSON 请求、鉴权、幂等 key 和业务异常，统一取响应中的 data。
-   * 任务是否成功仍需看 Job.status；extraHeaders 用于少数接口的附加请求头。
+   * 调用指定 Tauri command；鉴权、幂等 key 和演示情景通过 IPC 请求头传递。
    */
   private async request<T>(
-    path: string,
-    method = 'GET',
-    body?: unknown,
+    command: string,
+    args: Record<string, unknown> = {},
     key?: string,
     extraHeaders: Record<string, string> = {},
   ): Promise<T> {
-    const response = await this.send(path, {
-      method,
-      headers: {
-        ...this.headers(),
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(key ? { 'Idempotency-Key': key } : {}),
-        ...extraHeaders,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    return this.unwrap<T>(response, '请求失败，请稍后再试。');
+    try {
+      const reply = await invoke<CommandReply>(command, args, {
+        headers: {
+          ...this.headers(),
+          ...(key ? { 'Idempotency-Key': key } : {}),
+          ...extraHeaders,
+        },
+      });
+      return this.unwrap<T>(reply, '请求失败，请稍后再试。');
+    } catch (error) {
+      if (error instanceof StudioError) throw error;
+      throw new StudioError(
+        'IPC_ERROR',
+        typeof error === 'string'
+          ? error
+          : error instanceof Error
+            ? error.message
+            : 'Tauri 后端调用失败，请重试。',
+      );
+    }
   }
   /**
-   * 调用 GET /capabilities，读取真实后端已经接通的可选参数与上传限制。
+   * 调用 capabilities command，读取真实后端已经接通的可选参数与上传限制。
    */
   getCapabilities() {
-    return this.request<Capabilities>('/capabilities');
+    return this.request<Capabilities>('capabilities');
   }
   /**
-   * 读取最多 100 条项目摘要；更长历史的游标翻页留待真实后端联调。
+   * 读取最多 100 条项目摘要。
    */
   async listProjects() {
-    return (await this.request<{ items: Project[] }>('/projects?limit=100')).items;
+    return (await this.request<{ items: Project[] }>('list_projects')).items;
   }
   /**
    * 以独立幂等 key 创建空项目，取返回的 project 对象。
    */
   async createProject() {
-    return (await this.request<{ project: Project }>('/projects', 'POST', {}, makeId('key')))
-      .project;
+    return (await this.request<{ project: Project }>('create_project', {}, makeId('key'))).project;
   }
   /**
-   * 读取项目一致性快照，作为恢复页面和重新订阅事件流的唯一状态基准。
+   * 读取项目一致性快照，作为恢复页面和重新轮询事件的唯一状态基准。
    */
   getSnapshot(id: string) {
-    return this.request<Snapshot>(`/projects/${id}`);
+    return this.request<Snapshot>('get_project', { projectId: id });
   }
   /**
    * PATCH 项目标题；不提交整个项目对象，避免覆盖服务端管理字段。
    */
   async renameProject(id: string, title: string) {
-    await this.request(`/projects/${id}`, 'PATCH', { title });
+    await this.request('rename_project', { projectId: id, title });
   }
   /**
    * 请求删除项目，服务端负责活动任务校验及附件清理。
    */
   async deleteProject(id: string) {
-    await this.request(`/projects/${id}`, 'DELETE');
+    await this.request('delete_project', { projectId: id });
   }
   /**
    * 把生成、修改或讨论意图提交到统一消息入口，复用调用者提供的幂等 key。
@@ -694,42 +689,56 @@ class HttpApi implements StudioApi {
     // 演示情景只在后端仍使用演示供应商时生效，接入真实模型后后端会忽略这个请求头。
     const headers: Record<string, string> =
       scenario === 'normal' ? {} : { 'X-Demo-Scenario': scenario };
-    await this.request(`/projects/${id}/messages`, 'POST', input, key, headers);
+    await this.request('send_message', { projectId: id, input }, key, headers);
   }
   /**
    * PATCH 发生变化的草稿分组，并携带编辑时的修订号供后端做冲突检测。
    */
   async patchDraft(id: string, changes: DraftChanges, revision: number) {
-    await this.request(`/projects/${id}/draft`, 'PATCH', {
-      changes,
-      expected_draft_revision: revision,
+    await this.request('patch_draft', {
+      projectId: id,
+      input: { changes, expected_draft_revision: revision },
     });
   }
   /**
    * 读取项目素材列表，当前适配最多加载 100 项。
    */
   async listAssets(id: string) {
-    return (await this.request<{ items: Asset[] }>(`/projects/${id}/assets?limit=100`)).items;
+    return (await this.request<{ items: Asset[] }>('list_assets', { projectId: id })).items;
   }
-  /**
-   * 使用 FormData 上传文件，等待后端媒体解析就绪；每 2 秒查询一次，最多 30 次。
-   * 不手写 Content-Type，让浏览器补 multipart boundary；这里只提供开始和完成的进度通知。
-   */
+  /** 通过原始 IPC 字节上传 multipart 文件，避免大文件 base64 编码。 */
   async upload(id: string, file: File, onProgress: (percent: number) => void) {
-    // 文件请求不能复用 JSON 请求体；浏览器会自动生成 multipart 的边界。
-    const body = new FormData();
-    body.append('file', file);
     onProgress(0);
-    const response = await this.send(`/projects/${id}/assets`, {
-      method: 'POST',
-      headers: { ...this.headers(), 'Idempotency-Key': makeId('key') },
-      body,
+    const boundary = `----ExplainCraft${makeId('boundary')}`;
+    const encoder = new TextEncoder();
+    const fileName = file.name.replace(/["\r\n]/g, '_');
+    const prefix = encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`,
+    );
+    const suffix = encoder.encode(`\r\n--${boundary}--\r\n`);
+    const content = new Uint8Array(await file.arrayBuffer());
+    const body = new Uint8Array(prefix.length + content.length + suffix.length);
+    body.set(prefix);
+    body.set(content, prefix.length);
+    body.set(suffix, prefix.length + content.length);
+    const reply = await invoke<CommandReply>('upload_asset', body, {
+      headers: {
+        ...this.headers(),
+        'Idempotency-Key': makeId('key'),
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'X-Project-Id': id,
+      },
+    }).catch((error: unknown) => {
+      throw new StudioError(
+        'IPC_ERROR',
+        typeof error === 'string' ? error : '素材上传失败，请重试。',
+      );
     });
-    let asset = (await this.unwrap<{ asset: Asset }>(response, '上传失败。')).asset;
-    // HTTP 201 表示文件已受理，不一定已经解析完成；只有 ready 才能参与制作。
+    let asset = (await this.unwrap<{ asset: Asset }>(reply, '上传失败。')).asset;
+    // 只有 ready 素材才能参与制作；解析中的素材每 2 秒查询一次，最多 30 次。
     for (let attempt = 0; asset.status === 'processing' && attempt < 30; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      asset = (await this.request<{ asset: Asset }>(`/assets/${asset.id}`)).asset;
+      asset = (await this.request<{ asset: Asset }>('get_asset', { assetId: asset.id })).asset;
     }
     if (asset.status !== 'ready')
       throw new StudioError(
@@ -740,61 +749,54 @@ class HttpApi implements StudioApi {
     return asset;
   }
   /**
-   * 查询完整任务对象；HTTP 成功只表示查询成功，任务错误在 job.error 中。
+   * 查询完整任务对象；command 成功只表示查询成功，任务错误在 job.error 中。
    */
   async getJob(id: string) {
-    return (await this.request<{ job: Job }>(`/jobs/${id}`)).job;
+    return (await this.request<{ job: Job }>('get_job', { jobId: id })).job;
   }
   /**
-   * POST 取消请求；与断开 SSE 区分，只有这个业务接口才请求停止制作。
+   * 取消任务 command；停止事件轮询本身不会取消制作。
    */
   async cancel(id: string) {
-    await this.request(`/jobs/${id}/cancel`, 'POST');
+    await this.request('cancel_job', { jobId: id });
   }
   /**
    * 携带当前草稿修订号重试任务，使用新的幂等 key 标识这次重试请求。
    */
   async retry(id: string, revision: number) {
-    await this.request(
-      `/jobs/${id}/retry`,
-      'POST',
-      { expected_draft_revision: revision },
-      makeId('key'),
-    );
+    await this.request('retry_job', { jobId: id, expectedDraftRevision: revision }, makeId('key'));
   }
   /**
    * 提交仍在等待的问题 ID 和回答，由后端原子恢复同一个任务。
    */
   async answer(id: string, question: string, value: string) {
-    await this.request(
-      `/jobs/${id}/answers`,
-      'POST',
-      { question_id: question, value },
-      makeId('key'),
-    );
+    await this.request('answer_job', { jobId: id, questionId: question, value }, makeId('key'));
   }
   /**
    * 读取最多 100 个成片版本摘要；完整历史快照通过 getVersion 再取。
    */
   async listVersions(id: string) {
-    return (await this.request<{ items: VideoVersion[] }>(`/projects/${id}/versions?limit=100`))
+    return (await this.request<{ items: VideoVersion[] }>('list_versions', { projectId: id }))
       .items;
   }
   /**
    * 取得指定成片的完整快照和最新可用的播放地址。
    */
   async getVersion(id: string, versionId: string) {
-    return (await this.request<{ version: VideoVersion }>(`/projects/${id}/versions/${versionId}`))
-      .version;
+    return (
+      await this.request<{ version: VideoVersion }>('get_version', {
+        projectId: id,
+        versionId,
+      })
+    ).version;
   }
   /**
    * 按指定不可变版本请求 MP4 导出；可能直接返回缓存素材，也可能返回异步任务 ID。
    */
   exportVideo(id: string, versionId: string, resolution: string) {
     return this.request<{ asset_id?: string; job_id?: string; cached?: boolean }>(
-      `/projects/${id}/versions/${versionId}/exports`,
-      'POST',
-      { format: 'mp4', resolution, fps: 30 },
+      'export_video',
+      { projectId: id, versionId, resolution },
       makeId('key'),
     );
   }
@@ -802,59 +804,44 @@ class HttpApi implements StudioApi {
    * 获取经过鉴权的短期下载链接和文件名，页面不拼接服务器磁盘路径。
    */
   download(assetId: string) {
-    return this.request<{ download_url: string; file_name: string }>(`/assets/${assetId}/download`);
+    return this.request<{ download_url: string; file_name: string }>('download_asset', { assetId });
   }
-  /**
-   * 带鉴权从 after 游标读取 SSE，保留未完成的文本块直到遇到事件空行。
-   * 当前适配收到首个数据事件就通知上层重取快照并关闭旧流；返回函数仅中断监听，不取消生成。
-   */
+  /** 每 700ms 通过 command 查询事件；发现变化后通知上层重取一致性快照。 */
   watch(id: string, cursor: string, onChange: () => void, onError: () => void) {
-    // 中断事件连接只影响当前页面监听，不是业务上的取消生成。
-    const controller = new AbortController();
-    void (async () => {
+    let active = true,
+      checking = false;
+    const poll = async () => {
+      if (!active || checking) return;
+      checking = true;
       try {
-        const response = await fetch(
-          `${this.base}/projects/${id}/events?after=${encodeURIComponent(cursor)}`,
-          {
-            headers: { ...this.headers(), Accept: 'text/event-stream' },
-            signal: controller.signal,
-          },
+        const result = await invoke<EventPoll>(
+          'project_events',
+          { projectId: id, after: cursor },
+          { headers: this.headers() },
         );
-        if (!response.ok || !response.body) throw new Error('Event stream unavailable');
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (!controller.signal.aborted) {
-          const { value, done } = await reader.read();
-          if (done) {
-            onError();
-            break;
-          }
-          // 网络块和 SSE 事件不是一回事：保留半条事件，遇到空行才尝试处理完整事件。
-          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-          let boundary: number;
-          while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-            const block = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            if (block.split('\n').some((line) => line.startsWith('data:'))) {
-              // 以持久化快照为准：通知上层重新读取，而不是直接把这条事件当作完整页面数据。
-              onChange();
-              return;
-            }
-          }
+        if (active && result.changed) {
+          active = false;
+          onChange();
         }
       } catch {
-        if (!controller.signal.aborted) onError();
+        if (active) {
+          active = false;
+          onError();
+        }
       } finally {
-        controller.abort();
+        checking = false;
       }
-    })();
-    return () => controller.abort();
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 700);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }
 }
 
 // 只在这一处选择服务实现，避免各组件自行判断环境、拼接口或写本机存储。
-// 桌面端总是连接内嵌后端；浏览器中由 VITE_STUDIO_MODE 决定（demo 为纯前端演示）。
-export const api: StudioApi =
-  desktopApiBase || import.meta.env.VITE_STUDIO_MODE === 'http' ? new HttpApi() : new DemoApi();
+// 桌面端总是连接内嵌后端；浏览器工作台只保留无后端的演示状态机。
+export const api: StudioApi = isTauri ? new TauriApi() : new DemoApi();
 export { isActive };

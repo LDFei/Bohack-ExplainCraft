@@ -1,4 +1,4 @@
-//! SQLite 持久化。所有状态变更与对应事件在同一事务提交，提交后再通知 SSE 订阅者。
+//! SQLite 持久化。所有状态变更与对应事件在同一事务提交，供 command 轮询补发。
 
 use std::ops::Deref;
 use std::path::Path;
@@ -8,7 +8,6 @@ use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::broadcast;
 
 use crate::error::{ApiError, ApiResult};
 use crate::models::*;
@@ -19,7 +18,7 @@ use crate::util::now_iso;
 /// - `projects`：项目、当前草稿（JSON）与内部产物（JSON），`event_seq` 为项目内事件序号；
 /// - `messages` / `assets` 用自增 `seq` 保证分页顺序稳定；
 /// - `jobs.attempt` 是 fencing token，每次被 worker 认领时递增；
-/// - `events` 按 `(project_id, seq)` 存储 SSE 事件，供断线补发；
+/// - `events` 按 `(project_id, seq)` 存储项目事件，供 command 轮询补发；
 /// - `idempotency` 记录已受理请求的响应，用于幂等重放。
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
@@ -136,22 +135,18 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 "#;
 
-/// 数据库句柄：单个 SQLite 连接加互斥锁，并附带事件通知通道。
+/// 数据库句柄：单个 SQLite 连接加互斥锁。
 ///
 /// 所有读写在锁内同步完成（单次操作为毫秒级），锁内不跨越 `await`。
 pub struct Db {
     /// SQLite 连接。
     conn: Mutex<Connection>,
-    /// 事务提交后广播受影响的项目 ID，唤醒对应的 SSE 连接。
-    notify: broadcast::Sender<String>,
 }
 
-/// 写事务。`emit` 写入的事件随事务一起提交，提交后通知订阅者。
+/// 写事务。`emit` 写入的事件随事务一起提交。
 pub struct Tx<'a> {
     /// 底层事务。
     tx: Transaction<'a>,
-    /// 本事务内写过事件的项目，提交后逐个通知。
-    touched: Vec<String>,
 }
 
 impl<'a> Deref for Tx<'a> {
@@ -173,9 +168,6 @@ impl Tx<'_> {
             "INSERT INTO events (project_id, seq, event, data, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![project_id, seq, event, data.to_string(), now_iso()],
         )?;
-        if !self.touched.iter().any(|p| p == project_id) {
-            self.touched.push(project_id.to_string());
-        }
         Ok(seq)
     }
 }
@@ -193,10 +185,8 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.execute_batch(SCHEMA)?;
-        let (notify, _) = broadcast::channel(1024);
         Ok(Self {
             conn: Mutex::new(conn),
-            notify,
         })
     }
 
@@ -215,32 +205,18 @@ impl Db {
 
     /// 在一个事务内执行写操作。
     ///
-    /// 闭包返回 `Err` 时事务回滚；成功提交后才通知 SSE 订阅者，
-    /// 保证前端收到事件时一定能读到对应的新状态。
+    /// 闭包返回 `Err` 时事务回滚；事件与状态始终同时可见。
     pub fn write<T>(&self, f: impl FnOnce(&mut Tx) -> ApiResult<T>) -> ApiResult<T> {
-        let touched;
         let value;
         {
             let mut conn = self.lock();
             let tx = conn.transaction()?;
-            let mut wrapped = Tx {
-                tx,
-                touched: vec![],
-            };
+            let mut wrapped = Tx { tx };
             // `?` 提前返回时 `wrapped` 被丢弃，事务自动回滚。
             value = f(&mut wrapped)?;
-            touched = wrapped.touched;
             wrapped.tx.commit()?;
         }
-        for project in touched {
-            let _ = self.notify.send(project);
-        }
         Ok(value)
-    }
-
-    /// 订阅“项目有新事件”的通知，消息内容为项目 ID。
-    pub fn subscribe(&self) -> broadcast::Receiver<String> {
-        self.notify.subscribe()
     }
 }
 
@@ -886,14 +862,10 @@ pub fn next_version_number(conn: &Connection, project_id: &str) -> ApiResult<i64
 
 // ---------- Events ----------
 
-/// 一条持久化的 SSE 事件。
+/// 一条持久化的项目事件。
 pub struct EventRow {
-    /// 项目内递增的事件序号，即 SSE 的 `id`。
+    /// 项目内递增的事件序号，即轮询游标。
     pub seq: i64,
-    /// 事件名，如 `job.updated`。
-    pub event: String,
-    /// 单行 JSON 数据。
-    pub data: String,
 }
 
 /// 读取游标之后的事件（排他游标），最多 `limit` 条。
@@ -904,15 +876,11 @@ pub fn events_after(
     limit: i64,
 ) -> ApiResult<Vec<EventRow>> {
     let mut stmt = conn.prepare(
-        "SELECT seq, event, data FROM events WHERE project_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
+        "SELECT seq FROM events WHERE project_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
     )?;
     let rows = stmt
         .query_map(params![project_id, after, limit], |row| {
-            Ok(EventRow {
-                seq: row.get(0)?,
-                event: row.get(1)?,
-                data: row.get(2)?,
-            })
+            Ok(EventRow { seq: row.get(0)? })
         })?
         .collect::<Result<_, _>>()?;
     Ok(rows)

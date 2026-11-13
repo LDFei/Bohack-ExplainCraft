@@ -1,4 +1,0 @@
-/target/
-/data/
-# 本地配置（含模型密钥），不入库；模板见 .env.example。
-/.env

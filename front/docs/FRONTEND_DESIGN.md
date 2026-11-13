@@ -1,16 +1,17 @@
 # ExplainCraft 多主题创作工作台
 
-视觉改版日期：2026-11-13。当前仍为前端演示，不调用真实 AI 或渲染服务；数据契约见
-[API.md](./API.md)。
+视觉改版日期：2026-11-13。当前主要形态是 Tauri 桌面应用，工作台连接 Rust 后端；
+纯前端状态机只保留给浏览器开发测试。数据契约见 [API.md](./API.md)。
 
 ## 布局与组件
 
-`/` 为独立打包的封面首页，使用基于官方源码的 Background Beams 和 Bento Grid；
-工作台是另一个入口 `/studio.html`，`#/workspace` 保留打开最近项目的入口。官方源码与适配见
+`/` 为独立打包的官网，使用基于官方源码的 Background Beams 和 Bento Grid，创作入口统一打开 Releases；
+工作台是另一个入口 `/studio.html`，只构建给 Tauri，`#/workspace`
+保留打开最近项目的入口。官方源码与适配见
 [Aceternity 说明](aceternity/README.md)，三轮调整及终验见
 [视觉审查记录](aceternity/VISUAL_REVIEW.md)。
 
-- `LandingPage.vue`：产品 Hero、Bento 功能展示、原生示例播放、配乐试听与创作入口。
+- `LandingPage.vue`：产品 Hero、Bento 功能展示、原生示例播放、配乐试听与下载入口。
 - `components/aceternity/`：官方组件的 Vue 移植，完整路径数据来自保存的 registry 源码。
 - `aceternity.css`：首页与 Sidebar 的布局和动画，对接现有四套主题。
 
@@ -67,7 +68,7 @@ Grid 重排，保留组件 DOM 和业务状态；窄屏沿用原有分区。左�
 - 撤销/重做仅作用于当前未保存表单，最多 50 步；保存、切换项目或版本后清空。
 - 时间轴为成片轨道预览，波形明确标注“示意”，不支持逐轨剪辑或独立音轨混音。播放区静音控制整个成片。
 - 比例工具修改草稿并打开设置；保存与生成前不会拉伸或替换已有视频。
-- 演示文件仍为本地 30 秒、三种比例、720p MP4；音色设置仅保存，无真实 TTS。
+- 官网示例和默认后端演示文件为本地 30 秒、三种比例、720p MP4；真实供应商能力由后端配置决定。
 
 ## 本地预览与回撤
 

@@ -5,10 +5,10 @@
   "version": "0.1.0",
   "identifier": "com.explaincraft.lingjing",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "npm --prefix ../front run dev:studio",
+    "devUrl": "http://127.0.0.1:5173/studio.html",
+    "beforeBuildCommand": "npm --prefix ../front run build:studio",
+    "frontendDist": "../front/dist/studio"
   },
   "app": {
     "windows": [],
@@ -17,16 +17,16 @@
         "default-src": "'self'",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
-        "img-src": "'self' data: blob: http://127.0.0.1:*",
-        "media-src": "'self' blob: http://127.0.0.1:*",
-        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:*",
+        "img-src": "'self' data: blob: explaincraft: http://explaincraft.localhost",
+        "media-src": "'self' blob: explaincraft: http://explaincraft.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost",
         "font-src": "'self' data:"
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,7 +35,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../public/media/": "media/"
+      "../front/public/media/": "media/"
     }
   }
 }

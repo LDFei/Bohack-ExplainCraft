@@ -29,7 +29,7 @@ test('home uses the actual official beam paths and animated gradients', async ({
       ),
     )
     .not.toBe(initial);
-  await expect(page.getByText('真实 TTS 待接入', { exact: false })).toBeVisible();
+  await expect(page.getByText('由桌面端生成配音和配乐', { exact: false })).toBeVisible();
 });
 
 // 断点、跨列和内容平移对应 Bento 原始布局，卡片插图不能再被根字号挤成窄条。
@@ -81,14 +81,20 @@ test('home preview, music and workspace entry are operational', async ({ page })
     'true',
   );
   await page.getByRole('button', { name: '停止试听', exact: true }).click();
-  await page.getByRole('link', { name: '开始你的创作', exact: true }).click();
-  await expect(page).toHaveURL('/studio.html#/create');
+  const downloadLinks = page.getByRole('link', { name: '立即下载', exact: true });
+  await expect(downloadLinks).toHaveCount(8);
+  for (const link of await downloadLinks.all()) {
+    await expect(link).toHaveAttribute(
+      'href',
+      'https://github.com/LDFei/Bohack-ExplainCraft/releases',
+    );
+  }
+  await page.goto('/studio.html#/create');
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeEnabled();
-  await page.getByRole('link', { name: '返回产品首页' }).click();
-  await expect(page).toHaveURL('/');
-  await page.getByRole('link', { name: '进入工作台', exact: true }).click();
-  await expect(page).toHaveURL(/\/projects\//);
-  await expect(page.locator('.preview-panel video')).toBeVisible();
+  await expect(page.getByRole('link', { name: '返回产品首页' })).toHaveAttribute(
+    'href',
+    'https://ldfei.github.io/Bohack-ExplainCraft/',
+  );
   expect(errors).toEqual([]);
 });
 
@@ -141,6 +147,8 @@ test('reduced motion removes the continuous beam animations', async ({ page }) =
   await expect
     .poll(() => page.locator('.product-video-button video').evaluate((element) => element.paused))
     .toBe(true);
-  await page.getByRole('link', { name: '开始你的创作', exact: true }).click();
-  await expect(page).toHaveURL('/studio.html#/create');
+  await expect(page.getByRole('link', { name: '立即下载', exact: true }).first()).toHaveAttribute(
+    'href',
+    'https://github.com/LDFei/Bohack-ExplainCraft/releases',
+  );
 });
