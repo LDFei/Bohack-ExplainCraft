@@ -82,7 +82,7 @@ test('home preview, music and workspace entry are operational', async ({ page })
   );
   await page.getByRole('button', { name: '停止试听', exact: true }).click();
   await page.getByRole('link', { name: '开始你的创作', exact: true }).click();
-  await expect(page).toHaveURL('/create');
+  await expect(page).toHaveURL('/studio.html#/create');
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeEnabled();
   await page.getByRole('link', { name: '返回产品首页' }).click();
   await expect(page).toHaveURL('/');
@@ -94,7 +94,7 @@ test('home preview, music and workspace entry are operational', async ({ page })
 
 // 官方 Sidebar 的 300/60 宽度、鼠标悬停和键盘展开必须真实影响编辑器可用宽度。
 test('sidebar collapses to icons, expands on hover and can be pinned', async ({ page }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const sidebar = page.getByRole('complementary', { name: '项目导航' });
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(300);
   await page.getByRole('button', { name: '收起项目侧栏' }).click();
@@ -123,7 +123,7 @@ test('home and animated mobile navigation fit all target viewports', async ({ pa
     );
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await page.getByRole('button', { name: '打开项目导航' }).click();
   await expect(page.getByRole('button', { name: '新建创作', exact: true })).toBeVisible();
   await expect(page.locator('.sidebar')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
@@ -142,5 +142,5 @@ test('reduced motion removes the continuous beam animations', async ({ page }) =
     .poll(() => page.locator('.product-video-button video').evaluate((element) => element.paused))
     .toBe(true);
   await page.getByRole('link', { name: '开始你的创作', exact: true }).click();
-  await expect(page).toHaveURL('/create');
+  await expect(page).toHaveURL('/studio.html#/create');
 });

@@ -1,21 +1,21 @@
 /**
- * Vue 启动入口：建立页面路由、处理首页落点、载入全局样式并挂载 App。
+ * 工作区入口：只装载三栏工作台，封面首页由 index.html 与 cover 入口单独打包。
  */
 import { createApp } from 'vue';
-import { createRouter, createWebHistory } from 'vue-router';
-import App from './App.vue';
-import { api } from './services/api.ts';
-import './style.css';
-import './aceternity.css';
-import './workspace-layout.css';
-import { initializeTheme } from './composables/useTheme.ts';
+import { createRouter, createWebHashHistory } from 'vue-router';
+import App from '../App.vue';
+import { api } from '../services/api.ts';
+import '../style.css';
+import '../themes.css';
+import '../workspace-layout.css';
+import { initializeTheme } from '../composables/useTheme.ts';
 
 // 外观先于项目与路由加载，读取偏好不触碰业务存储。
 initializeTheme();
 
-// 首页展示产品；/workspace 延续原首页的最近项目入口，已有创作与项目路由保持有效。
+// 工作区沿用原路由表，但改用 hash 模式：静态托管（GitHub Pages 等）刷新深链时无需服务端重写。
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: '/', component: { template: '<span />' } },
     { path: '/workspace', component: { template: '<span />' } },
@@ -27,7 +27,7 @@ const router = createRouter({
 
 // 工作台入口优先打开最近的项目；列表为空或读取失败时回到新建页，不固定打开示例。
 router.beforeEach(async (to) => {
-  if (to.path !== '/workspace') return;
+  if (to.path !== '/' && to.path !== '/workspace') return;
   try {
     const projects = await api.listProjects();
     return projects[0] ? `/projects/${projects[0].id}` : '/create';

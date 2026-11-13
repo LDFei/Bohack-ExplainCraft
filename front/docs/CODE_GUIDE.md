@@ -20,7 +20,8 @@
 
 | 文件                                            | 先看什么                                       |
 | ----------------------------------------------- | ---------------------------------------------- |
-| [main.ts](../src/main.ts)                       | Vue 怎么启动、路由怎么决定当前项目             |
+| [cover/main.ts](../src/cover/main.ts)           | 封面入口：只装载首页组件，不含工作台状态       |
+| [studio/main.ts](../src/studio/main.ts)         | 工作区入口：hash 路由怎么决定当前项目          |
 | [App.vue](../src/App.vue)                       | 三栏和弹窗如何组合，用户操作如何转发           |
 | [useStudio.ts](../src/composables/useStudio.ts) | 页面状态、发送、上传、保存、刷新与订阅的总流程 |
 | [api.ts](../src/services/api.ts)                | StudioApi 合同以及 DemoApi / HttpApi 两种实现  |

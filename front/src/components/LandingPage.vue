@@ -6,6 +6,7 @@ import BentoGrid from './aceternity/BentoGrid.vue';
 import BentoGridItem from './aceternity/BentoGridItem.vue';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
+import { mediaUrl } from '../domain/assets.ts';
 import ThemeSwitcher from './ThemeSwitcher.vue';
 const previewOpen = ref(false),
   musicPlaying = ref(false),
@@ -33,7 +34,7 @@ async function toggleMusic() {
     stopMusic();
     return;
   }
-  audio = new Audio('/media/ambient.wav');
+  audio = new Audio(mediaUrl('ambient.wav'));
   audio.onended = stopMusic;
   audio.onerror = () => {
     stopMusic();
@@ -77,8 +78,8 @@ onBeforeUnmount(() => {
       跳到主要内容
     </a>
     <header class="landing-nav">
-      <RouterLink
-        to="/"
+      <a
+        href="./"
         class="landing-brand"
         aria-label="ExplainCraft 首页"
       >
@@ -93,22 +94,22 @@ onBeforeUnmount(() => {
           <span class="brand-light">Craft</span>
           <small>IDEAS INTO MOTION</small>
         </span>
-      </RouterLink>
+      </a>
       <nav aria-label="首页导航">
         <a href="#features">创作能力</a>
         <a href="#workflow">工作流程</a>
-        <RouterLink to="/workspace">
+        <a href="studio.html#/workspace">
           进入工作台
           <Icon
             name="arrowRight"
             :size="14"
           />
-        </RouterLink>
+        </a>
       </nav>
       <div class="landing-nav-actions">
         <ThemeSwitcher />
-        <RouterLink
-          to="/create"
+        <a
+          href="studio.html#/create"
           class="button primary nav-start"
         >
           开始创作
@@ -116,7 +117,7 @@ onBeforeUnmount(() => {
             name="plus"
             :size="14"
           />
-        </RouterLink>
+        </a>
       </div>
     </header>
     <main id="main-content">
@@ -144,8 +145,8 @@ onBeforeUnmount(() => {
               让每一个镜头慢慢成形。
             </p>
             <div class="hero-actions">
-              <RouterLink
-                to="/create"
+              <a
+                href="studio.html#/create"
                 class="button primary hero-cta"
               >
                 开始你的创作
@@ -153,7 +154,7 @@ onBeforeUnmount(() => {
                   name="arrowRight"
                   :size="17"
                 />
-              </RouterLink>
+              </a>
               <button
                 class="hero-watch"
                 @click="openPreview"
@@ -224,8 +225,8 @@ onBeforeUnmount(() => {
                 >
                   <video
                     ref="heroVideo"
-                    src="/media/coffee-16x9.mp4"
-                    poster="/media/coffee-shop.jpg"
+                    :src="mediaUrl('coffee-16x9.mp4')"
+                    :poster="mediaUrl('coffee-shop.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -268,7 +269,7 @@ onBeforeUnmount(() => {
                       :key="image"
                     >
                       <img
-                        :src="`/media/${image}.jpg`"
+                        :src="`media/${image}.jpg`"
                         alt=""
                       />
                     </i>
@@ -382,8 +383,8 @@ onBeforeUnmount(() => {
               />
             </template>
             <template #action>
-              <RouterLink
-                to="/create"
+              <a
+                href="studio.html#/create"
                 class="bento-action"
               >
                 从一句话开始
@@ -391,7 +392,7 @@ onBeforeUnmount(() => {
                   name="arrowRight"
                   :size="13"
                 />
-              </RouterLink>
+              </a>
             </template>
           </BentoGridItem>
           <BentoGridItem
@@ -451,8 +452,8 @@ onBeforeUnmount(() => {
               <div class="feature-motion">
                 <video
                   ref="motionVideo"
-                  src="/media/travel-16x9.mp4"
-                  poster="/media/travel-mountain.jpg"
+                  :src="mediaUrl('travel-16x9.mp4')"
+                  :poster="mediaUrl('travel-mountain.jpg')"
                   :autoplay="!reducedMotion"
                   muted
                   loop
@@ -477,8 +478,8 @@ onBeforeUnmount(() => {
               />
             </template>
             <template #action>
-              <RouterLink
-                to="/workspace"
+              <a
+                href="studio.html#/workspace"
                 class="bento-action"
               >
                 进入视频工作台
@@ -486,7 +487,7 @@ onBeforeUnmount(() => {
                   name="arrowRight"
                   :size="13"
                 />
-              </RouterLink>
+              </a>
             </template>
           </BentoGridItem>
           <BentoGridItem
@@ -498,7 +499,7 @@ onBeforeUnmount(() => {
               <div class="feature-preview">
                 <div class="preview-example">
                   <img
-                    src="/media/coffee-cup.jpg"
+                    :src="mediaUrl('coffee-cup.jpg')"
                     alt="咖啡店示例画面"
                   />
                   <button
@@ -523,13 +524,13 @@ onBeforeUnmount(() => {
                     <span>720p</span>
                     <span>30 fps</span>
                   </div>
-                  <RouterLink to="/workspace">
+                  <a href="studio.html#/workspace">
                     打开预览与导出
                     <Icon
                       name="export"
                       :size="14"
                     />
-                  </RouterLink>
+                  </a>
                 </div>
               </div>
             </template>
@@ -596,8 +597,8 @@ onBeforeUnmount(() => {
             </div>
           </li>
         </ol>
-        <RouterLink
-          to="/create"
+        <a
+          href="studio.html#/create"
           class="button primary"
         >
           开始第一个故事
@@ -605,12 +606,12 @@ onBeforeUnmount(() => {
             name="arrowRight"
             :size="15"
           />
-        </RouterLink>
+        </a>
       </section>
     </main>
     <footer class="landing-footer">
-      <RouterLink
-        to="/"
+      <a
+        href="./"
         class="landing-brand"
       >
         <Icon
@@ -618,16 +619,16 @@ onBeforeUnmount(() => {
           :size="21"
         />
         ExplainCraft
-      </RouterLink>
+      </a>
       <span>给灵感一个镜头。</span>
       <p>本地演示 · 尚未接入真实 AI、TTS 与渲染服务</p>
-      <RouterLink to="/workspace">
+      <a href="studio.html#/workspace">
         回到工作台
         <Icon
           name="arrowRight"
           :size="12"
         />
-      </RouterLink>
+      </a>
     </footer>
     <Modal
       :open="previewOpen"
@@ -639,7 +640,7 @@ onBeforeUnmount(() => {
       <video
         ref="player"
         class="landing-modal-video"
-        src="/media/coffee-16x9.mp4"
+        :src="mediaUrl('coffee-16x9.mp4')"
         controls
         autoplay
         playsinline

@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
  * 从空白页输入一句话并点击生成，等待项目路由创建，供多个浏览器场景复用。
  */
 async function startFresh(page: Page, text = '做一个温暖的咖啡店宣传视频') {
-  await page.goto('/create');
+  await page.goto('/studio.html#/create');
   await page.getByRole('textbox', { name: '视频创作需求' }).fill(text);
   await page.getByRole('button', { name: '生成视频', exact: true }).click();
   await expect(page).toHaveURL(/\/projects\/prj_/);
@@ -21,7 +21,7 @@ test('initial workspace plays a real local video and downloads a valid MP4', asy
   // 收集未捕获的页面异常，不能只看控件存在就判断页面没有运行错误。
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeVisible();
   const video = page.locator('video');
   await expect
@@ -81,7 +81,7 @@ test('cancelled generation stays cancelled after the original completion time', 
 test('discussion does not create a new version; revision preserves the historical snapshot', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await page.getByRole('button', { name: '仅讨论', exact: true }).click();
   await page.getByRole('textbox', { name: '视频创作需求' }).fill('如何安排开头？');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
@@ -112,7 +112,7 @@ test('discussion does not create a new version; revision preserves the historica
 test('manual script save marks the draft dirty and regenerates storyboard without erasing text', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   // 改版后脚本位于可收起的详情面板，先从画布工具栏展开。
   await page.getByRole('tab', { name: '脚本', exact: true }).click();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
@@ -132,7 +132,7 @@ test('manual script save marks the draft dirty and regenerates storyboard withou
 
 // 上传真实图片后刷新验证文件恢复，再用伪造 PNG 内容验证实际解码校验。
 test('upload persists across reload and rejects a corrupt image', async ({ page }) => {
-  await page.goto('/create');
+  await page.goto('/studio.html#/create');
   await page.locator('input[type=file]').setInputFiles(resolve('public/media/coffee-cup.jpg'));
   await expect(page.locator('.attachment-list')).toContainText('coffee-cup.jpg');
   await page.getByRole('tab', { name: '素材', exact: true }).click();
@@ -160,7 +160,7 @@ test('upload persists across reload and rejects a corrupt image', async ({ page 
 test('failed task can retry and a clarification can continue the original task', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await page.getByRole('button', { name: '查看使用指南' }).click();
   await page.getByRole('button', { name: '失败后继续制作' }).click();
   await expect(page.getByRole('button', { name: '从中断处重试', exact: true })).toBeVisible();
@@ -182,7 +182,7 @@ test('mobile workspace switches panels and completes a creation without horizont
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/create');
+  await page.goto('/studio.html#/create');
   await page.getByRole('textbox', { name: '视频创作需求' }).fill('做一个电影感的山野旅行短片');
   await page.getByRole('button', { name: '生成视频', exact: true }).click();
   await page.getByRole('button', { name: '我的作品', exact: false }).click();
@@ -199,7 +199,7 @@ test('mobile workspace switches panels and completes a creation without horizont
 test('settings save keeps the old video, rename persists, and confirmed deletion returns to creation', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const videoSource = await page.locator('video').getAttribute('src');
   await page.getByRole('tab', { name: '设置', exact: true }).click();
   await page.getByRole('switch', { name: '自动字幕' }).click();
@@ -216,8 +216,8 @@ test('settings save keeps the old video, rename persists, and confirmed deletion
   await page.getByRole('button', { name: '更多项目操作' }).click();
   await page.getByRole('button', { name: '删除项目', exact: true }).click();
   await page.getByRole('button', { name: '确认删除', exact: true }).click();
-  await expect(page).toHaveURL('/create');
-  await page.goto('/workspace');
+  await expect(page).toHaveURL('/studio.html#/create');
+  await page.goto('/studio.html#/workspace');
   await expect(page.locator('.project-title')).not.toHaveText('周末咖啡创作');
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toBeVisible();
 });
@@ -226,10 +226,10 @@ test('settings save keeps the old video, rename persists, and confirmed deletion
 test('templates only fill the composer, and switching projects cannot receive another project result', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   await page.getByRole('button', { name: '灵感模板', exact: false }).click();
   await page.getByRole('dialog').getByRole('button', { name: '旅行记录', exact: false }).click();
-  await expect(page).toHaveURL('/create');
+  await expect(page).toHaveURL('/studio.html#/create');
   await expect(page.getByRole('textbox', { name: '视频创作需求' })).toHaveValue(/山野旅行/);
   await expect(page.getByRole('button', { name: '停止生成', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '生成视频', exact: true }).click();
@@ -249,7 +249,7 @@ test('templates only fill the composer, and switching projects cannot receive an
 test('timeline seeks the real player, zooms, mutes and resets on project change', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const video = page.locator('video');
   await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(0);
   await page.getByRole('button', { name: '跳转到镜头 2', exact: true }).click();
@@ -272,7 +272,7 @@ test('timeline seeks the real player, zooms, mutes and resets on project change'
 test('draft undo and redo preserve the current video and clear on project switch', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   const source = await page.locator('video').getAttribute('src');
   await expect(page.getByRole('button', { name: '撤销草稿编辑' })).toBeDisabled();
   await page.getByRole('combobox', { name: '画布比例设置' }).selectOption('16:9');
@@ -295,7 +295,7 @@ test('draft undo and redo preserve the current video and clear on project switch
 
 // 逐档检查分区布局，手机端仍可展开设置、播放与导出，所有屏幕都不能产生横向滚动。
 test('workbench stays within phone, tablet and desktop viewports', async ({ page }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   for (const width of [390, 768, 1024, 1280, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
@@ -323,7 +323,7 @@ test('workbench stays within phone, tablet and desktop viewports', async ({ page
 test('landscape and square generations retain their actual canvas aspect ratio', async ({
   page,
 }) => {
-  await page.goto('/workspace');
+  await page.goto('/studio.html#/workspace');
   for (const [ratio, width, height] of [
     ['16:9', 1280, 720],
     ['1:1', 720, 720],

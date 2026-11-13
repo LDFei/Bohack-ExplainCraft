@@ -31,8 +31,8 @@ npm run dev
 ```
 
 浏览器访问
-[http://127.0.0.1:5173](http://127.0.0.1:5173)。首页展示产品介绍；“开始创作”进入
-`/create`，“进入工作台”通过 `/workspace`
+[http://127.0.0.1:5173](http://127.0.0.1:5173)。`/` 是封面（产品介绍），“开始创作”跳到
+`/studio.html#/create`，“进入工作台”通过 `/studio.html#/workspace`
 打开最近项目。第一次运行的示例包含咖啡店案例，点击左侧“新建创作”可以从空白开始。开发服务按需启动，没有部署到外部平台。
 
 ## 可以演示的功能
@@ -104,9 +104,13 @@ npm run build
 浏览器测试使用本机 Google Chrome。没有 Chrome 的环境可先安装 Chrome，或修改 `playwright.config.ts`
 使用已安装的 Playwright Chromium。测试会在需要时启动本地开发服务。
 
-构建结果在 `dist/`。验证生产构建可运行 `npm run preview`，访问
-[http://127.0.0.1:4173](http://127.0.0.1:4173)。部署时需将 `/create` 和 `/projects/*`
-等前端路由回退到 index.html。
+构建结果在 `dist/`，两个入口分别产出 `index.html`（封面）与 `studio.html`（工作台），
+互不引用对方的业务代码。验证生产构建可运行 `npm run preview`，访问
+[http://127.0.0.1:4173](http://127.0.0.1:4173) 看封面，
+[http://127.0.0.1:4173/studio.html](http://127.0.0.1:4173/studio.html)
+看工作台。工作区使用 hash 路由
+（`#/create`、`#/projects/*`），静态托管无需服务端回退；部署到子路径时用
+`VITE_BASE=/<仓库名>/` 构建。
 
 页面截图：[完整工作台](docs/screenshots/workspace.png)、[新建创作](docs/screenshots/new-creation.png)、[手机作品预览](docs/screenshots/mobile.png)。素材来源见
 [MEDIA_SOURCES.md](docs/MEDIA_SOURCES.md)。

@@ -14,7 +14,6 @@ import PreviewPanel from './components/PreviewPanel.vue';
 import Modal from './components/Modal.vue';
 import Icon from './components/Icon.vue';
 import ThemeSwitcher from './components/ThemeSwitcher.vue';
-import LandingPage from './components/LandingPage.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useAppSettings } from './composables/useAppSettings.ts';
 import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
@@ -23,7 +22,6 @@ import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayou
 const studio = useStudio(),
   router = useRouter(),
   route = useRoute();
-const isLanding = computed(() => route.path === '/');
 const sidebarExpanded = ref(true);
 const workspaceRoot = ref<HTMLElement | null>(null),
   sidebar = ref<InstanceType<typeof Sidebar> | null>(null),
@@ -165,6 +163,12 @@ function latest() {
     void studio.selectVersion(current.value.project.latest_video_version_id);
 }
 /**
+ * 返回封面首页。封面与工作区是两个独立页面，这里用整页跳转而不是路由，避免工作区路由接管封面地址。
+ */
+function goHome() {
+  window.location.assign('./');
+}
+/**
  * 用已保存的脚本和设置发起更新；与“保存设置”分开，避免把旧预览误认为新视频。
  */
 function updateVideo() {
@@ -248,9 +252,7 @@ async function scenario(kind: 'failure' | 'question') {
 }
 </script>
 <template>
-  <LandingPage v-if="isLanding" />
   <div
-    v-else
     ref="workspaceRoot"
     class="studio-app"
     :class="{
@@ -288,7 +290,7 @@ async function scenario(kind: 'failure' | 'question') {
       @seek="preview?.seek($event)"
       @panel="openPanel"
       @resize="sidebarExpanded = $event"
-      @home="router.push('/')"
+      @home="goHome"
       @settings="settingsOpen = true"
       @panel-drag-start="startDrag"
       @panel-drag-end="endDrag"
@@ -327,9 +329,8 @@ async function scenario(kind: 'failure' | 'question') {
       <header class="topbar">
         <a
           class="topbar-brand"
-          href="/"
+          href="./"
           aria-label="返回产品首页"
-          @click.prevent="router.push('/')"
         >
           <span class="brand-icon">
             <Icon
