@@ -1,0 +1,13 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.git/
+.venv/
+.ruff_cache/
+.husky/_/
+uv.lock
+public/media/
+docs/screenshots/

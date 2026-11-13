@@ -1,67 +1,801 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { imagePath, stageLabels, themes } from '../domain/content.ts'
-import type { Asset, Capabilities, Draft, Intent, Job, Message, Settings, VideoVersion } from '../domain/types.ts'
-import Icon from './Icon.vue'
-const props = defineProps<{ messages: Message[]; jobs: Record<string, Job>; draft: Draft | null; versions: VideoVersion[]; input: string; settings: Settings; intent: Intent; caps: Capabilities; assets: Asset[]; selectedAssets: string[]; busy: boolean; pending: boolean; uploading: { name: string; percent: number } | null; historical: boolean; demo: boolean }>()
-const emit = defineEmits<{ 'update:input': [text: string]; 'update:intent': [mode: Intent]; 'update:settings': [settings: Settings]; send: []; upload: [files: FileList | File[]]; removeAsset: [id: string]; stop: []; retry: [jobId: string]; answer: [jobId: string, value: string]; example: [text: string]; view: [versionId: string]; panel: [tab: string]; latest: [] }>()
-const scroller = ref<HTMLElement | null>(null), textarea = ref<HTMLTextAreaElement | null>(null), fileInput = ref<HTMLInputElement | null>(null)
-const nearBottom = ref(true), answers = ref<Record<string, string>>({}), dragging = ref(false)
-const hasMessages = computed(() => props.messages.length > 0)
-const attachments = computed(() => props.assets.filter(asset => props.selectedAssets.includes(asset.id)))
-const samples = [{ icon: 'coffee', theme: 'coffee', label: '店铺宣传', hint: '让你的店，被更多人看见' }, { icon: 'bag', theme: 'product', label: '产品介绍', hint: '讲好一个产品的故事' }, { icon: 'mountain', theme: 'travel', label: '旅行记录', hint: '把沿途风景，留成回忆' }] as const
-const quickEdits = ['配音再温柔一点', '第二个镜头换成咖啡特写', '让节奏更轻快']
-function scrollBottom() { if (scroller.value) scroller.value.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' }); nearBottom.value = true }
-function onScroll() { const el = scroller.value; if (el) nearBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90 }
-watch(() => [props.messages.length, props.messages.at(-1)?.text, Object.values(props.jobs).find(job => job.status === 'running')?.progress_percent], async () => { await nextTick(); if (nearBottom.value) scrollBottom() })
-function resize() { if (textarea.value) { textarea.value.style.height = 'auto'; textarea.value.style.height = `${Math.min(150, textarea.value.scrollHeight)}px` } }
-watch(() => props.input, () => nextTick(resize))
-function keydown(event: KeyboardEvent) { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); emit('send') } }
-function updateSetting(key: keyof Settings, event: Event) { const value = (event.target as HTMLSelectElement).value; emit('update:settings', { ...props.settings, [key]: key === 'target_duration_seconds' ? Number(value) : value }) }
-function version(id?: string) { return props.versions.find(item => item.id === id) }
-function jobLabel(job: Job) { return job.status === 'succeeded' ? '所有镜头，已准备就绪' : job.status === 'failed' ? '制作暂时中断' : job.status === 'cancelled' ? '本次制作已停止' : job.status === 'cancelling' ? '正在停止制作…' : job.status === 'waiting_input' ? '等你补充一个小信息' : job.current_stage ? stageLabels[job.current_stage] : '正在安排你的创作' }
-function openFile(event: Event) { const element = event.target as HTMLInputElement; const files = Array.from(element.files ?? []); if (files.length) emit('upload', files); element.value = '' }
-function drop(event: DragEvent) { dragging.value = false; if (event.dataTransfer?.files.length && !props.pending) emit('upload', event.dataTransfer.files) }
-defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.value?.click() })
+import { computed, nextTick, ref, watch } from 'vue';
+import { imagePath, stageLabels, themes } from '../domain/content.ts';
+import type {
+  Asset,
+  Capabilities,
+  Draft,
+  Intent,
+  Job,
+  Message,
+  Settings,
+  VideoVersion,
+} from '../domain/types.ts';
+import Icon from './Icon.vue';
+const props = defineProps<{
+  messages: Message[];
+  jobs: Record<string, Job>;
+  draft: Draft | null;
+  versions: VideoVersion[];
+  input: string;
+  settings: Settings;
+  intent: Intent;
+  caps: Capabilities;
+  assets: Asset[];
+  selectedAssets: string[];
+  busy: boolean;
+  pending: boolean;
+  uploading: { name: string; percent: number } | null;
+  historical: boolean;
+  demo: boolean;
+}>();
+const emit = defineEmits<{
+  'update:input': [text: string];
+  'update:intent': [mode: Intent];
+  'update:settings': [settings: Settings];
+  send: [];
+  upload: [files: FileList | File[]];
+  removeAsset: [id: string];
+  stop: [];
+  retry: [jobId: string];
+  answer: [jobId: string, value: string];
+  example: [text: string];
+  view: [versionId: string];
+  panel: [tab: string];
+  latest: [];
+}>();
+const scroller = ref<HTMLElement | null>(null),
+  textarea = ref<HTMLTextAreaElement | null>(null),
+  fileInput = ref<HTMLInputElement | null>(null);
+const nearBottom = ref(true),
+  answers = ref<Record<string, string>>({}),
+  dragging = ref(false);
+const hasMessages = computed(() => props.messages.length > 0);
+const attachments = computed(() =>
+  props.assets.filter((asset) => props.selectedAssets.includes(asset.id)),
+);
+const samples = [
+  { icon: 'coffee', theme: 'coffee', label: '店铺宣传', hint: '让你的店，被更多人看见' },
+  { icon: 'bag', theme: 'product', label: '产品介绍', hint: '讲好一个产品的故事' },
+  { icon: 'mountain', theme: 'travel', label: '旅行记录', hint: '把沿途风景，留成回忆' },
+] as const;
+const quickEdits = ['配音再温柔一点', '第二个镜头换成咖啡特写', '让节奏更轻快'];
+function scrollBottom() {
+  if (scroller.value)
+    scroller.value.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' });
+  nearBottom.value = true;
+}
+function onScroll() {
+  const el = scroller.value;
+  if (el) nearBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+}
+watch(
+  () => [
+    props.messages.length,
+    props.messages.at(-1)?.text,
+    Object.values(props.jobs).find((job) => job.status === 'running')?.progress_percent,
+  ],
+  async () => {
+    await nextTick();
+    if (nearBottom.value) scrollBottom();
+  },
+);
+function resize() {
+  if (textarea.value) {
+    textarea.value.style.height = 'auto';
+    textarea.value.style.height = `${Math.min(150, textarea.value.scrollHeight)}px`;
+  }
+}
+watch(
+  () => props.input,
+  () => nextTick(resize),
+);
+function keydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    emit('send');
+  }
+}
+function updateSetting(key: keyof Settings, event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  emit('update:settings', {
+    ...props.settings,
+    [key]: key === 'target_duration_seconds' ? Number(value) : value,
+  });
+}
+function version(id?: string) {
+  return props.versions.find((item) => item.id === id);
+}
+function jobLabel(job: Job) {
+  return job.status === 'succeeded'
+    ? '所有镜头，已准备就绪'
+    : job.status === 'failed'
+      ? '制作暂时中断'
+      : job.status === 'cancelled'
+        ? '本次制作已停止'
+        : job.status === 'cancelling'
+          ? '正在停止制作…'
+          : job.status === 'waiting_input'
+            ? '等你补充一个小信息'
+            : job.current_stage
+              ? stageLabels[job.current_stage]
+              : '正在安排你的创作';
+}
+function openFile(event: Event) {
+  const element = event.target as HTMLInputElement;
+  const files = Array.from(element.files ?? []);
+  if (files.length) emit('upload', files);
+  element.value = '';
+}
+function drop(event: DragEvent) {
+  dragging.value = false;
+  if (event.dataTransfer?.files.length && !props.pending) emit('upload', event.dataTransfer.files);
+}
+defineExpose({ focus: () => textarea.value?.focus(), attach: () => fileInput.value?.click() });
 </script>
 <template>
-  <main class="conversation" :class="{ 'is-dragging': dragging }" @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="drop">
-    <div v-if="dragging" class="drop-overlay"><Icon name="image" :size="44" /><strong>放下素材，给灵感添点画面</strong><span>支持图片、视频和音频</span></div>
-    <div v-if="hasMessages" class="conversation-intro"><span class="section-eyebrow"><span class="small-spark"><Icon name="sparkles" :size="15" /></span>创作对话</span><span>每个好故事，都从一个想法开始</span></div>
-    <div ref="scroller" class="message-scroll" :class="{ 'empty-scroll': !hasMessages }" @scroll="onScroll">
-      <section v-if="!hasMessages" class="welcome">
-        <div class="welcome-symbol"><Icon name="sparkles" :size="35" :stroke="1.2" /><span class="orbit-dot" /></div>
-        <span class="welcome-kicker">A LITTLE IDEA. A GREAT STORY.</span><h1>把灵感，<br />变成看得见的故事<span>。</span></h1><p>说说你想做什么视频，<br class="mobile-only" />让灵镜替你完成剩下的事。</p>
-        <div class="sample-cards"><button v-for="sample in samples" :key="sample.theme" @click="emit('example', themes[sample.theme].prompt); textarea?.focus()"><span class="sample-icon" :class="sample.theme"><Icon :name="sample.icon" :size="21" /></span><strong>{{ sample.label }}</strong><small>{{ sample.hint }}</small><Icon name="arrowRight" :size="16" /></button></div>
-        <span class="welcome-note"><Icon name="check" :size="14" />不需要写脚本，也不用学习剪辑</span>
+  <main
+    class="conversation"
+    :class="{ 'is-dragging': dragging }"
+    @dragover.prevent="dragging = true"
+    @dragleave.self="dragging = false"
+    @drop.prevent="drop"
+  >
+    <div
+      v-if="dragging"
+      class="drop-overlay"
+    >
+      <Icon
+        name="image"
+        :size="44"
+      />
+      <strong>放下素材，给灵感添点画面</strong>
+      <span>支持图片、视频和音频</span>
+    </div>
+    <div
+      v-if="hasMessages"
+      class="conversation-intro"
+    >
+      <span class="section-eyebrow">
+        <span class="small-spark">
+          <Icon
+            name="sparkles"
+            :size="15"
+          />
+        </span>
+        创作对话
+      </span>
+      <span>每个好故事，都从一个想法开始</span>
+    </div>
+    <div
+      ref="scroller"
+      class="message-scroll"
+      :class="{ 'empty-scroll': !hasMessages }"
+      @scroll="onScroll"
+    >
+      <section
+        v-if="!hasMessages"
+        class="welcome"
+      >
+        <div class="welcome-symbol">
+          <Icon
+            name="sparkles"
+            :size="35"
+            :stroke="1.2"
+          />
+          <span class="orbit-dot" />
+        </div>
+        <span class="welcome-kicker">A LITTLE IDEA. A GREAT STORY.</span>
+        <h1>
+          把灵感，
+          <br />
+          变成看得见的故事
+          <span>。</span>
+        </h1>
+        <p>
+          说说你想做什么视频，
+          <br class="mobile-only" />
+          让灵镜替你完成剩下的事。
+        </p>
+        <div class="sample-cards">
+          <button
+            v-for="sample in samples"
+            :key="sample.theme"
+            @click="
+              emit('example', themes[sample.theme].prompt);
+              textarea?.focus();
+            "
+          >
+            <span
+              class="sample-icon"
+              :class="sample.theme"
+            >
+              <Icon
+                :name="sample.icon"
+                :size="21"
+              />
+            </span>
+            <strong>{{ sample.label }}</strong>
+            <small>{{ sample.hint }}</small>
+            <Icon
+              name="arrowRight"
+              :size="16"
+            />
+          </button>
+        </div>
+        <span class="welcome-note">
+          <Icon
+            name="check"
+            :size="14"
+          />
+          不需要写脚本，也不用学习剪辑
+        </span>
       </section>
-      <div v-else class="message-list">
-        <article v-for="message in messages" :key="message.id" class="message" :class="message.role">
-          <template v-if="message.role === 'user'"><div class="user-bubble"><p>{{ message.text }}</p><div v-if="message.asset_ids.length" class="message-attachments"><span v-for="assetId in message.asset_ids" :key="assetId"><Icon name="attach" :size="13" />{{ assets.find(asset => asset.id === assetId)?.file_name ?? '创作素材' }}</span></div></div><span class="user-avatar">我</span></template>
-          <template v-else><span class="assistant-avatar"><Icon name="sparkles" :size="18" /></span><div class="assistant-body"><div class="assistant-name">灵镜<span>你的 AI 视频搭档</span></div><p v-if="message.text" class="assistant-text">{{ message.text }}</p><div v-else class="thinking"><i /><i /><i /><span>灵感正在酝酿</span></div>
-            <template v-for="(block, blockIndex) in message.blocks" :key="`${message.id}-${blockIndex}`">
-              <div v-if="block.type === 'plan'" class="plan-card"><div class="card-title"><span><Icon name="file" :size="16" />创作方案</span><button @click="emit('panel', 'script')">查看脚本<Icon name="chevron" :size="13" /></button></div><p>{{ block.summary }}</p><div class="plan-chips"><span><Icon name="clock" :size="12" />{{ draft?.settings.target_duration_seconds ?? 30 }} 秒</span><span><Icon name="ratio" :size="12" />{{ draft?.settings.aspect_ratio ?? '9:16' }}</span><span><Icon name="palette" :size="12" />{{ caps.styles.find(style => style.id === draft?.settings.style_id)?.name ?? '温暖治愈' }}</span></div></div>
-              <details v-else-if="block.type === 'progress' && block.job_id && jobs[block.job_id]" class="progress-card" :open="!['succeeded', 'cancelled'].includes(jobs[block.job_id]!.status)"><summary><span class="progress-title"><span v-if="jobs[block.job_id]!.status === 'succeeded'" class="success-circle"><Icon name="check" :size="13" /></span><span v-else-if="['running', 'queued', 'cancelling'].includes(jobs[block.job_id]!.status)" class="spinner" /><Icon v-else name="info" :size="17" />{{ jobLabel(jobs[block.job_id]!) }}</span><span class="progress-number">{{ jobs[block.job_id]!.progress_percent ?? '—' }}%<Icon name="down" :size="13" /></span></summary><div class="progress-track"><span :style="{ width: `${jobs[block.job_id]!.progress_percent ?? 0}%` }" /></div><div class="stage-grid"><span v-for="stage in jobs[block.job_id]!.stages" :key="stage.key" :class="stage.status"><Icon v-if="stage.status === 'succeeded'" name="check" :size="13" /><span v-else-if="stage.status === 'running'" class="stage-dot active" /><span v-else class="stage-dot" />{{ stageLabels[stage.key] }}</span></div></details>
-              <button v-else-if="block.type === 'video' && version(block.video_version_id)" class="result-card" @click="emit('view', block.video_version_id!)"><div class="result-thumbnail"><img :src="version(block.video_version_id)!.thumbnail_url" alt="视频成片封面" /><span><Icon name="play" :size="13" /></span></div><div><strong>{{ version(block.video_version_id)!.snapshot?.script?.title ?? '你的创作短片' }}</strong><span>00:30<span class="inline-dot">·</span>720p<span class="inline-dot">·</span>MP4</span><small>在右侧预览你的作品<Icon name="arrowRight" :size="12" /></small></div><span class="version-pill">v{{ version(block.video_version_id)!.version_number }}</span></button>
-              <form v-else-if="block.type === 'question' && block.job_id && jobs[block.job_id]?.question" class="question-card" @submit.prevent="emit('answer', block.job_id!, answers[block.job_id!] ?? '')"><strong>{{ jobs[block.job_id]!.question!.prompt }}</strong><input v-model="answers[block.job_id!]" aria-label="补充信息" placeholder="填写你的回答…" maxlength="5000" :disabled="pending" /><button class="button primary small" :disabled="pending || !answers[block.job_id!]?.trim()">继续制作<Icon name="arrowRight" :size="14" /></button></form>
-              <div v-else-if="block.type === 'error' && block.job_id" class="error-card"><Icon name="info" :size="17" /><div><strong>创作没有丢失</strong><p>{{ jobs[block.job_id]?.error?.message ?? '请调整需求后重新尝试。' }}</p><button v-if="jobs[block.job_id]?.error?.retryable" class="text-button" :disabled="pending || busy" @click="emit('retry', block.job_id!)"><Icon name="refresh" :size="13" />从中断处重试</button></div></div>
-            </template>
-            <button v-if="message.status === 'cancelled' && message.job_id" class="text-button" :disabled="busy || pending" @click="emit('retry', message.job_id!)"><Icon name="refresh" :size="13" />继续这次制作</button>
-          </div></template>
+      <div
+        v-else
+        class="message-list"
+      >
+        <article
+          v-for="message in messages"
+          :key="message.id"
+          class="message"
+          :class="message.role"
+        >
+          <template v-if="message.role === 'user'">
+            <div class="user-bubble">
+              <p>{{ message.text }}</p>
+              <div
+                v-if="message.asset_ids.length"
+                class="message-attachments"
+              >
+                <span
+                  v-for="assetId in message.asset_ids"
+                  :key="assetId"
+                >
+                  <Icon
+                    name="attach"
+                    :size="13"
+                  />
+                  {{ assets.find((asset) => asset.id === assetId)?.file_name ?? '创作素材' }}
+                </span>
+              </div>
+            </div>
+            <span class="user-avatar">我</span>
+          </template>
+          <template v-else>
+            <span class="assistant-avatar">
+              <Icon
+                name="sparkles"
+                :size="18"
+              />
+            </span>
+            <div class="assistant-body">
+              <div class="assistant-name">
+                灵镜
+                <span>你的 AI 视频搭档</span>
+              </div>
+              <p
+                v-if="message.text"
+                class="assistant-text"
+              >
+                {{ message.text }}
+              </p>
+              <div
+                v-else
+                class="thinking"
+              >
+                <i />
+                <i />
+                <i />
+                <span>灵感正在酝酿</span>
+              </div>
+              <template
+                v-for="(block, blockIndex) in message.blocks"
+                :key="`${message.id}-${blockIndex}`"
+              >
+                <div
+                  v-if="block.type === 'plan'"
+                  class="plan-card"
+                >
+                  <div class="card-title">
+                    <span>
+                      <Icon
+                        name="file"
+                        :size="16"
+                      />
+                      创作方案
+                    </span>
+                    <button @click="emit('panel', 'script')">
+                      查看脚本
+                      <Icon
+                        name="chevron"
+                        :size="13"
+                      />
+                    </button>
+                  </div>
+                  <p>{{ block.summary }}</p>
+                  <div class="plan-chips">
+                    <span>
+                      <Icon
+                        name="clock"
+                        :size="12"
+                      />
+                      {{ draft?.settings.target_duration_seconds ?? 30 }} 秒
+                    </span>
+                    <span>
+                      <Icon
+                        name="ratio"
+                        :size="12"
+                      />
+                      {{ draft?.settings.aspect_ratio ?? '9:16' }}
+                    </span>
+                    <span>
+                      <Icon
+                        name="palette"
+                        :size="12"
+                      />
+                      {{
+                        caps.styles.find((style) => style.id === draft?.settings.style_id)?.name ??
+                        '温暖治愈'
+                      }}
+                    </span>
+                  </div>
+                </div>
+                <details
+                  v-else-if="block.type === 'progress' && block.job_id && jobs[block.job_id]"
+                  class="progress-card"
+                  :open="!['succeeded', 'cancelled'].includes(jobs[block.job_id]!.status)"
+                >
+                  <summary>
+                    <span class="progress-title">
+                      <span
+                        v-if="jobs[block.job_id]!.status === 'succeeded'"
+                        class="success-circle"
+                      >
+                        <Icon
+                          name="check"
+                          :size="13"
+                        />
+                      </span>
+                      <span
+                        v-else-if="
+                          ['running', 'queued', 'cancelling'].includes(jobs[block.job_id]!.status)
+                        "
+                        class="spinner"
+                      />
+                      <Icon
+                        v-else
+                        name="info"
+                        :size="17"
+                      />
+                      {{ jobLabel(jobs[block.job_id]!) }}
+                    </span>
+                    <span class="progress-number">
+                      {{ jobs[block.job_id]!.progress_percent ?? '—' }}%
+                      <Icon
+                        name="down"
+                        :size="13"
+                      />
+                    </span>
+                  </summary>
+                  <div class="progress-track">
+                    <span :style="{ width: `${jobs[block.job_id]!.progress_percent ?? 0}%` }" />
+                  </div>
+                  <div class="stage-grid">
+                    <span
+                      v-for="stage in jobs[block.job_id]!.stages"
+                      :key="stage.key"
+                      :class="stage.status"
+                    >
+                      <Icon
+                        v-if="stage.status === 'succeeded'"
+                        name="check"
+                        :size="13"
+                      />
+                      <span
+                        v-else-if="stage.status === 'running'"
+                        class="stage-dot active"
+                      />
+                      <span
+                        v-else
+                        class="stage-dot"
+                      />
+                      {{ stageLabels[stage.key] }}
+                    </span>
+                  </div>
+                </details>
+                <button
+                  v-else-if="block.type === 'video' && version(block.video_version_id)"
+                  class="result-card"
+                  @click="emit('view', block.video_version_id!)"
+                >
+                  <div class="result-thumbnail">
+                    <img
+                      :src="version(block.video_version_id)!.thumbnail_url"
+                      alt="视频成片封面"
+                    />
+                    <span>
+                      <Icon
+                        name="play"
+                        :size="13"
+                      />
+                    </span>
+                  </div>
+                  <div>
+                    <strong>
+                      {{
+                        version(block.video_version_id)!.snapshot?.script?.title ?? '你的创作短片'
+                      }}
+                    </strong>
+                    <span>
+                      00:30
+                      <span class="inline-dot">·</span>
+                      720p
+                      <span class="inline-dot">·</span>
+                      MP4
+                    </span>
+                    <small>
+                      在右侧预览你的作品
+                      <Icon
+                        name="arrowRight"
+                        :size="12"
+                      />
+                    </small>
+                  </div>
+                  <span class="version-pill">
+                    v{{ version(block.video_version_id)!.version_number }}
+                  </span>
+                </button>
+                <form
+                  v-else-if="
+                    block.type === 'question' && block.job_id && jobs[block.job_id]?.question
+                  "
+                  class="question-card"
+                  @submit.prevent="emit('answer', block.job_id!, answers[block.job_id!] ?? '')"
+                >
+                  <strong>{{ jobs[block.job_id]!.question!.prompt }}</strong>
+                  <input
+                    v-model="answers[block.job_id!]"
+                    aria-label="补充信息"
+                    placeholder="填写你的回答…"
+                    maxlength="5000"
+                    :disabled="pending"
+                  />
+                  <button
+                    class="button primary small"
+                    :disabled="pending || !answers[block.job_id!]?.trim()"
+                  >
+                    继续制作
+                    <Icon
+                      name="arrowRight"
+                      :size="14"
+                    />
+                  </button>
+                </form>
+                <div
+                  v-else-if="block.type === 'error' && block.job_id"
+                  class="error-card"
+                >
+                  <Icon
+                    name="info"
+                    :size="17"
+                  />
+                  <div>
+                    <strong>创作没有丢失</strong>
+                    <p>{{ jobs[block.job_id]?.error?.message ?? '请调整需求后重新尝试。' }}</p>
+                    <button
+                      v-if="jobs[block.job_id]?.error?.retryable"
+                      class="text-button"
+                      :disabled="pending || busy"
+                      @click="emit('retry', block.job_id!)"
+                    >
+                      <Icon
+                        name="refresh"
+                        :size="13"
+                      />
+                      从中断处重试
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <button
+                v-if="message.status === 'cancelled' && message.job_id"
+                class="text-button"
+                :disabled="busy || pending"
+                @click="emit('retry', message.job_id!)"
+              >
+                <Icon
+                  name="refresh"
+                  :size="13"
+                />
+                继续这次制作
+              </button>
+            </div>
+          </template>
         </article>
-        <div v-if="!busy && versions.length && messages.at(-1)?.status === 'completed'" class="followup"><span>让作品更像你想要的样子</span><div><button v-for="text in quickEdits" :key="text" @click="emit('example', text); textarea?.focus()">{{ text }}<Icon name="plus" :size="12" /></button></div></div>
+        <div
+          v-if="!busy && versions.length && messages.at(-1)?.status === 'completed'"
+          class="followup"
+        >
+          <span>让作品更像你想要的样子</span>
+          <div>
+            <button
+              v-for="text in quickEdits"
+              :key="text"
+              @click="
+                emit('example', text);
+                textarea?.focus();
+              "
+            >
+              {{ text }}
+              <Icon
+                name="plus"
+                :size="12"
+              />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-    <button v-if="!nearBottom && hasMessages" class="new-content-button" @click="scrollBottom"><Icon name="down" :size="14" />回到最新消息</button>
+    <button
+      v-if="!nearBottom && hasMessages"
+      class="new-content-button"
+      @click="scrollBottom"
+    >
+      <Icon
+        name="down"
+        :size="14"
+      />
+      回到最新消息
+    </button>
     <div class="composer-region">
-      <div v-if="historical" class="historical-notice"><Icon name="info" :size="14" /><span>正在查看历史版本</span><button @click="emit('latest')">回到当前草稿<Icon name="arrowRight" :size="13" /></button></div>
-      <div class="composer" :class="{ disabled: historical }"><div class="composer-mode"><button :class="{ selected: intent !== 'chat' }" :disabled="busy || pending || historical" @click="emit('update:intent', versions.length ? 'revise' : 'generate')"><Icon name="sparkles" :size="14" />视频创作</button><button :class="{ selected: intent === 'chat' }" :disabled="busy || pending || historical" @click="emit('update:intent', 'chat')">仅讨论</button><span v-if="busy" class="composer-busy"><i />{{ Object.values(jobs).find(job => job.status === 'cancelling') ? '正在停止' : '正在创作' }}</span></div>
-        <div v-if="attachments.length || uploading" class="attachment-list"><span v-for="asset in attachments" :key="asset.id"><img v-if="asset.thumbnail_url" :src="asset.thumbnail_url" alt="" /><Icon v-else :name="asset.kind === 'audio' ? 'music' : 'video'" :size="15" /><span>{{ asset.file_name }}</span><button :aria-label="`移除附件 ${asset.file_name}`" @click="emit('removeAsset', asset.id)"><Icon name="close" :size="12" /></button></span><span v-if="uploading"><span class="spinner" />{{ uploading.name }} · {{ uploading.percent }}%</span></div>
-        <textarea ref="textarea" :value="input" :disabled="historical" :placeholder="intent === 'chat' ? '有什么创作问题，随时问我…' : versions.length ? '哪里想调整？继续告诉我，让作品更接近你的想象…' : '描述你的视频灵感，或上传素材让故事从这里开始…'" rows="2" maxlength="5000" aria-label="视频创作需求" @input="emit('update:input', ($event.target as HTMLTextAreaElement).value)" @keydown="keydown" />
-        <div class="composer-tools"><div class="composer-options"><button class="icon-button attach-button" aria-label="上传图片、视频或音频" :disabled="pending || historical" @click="fileInput?.click()"><Icon name="attach" :size="19" /></button><span class="tool-divider" /><label class="composer-select"><Icon name="clock" :size="14" /><select :value="settings.target_duration_seconds" aria-label="目标视频时长" :disabled="busy || pending || historical || intent === 'chat'" @change="updateSetting('target_duration_seconds', $event)"><option v-for="seconds in [15, 30, 60].filter(value => value >= caps.duration_range_seconds.min && value <= caps.duration_range_seconds.max)" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select><Icon name="down" :size="11" /></label><label class="composer-select"><Icon name="ratio" :size="14" /><select :value="settings.aspect_ratio" aria-label="视频画面比例" :disabled="busy || pending || historical || intent === 'chat'" @change="updateSetting('aspect_ratio', $event)"><option v-for="ratio in caps.aspect_ratios" :key="ratio" :value="ratio">{{ ratio === '9:16' ? '竖屏' : ratio === '16:9' ? '横屏' : '方形' }}</option></select><Icon name="down" :size="11" /></label><label class="composer-select style-select"><Icon name="palette" :size="14" /><select :value="settings.style_id" aria-label="视频风格" :disabled="busy || pending || historical || intent === 'chat'" @change="updateSetting('style_id', $event)"><option v-for="style in caps.styles" :key="style.id" :value="style.id">{{ style.name }}</option></select><Icon name="down" :size="11" /></label></div><button v-if="busy" class="send-button stop-button" :disabled="pending || Object.values(jobs).some(job => job.status === 'cancelling')" aria-label="停止生成" @click="emit('stop')"><Icon name="stop" :size="17" /></button><button v-else class="send-button" :disabled="!input.trim() || pending || !!uploading || historical" :aria-label="intent === 'chat' ? '发送消息' : versions.length ? '修改视频' : '生成视频'" @click="emit('send')"><span v-if="pending" class="spinner" /><Icon v-else name="arrowUp" :size="20" /></button></div>
+      <div
+        v-if="historical"
+        class="historical-notice"
+      >
+        <Icon
+          name="info"
+          :size="14"
+        />
+        <span>正在查看历史版本</span>
+        <button @click="emit('latest')">
+          回到当前草稿
+          <Icon
+            name="arrowRight"
+            :size="13"
+          />
+        </button>
       </div>
-      <p class="composer-footnote"><span v-if="demo"><span class="demo-dot" />演示空间 · 当前生成使用 30 秒示例素材</span><span v-else>AI 创作内容请预览确认后再使用</span><span class="keyboard-note">Enter 发送 <span>·</span> Shift + Enter 换行</span></p>
+      <div
+        class="composer"
+        :class="{ disabled: historical }"
+      >
+        <div class="composer-mode">
+          <button
+            :class="{ selected: intent !== 'chat' }"
+            :disabled="busy || pending || historical"
+            @click="emit('update:intent', versions.length ? 'revise' : 'generate')"
+          >
+            <Icon
+              name="sparkles"
+              :size="14"
+            />
+            视频创作
+          </button>
+          <button
+            :class="{ selected: intent === 'chat' }"
+            :disabled="busy || pending || historical"
+            @click="emit('update:intent', 'chat')"
+          >
+            仅讨论
+          </button>
+          <span
+            v-if="busy"
+            class="composer-busy"
+          >
+            <i />
+            {{
+              Object.values(jobs).find((job) => job.status === 'cancelling')
+                ? '正在停止'
+                : '正在创作'
+            }}
+          </span>
+        </div>
+        <div
+          v-if="attachments.length || uploading"
+          class="attachment-list"
+        >
+          <span
+            v-for="asset in attachments"
+            :key="asset.id"
+          >
+            <img
+              v-if="asset.thumbnail_url"
+              :src="asset.thumbnail_url"
+              alt=""
+            />
+            <Icon
+              v-else
+              :name="asset.kind === 'audio' ? 'music' : 'video'"
+              :size="15"
+            />
+            <span>{{ asset.file_name }}</span>
+            <button
+              :aria-label="`移除附件 ${asset.file_name}`"
+              @click="emit('removeAsset', asset.id)"
+            >
+              <Icon
+                name="close"
+                :size="12"
+              />
+            </button>
+          </span>
+          <span v-if="uploading">
+            <span class="spinner" />
+            {{ uploading.name }} · {{ uploading.percent }}%
+          </span>
+        </div>
+        <textarea
+          ref="textarea"
+          :value="input"
+          :disabled="historical"
+          :placeholder="
+            intent === 'chat'
+              ? '有什么创作问题，随时问我…'
+              : versions.length
+                ? '哪里想调整？继续告诉我，让作品更接近你的想象…'
+                : '描述你的视频灵感，或上传素材让故事从这里开始…'
+          "
+          rows="2"
+          maxlength="5000"
+          aria-label="视频创作需求"
+          @input="emit('update:input', ($event.target as HTMLTextAreaElement).value)"
+          @keydown="keydown"
+        />
+        <div class="composer-tools">
+          <div class="composer-options">
+            <button
+              class="icon-button attach-button"
+              aria-label="上传图片、视频或音频"
+              :disabled="pending || historical"
+              @click="fileInput?.click()"
+            >
+              <Icon
+                name="attach"
+                :size="19"
+              />
+            </button>
+            <span class="tool-divider" />
+            <label class="composer-select">
+              <Icon
+                name="clock"
+                :size="14"
+              />
+              <select
+                :value="settings.target_duration_seconds"
+                aria-label="目标视频时长"
+                :disabled="busy || pending || historical || intent === 'chat'"
+                @change="updateSetting('target_duration_seconds', $event)"
+              >
+                <option
+                  v-for="seconds in [15, 30, 60].filter(
+                    (value) =>
+                      value >= caps.duration_range_seconds.min &&
+                      value <= caps.duration_range_seconds.max,
+                  )"
+                  :key="seconds"
+                  :value="seconds"
+                >
+                  {{ seconds }} 秒
+                </option>
+              </select>
+              <Icon
+                name="down"
+                :size="11"
+              />
+            </label>
+            <label class="composer-select">
+              <Icon
+                name="ratio"
+                :size="14"
+              />
+              <select
+                :value="settings.aspect_ratio"
+                aria-label="视频画面比例"
+                :disabled="busy || pending || historical || intent === 'chat'"
+                @change="updateSetting('aspect_ratio', $event)"
+              >
+                <option
+                  v-for="ratio in caps.aspect_ratios"
+                  :key="ratio"
+                  :value="ratio"
+                >
+                  {{ ratio === '9:16' ? '竖屏' : ratio === '16:9' ? '横屏' : '方形' }}
+                </option>
+              </select>
+              <Icon
+                name="down"
+                :size="11"
+              />
+            </label>
+            <label class="composer-select style-select">
+              <Icon
+                name="palette"
+                :size="14"
+              />
+              <select
+                :value="settings.style_id"
+                aria-label="视频风格"
+                :disabled="busy || pending || historical || intent === 'chat'"
+                @change="updateSetting('style_id', $event)"
+              >
+                <option
+                  v-for="style in caps.styles"
+                  :key="style.id"
+                  :value="style.id"
+                >
+                  {{ style.name }}
+                </option>
+              </select>
+              <Icon
+                name="down"
+                :size="11"
+              />
+            </label>
+          </div>
+          <button
+            v-if="busy"
+            class="send-button stop-button"
+            :disabled="pending || Object.values(jobs).some((job) => job.status === 'cancelling')"
+            aria-label="停止生成"
+            @click="emit('stop')"
+          >
+            <Icon
+              name="stop"
+              :size="17"
+            />
+          </button>
+          <button
+            v-else
+            class="send-button"
+            :disabled="!input.trim() || pending || !!uploading || historical"
+            :aria-label="intent === 'chat' ? '发送消息' : versions.length ? '修改视频' : '生成视频'"
+            @click="emit('send')"
+          >
+            <span
+              v-if="pending"
+              class="spinner"
+            />
+            <Icon
+              v-else
+              name="arrowUp"
+              :size="20"
+            />
+          </button>
+        </div>
+      </div>
+      <p class="composer-footnote">
+        <span v-if="demo">
+          <span class="demo-dot" />
+          演示空间 · 当前生成使用 30 秒示例素材
+        </span>
+        <span v-else>AI 创作内容请预览确认后再使用</span>
+        <span class="keyboard-note">
+          Enter 发送
+          <span>·</span>
+          Shift + Enter 换行
+        </span>
+      </p>
     </div>
-    <input ref="fileInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav,audio/x-wav" aria-label="选择创作素材文件" tabindex="-1" @change="openFile" />
+    <input
+      ref="fileInput"
+      class="sr-only"
+      type="file"
+      multiple
+      accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav,audio/x-wav"
+      aria-label="选择创作素材文件"
+      tabindex="-1"
+      @change="openFile"
+    />
   </main>
 </template>

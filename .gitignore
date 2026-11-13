@@ -10,3 +10,6 @@ playwright-report/
 blob-report/
 coverage/
 *.tsbuildinfo
+.venv/
+.ruff_cache/
+.husky/_/

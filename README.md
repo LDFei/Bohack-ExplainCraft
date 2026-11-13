@@ -2,9 +2,13 @@
 
 黑客松的 AI 教育赛道项目。
 
-当前第一版提供「灵镜 · AI 视频创作空间」的 Vue 3 + TypeScript 前端演示。根据 [业务接口文档](docs/API.md) 和 [页面设计说明](docs/FRONTEND_DESIGN.md) 实现，暂用“灵镜”作为展示名称。
+当前第一版提供「灵镜 · AI 视频创作空间」的 Vue 3 + TypeScript 前端演示。根据
+[业务接口文档](docs/API.md) 和 [页面设计说明](docs/FRONTEND_DESIGN.md)
+实现，暂用“灵镜”作为展示名称。
 
-第一版基线使用标签 `v0.1.0` 保存，后续改造在 `develop` 分支进行。需要从第一版重新开始时，新建一个基于该标签的分支即可；具体命令见 [版本保存与重新改造](docs/VERSIONING.md)。
+第一版基线使用标签 `v0.1.0` 保存，后续改造在 `develop`
+分支进行。需要从第一版重新开始时，新建一个基于该标签的分支即可；具体命令见
+[版本保存与重新改造](docs/VERSIONING.md)。
 
 ![视频创作工作台](docs/screenshots/workspace.png)
 
@@ -19,7 +23,8 @@ npm ci
 npm run dev
 ```
 
-浏览器访问 [http://127.0.0.1:5173](http://127.0.0.1:5173)。打开首页会进入最近的项目；第一次运行会显示已完成的咖啡店案例。点击左侧“新建创作”可以从空白开始。开发服务按需启动，没有部署到外部平台。
+浏览器访问
+[http://127.0.0.1:5173](http://127.0.0.1:5173)。打开首页会进入最近的项目；第一次运行会显示已完成的咖啡店案例。点击左侧“新建创作”可以从空白开始。开发服务按需启动，没有部署到外部平台。
 
 ## 可以演示的功能
 
@@ -44,13 +49,32 @@ npm run dev
 
 ## 后续接入 Rust
 
-页面通过 `src/services/api.ts` 的 StudioApi 接口访问数据，演示服务与 HTTP 服务分开。类型定义位于 `src/domain/types.ts`，主要路径与 API.md 保持一致。
+页面通过 `src/services/api.ts` 的 StudioApi 接口访问数据，演示服务与 HTTP 服务分开。类型定义位于
+`src/domain/types.ts`，主要路径与 API.md 保持一致。
 
-复制 `.env.example` 为 `.env.local`，把 `VITE_STUDIO_MODE` 改为 `http`，配置 `VITE_API_BASE_URL`，再重启开发服务。HTTP 适配已经映射项目、消息、素材、草稿、任务、事件、视频版本和导出接口；需要后端按文档提供实际响应，登录系统随后接入。当前没有可联调的 Rust 服务，因此 HTTP 模式尚未进行端到端验收。
+复制 `.env.example` 为 `.env.local`，把 `VITE_STUDIO_MODE` 改为 `http`，配置
+`VITE_API_BASE_URL`，再重启开发服务。HTTP 适配已经映射项目、消息、素材、草稿、任务、事件、视频版本和导出接口；需要后端按文档提供实际响应，登录系统随后接入。当前没有可联调的 Rust 服务，因此 HTTP 模式尚未进行端到端验收。
 
-鉴权从登录模块写入当前会话的 `lingjing_access_token` 读取。`VITE_API_TOKEN` 只供本机开发联调，在生产构建中不读取；正式接入应改为项目登录模块提供短期令牌。
+鉴权从登录模块写入当前会话的 `lingjing_access_token` 读取。`VITE_API_TOKEN`
+只供本机开发联调，在生产构建中不读取；正式接入应改为项目登录模块提供短期令牌。
 
 HTTP 事件流使用带鉴权的 fetch，收到持久化变更后停止旧连接、重取快照，再按新游标订阅；断线时重取快照恢复。首版 HTTP 列表仅请求前 100 条，较长历史的游标翻页、逐字流式展示及真实媒体地址续期需结合后端继续联调。当前本地演示不依赖外部网络，资源全部随项目打包。
+
+## 代码格式
+
+前端、配置和文档使用 Prettier，Python 辅助脚本使用 Ruff。安装推荐编辑器扩展后，保存时自动格式化；`npm ci`
+会安装 Git 提交前的自动整理规则。
+
+整理整个项目还需要安装
+[uv](https://docs.astral.sh/uv/getting-started/installation/)，用于按 uv.lock 安装固定版本的 Python 格式工具：
+
+```bash
+npm run format
+npm run format:check
+```
+
+只修改前端时也可以分别使用 `npm run format:web` 和
+`npm run format:check:web`。详细规则与编辑器配置见 [代码格式约定](docs/FORMATTING.md)。
 
 ## 验证与构建
 
@@ -62,8 +86,12 @@ npm run test:e2e
 npm run build
 ```
 
-浏览器测试使用本机 Google Chrome。没有 Chrome 的环境可先安装 Chrome，或修改 `playwright.config.ts` 使用已安装的 Playwright Chromium。测试会在需要时启动本地开发服务。
+浏览器测试使用本机 Google Chrome。没有 Chrome 的环境可先安装 Chrome，或修改 `playwright.config.ts`
+使用已安装的 Playwright Chromium。测试会在需要时启动本地开发服务。
 
-构建结果在 `dist/`。验证生产构建可运行 `npm run preview`，访问 [http://127.0.0.1:4173](http://127.0.0.1:4173)。部署时需将 `/create` 和 `/projects/*` 等前端路由回退到 index.html。
+构建结果在 `dist/`。验证生产构建可运行 `npm run preview`，访问
+[http://127.0.0.1:4173](http://127.0.0.1:4173)。部署时需将 `/create` 和 `/projects/*`
+等前端路由回退到 index.html。
 
-页面截图：[完整工作台](docs/screenshots/workspace.png)、[新建创作](docs/screenshots/new-creation.png)、[手机作品预览](docs/screenshots/mobile.png)。素材来源见 [MEDIA_SOURCES.md](docs/MEDIA_SOURCES.md)。
+页面截图：[完整工作台](docs/screenshots/workspace.png)、[新建创作](docs/screenshots/new-creation.png)、[手机作品预览](docs/screenshots/mobile.png)。素材来源见
+[MEDIA_SOURCES.md](docs/MEDIA_SOURCES.md)。
