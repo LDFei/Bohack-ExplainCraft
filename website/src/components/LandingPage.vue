@@ -107,23 +107,21 @@ onBeforeUnmount(() => {
           <div class="hero-copy">
             <span class="hero-eyebrow">
               <span />
-              给每一个想法，一个好镜头
+              用骰子讲概率，用一束光讲相对论
             </span>
             <h1 id="hero-title">
-              让灵感，
+              再难的概念，
               <br />
-              <span>有声，有画。</span>
+              <span>也能讲得有趣。</span>
             </h1>
             <p class="hero-description">
-              从一句想法到一段故事。
+              不是把课件念一遍，
               <br />
-              在同一个创作空间，打磨脚本、安排声音，
-              <br class="hero-desktop-break" />
-              让每一个镜头慢慢成形。
+              而是把抽象的概念，变成让人愿意看下去的画面。
             </p>
             <div class="hero-actions">
               <a :href="DOWNLOAD_URL" class="button primary hero-cta">
-                立即下载
+                立即体验
                 <Icon name="arrowRight" :size="17" />
               </a>
               <button class="hero-watch" @click="openPreview">
@@ -135,7 +133,7 @@ onBeforeUnmount(() => {
             </div>
             <p class="hero-demo-note">
               <Icon name="info" :size="12" />
-              桌面创作应用 · 项目与生成文件保存在本机
+              桌面应用 · 交互式创作 · 随时改、随时导出
             </p>
           </div>
           <div class="hero-product" aria-label="ExplainCraft 工作台示例">
@@ -254,8 +252,8 @@ onBeforeUnmount(() => {
           <div>
             <span class="section-kicker">A COMPLETE CREATIVE SPACE</span>
             <h2 id="features-title">
-              <span>故事的每一步，</span>
-              <span>都在这里。</span>
+              <span>一支让人想学的片，</span>
+              <span>长这样。</span>
             </h2>
           </div>
           <p>
@@ -437,8 +435,8 @@ onBeforeUnmount(() => {
         <div>
           <span class="section-kicker">FROM IDEA TO STORY</span>
           <h2 id="workflow-title">
-            <span>创作可以复杂，</span>
-            <span>开始可以简单。</span>
+            <span>三个动作，</span>
+            <span>把知识变成视频。</span>
           </h2>
         </div>
         <ol>
