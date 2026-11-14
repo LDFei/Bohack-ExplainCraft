@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 外观选择只修改全局设计变量，四套小样直接复用各自的主题 Tokens。 */
+/** 外观选择只修改全局设计变量，六套小样直接复用各自的主题 Tokens。 */
 import { ref } from "vue";
 import {
   DEFAULT_THEME,
@@ -50,7 +50,7 @@ function navigateTheme(event: KeyboardEvent, index: number) {
   <Modal
     :open="open"
     title="给创作空间，换一种心情"
-    subtitle="选择你喜欢的外观，让每个镜头都看得更清楚。"
+    subtitle="选一个舒服的外观，立即生效。"
     wide
     @close="open = false"
   >
@@ -84,7 +84,7 @@ function navigateTheme(event: KeyboardEvent, index: number) {
             </div>
             <div class="mini-main">
               <div class="mini-canvas">
-                <img :src="mediaUrl('coffee-brew.jpg')" alt="" />
+                <img :src="mediaUrl('rel-thumb-1.jpg')" alt="" />
                 <span />
               </div>
               <div class="mini-tracks">

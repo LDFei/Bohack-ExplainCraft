@@ -81,12 +81,12 @@ onBeforeUnmount(() => {
         <span>
           Explain
           <span class="brand-light">Craft</span>
-          <small>IDEAS INTO MOTION</small>
+          <small>KNOWLEDGE INTO MOTION</small>
         </span>
       </a>
       <nav aria-label="首页导航">
-        <a href="#features">创作能力</a>
-        <a href="#workflow">工作流程</a>
+        <a href="#features">能做什么</a>
+        <a href="#workflow">怎么用</a>
         <a :href="DOWNLOAD_URL">
           立即下载
           <Icon name="arrowRight" :size="14" />
@@ -107,23 +107,21 @@ onBeforeUnmount(() => {
           <div class="hero-copy">
             <span class="hero-eyebrow">
               <span />
-              给每一个想法，一个好镜头
+              用骰子讲概率，用一束光讲相对论
             </span>
             <h1 id="hero-title">
-              让灵感，
+              再难的概念，
               <br />
-              <span>有声，有画。</span>
+              <span>也能讲得有趣。</span>
             </h1>
             <p class="hero-description">
-              从一句想法到一段故事。
+              不是把课件念一遍，
               <br />
-              在同一个创作空间，打磨脚本、安排声音，
-              <br class="hero-desktop-break" />
-              让每一个镜头慢慢成形。
+              而是把抽象的概念，变成让人愿意看下去的画面。
             </p>
             <div class="hero-actions">
               <a :href="DOWNLOAD_URL" class="button primary hero-cta">
-                立即下载
+                立即体验
                 <Icon name="arrowRight" :size="17" />
               </a>
               <button class="hero-watch" @click="openPreview">
@@ -135,7 +133,7 @@ onBeforeUnmount(() => {
             </div>
             <p class="hero-demo-note">
               <Icon name="info" :size="12" />
-              桌面创作应用 · 项目与生成文件保存在本机
+              桌面应用 · 交互式创作 · 随时改、随时导出
             </p>
           </div>
           <div class="hero-product" aria-label="ExplainCraft 工作台示例">
@@ -159,18 +157,18 @@ onBeforeUnmount(() => {
               </div>
               <div class="product-stage">
                 <div class="product-stage-heading">
-                  <span>咖啡店的温柔早晨</span>
+                  <span>一束光，讲清楚相对论</span>
                   <span>16:9 · 30s</span>
                 </div>
                 <button
                   class="product-video-button"
-                  aria-label="预览咖啡店示例视频"
+                  aria-label="预览相对论示例视频"
                   @click="openPreview"
                 >
                   <video
                     ref="heroVideo"
-                    :src="mediaUrl('coffee-16x9.mp4')"
-                    :poster="mediaUrl('coffee-shop.jpg')"
+                    :src="mediaUrl('relativity-card.mp4')"
+                    :poster="mediaUrl('relativity-spacetime.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -179,10 +177,6 @@ onBeforeUnmount(() => {
                     preload="metadata"
                     aria-hidden="true"
                   />
-                  <span class="product-film-title">
-                    <small>A LITTLE MOMENT, A GOOD STORY</small>
-                    一杯咖啡的慢时光
-                  </span>
                   <span class="product-play">
                     <Icon name="play" :size="19" />
                   </span>
@@ -201,10 +195,10 @@ onBeforeUnmount(() => {
                     <span>视频</span>
                     <i
                       v-for="image in [
-                        'coffee-shop',
-                        'coffee-brew',
-                        'coffee-cup',
-                        'coffee-detail',
+                        'rel-thumb-1',
+                        'rel-thumb-2',
+                        'rel-thumb-3',
+                        'rel-thumb-4',
                       ]"
                       :key="image"
                     >
@@ -229,17 +223,17 @@ onBeforeUnmount(() => {
                 <Icon name="sparkles" :size="17" />
               </span>
               <div>
-                <strong>你的故事，由你定义。</strong>
-                <p>“第二个镜头换成咖啡特写，节奏再慢一点。”</p>
+                <strong>你的讲解，由你定义。</strong>
+                <p>“第二个镜头停在光速那一帧，节奏再慢一点。”</p>
               </div>
               <Icon name="arrowUp" :size="16" />
             </div>
           </div>
         </div>
         <div class="hero-bottom">
-          <span>从灵感出发，按你的节奏创作。</span>
+          <span>从一个知识点开始。</span>
           <a href="#features">
-            探索创作可能
+            看看能做什么
             <Icon name="down" :size="13" />
           </a>
           <span>01 — EXPLAINCRAFT STUDIO</span>
@@ -252,29 +246,29 @@ onBeforeUnmount(() => {
       >
         <div class="landing-section-heading">
           <div>
-            <span class="section-kicker">A COMPLETE CREATIVE SPACE</span>
+            <span class="section-kicker">BUILT FOR EXPLAINING</span>
             <h2 id="features-title">
-              <span>故事的每一步，</span>
-              <span>都在这里。</span>
+              <span>一支让人想学的片，</span>
+              <span>长这样。</span>
             </h2>
           </div>
           <p>
-            把分散的创作步骤，放回同一个空间。
+            先想清楚讲什么，
             <br />
-            先把想法表达清楚，再逐个打磨细节。
+            再让画面跟上。
           </p>
         </div>
         <BentoGrid>
           <BentoGridItem
-            title="AI 脚本生成"
-            description="写下一句想法，由创作方案生成分镜脚本。文案可编辑，镜头可继续调整。"
+            title="讲清知识点"
+            description="说出知识点，生成分镜脚本；文案和镜头都能改。"
             wide
           >
             <template #header>
               <div class="feature-script">
                 <div class="script-prompt">
                   <Icon name="sparkles" :size="14" />
-                  帮我做一个温暖的咖啡店短片。
+                  用一束光，讲清楚相对论。
                   <span>↵</span>
                 </div>
                 <div class="script-result">
@@ -285,9 +279,9 @@ onBeforeUnmount(() => {
                   </span>
                   <div
                     v-for="(line, index) in [
-                      '城市醒来之前，先留一点时间给自己。',
-                      '听水流与咖啡相遇，让熟悉的香气慢慢散开。',
-                      '一杯刚刚好的温度，装下生活的小小美好。',
+                      '光速对谁都不变。',
+                      '运动越快，时间走得越慢。',
+                      '引力，是时空的弯曲。',
                     ]"
                     :key="line"
                   >
@@ -309,7 +303,7 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="语音合成与配乐"
+            title="配好声音"
             description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
           >
             <template #header>
@@ -317,7 +311,7 @@ onBeforeUnmount(() => {
                 <div class="audio-avatar">
                   <Icon name="mic" :size="23" />
                 </div>
-                <span>为故事，找到合适的声音。</span>
+                <span>为讲解，配上合适的声音。</span>
                 <div class="feature-wave">
                   <i
                     v-for="bar in 42"
@@ -349,15 +343,15 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="动态视频生成"
+            title="生成画面"
             description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
           >
             <template #header>
               <div class="feature-motion">
                 <video
                   ref="motionVideo"
-                  :src="mediaUrl('travel-16x9.mp4')"
-                  :poster="mediaUrl('travel-mountain.jpg')"
+                  :src="mediaUrl('relativity-card.mp4')"
+                  :poster="mediaUrl('relativity-spacetime.jpg')"
                   :autoplay="!reducedMotion"
                   muted
                   loop
@@ -369,7 +363,7 @@ onBeforeUnmount(() => {
                   <Icon name="video" :size="12" />
                   本地动态示例
                 </span>
-                <small>去山野，找回自己</small>
+                <small>一束光，讲清楚相对论</small>
               </div>
             </template>
             <template #icon>
@@ -383,18 +377,21 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="视频预览与导出"
-            description="在时间轴上浏览镜头，切换版本，预览声音与画面，再把确认好的作品导出为 MP4。"
+            title="预览导出"
+            description="按镜头预览、切换版本，满意后导出 MP4。"
             wide
           >
             <template #header>
               <div class="feature-preview">
                 <div class="preview-example">
-                  <img :src="mediaUrl('coffee-cup.jpg')" alt="咖啡店示例画面" />
+                  <img
+                    :src="mediaUrl('relativity-spacetime.jpg')"
+                    alt="相对论示例画面"
+                  />
                   <button aria-label="播放预览示例" @click="openPreview">
                     <Icon name="play" :size="18" />
                   </button>
-                  <span>一杯咖啡的慢时光</span>
+                  <span>一束光，讲清楚相对论</span>
                 </div>
                 <div class="feature-export">
                   <span>
@@ -435,32 +432,32 @@ onBeforeUnmount(() => {
         aria-labelledby="workflow-title"
       >
         <div>
-          <span class="section-kicker">FROM IDEA TO STORY</span>
+          <span class="section-kicker">FROM KNOWLEDGE TO VIDEO</span>
           <h2 id="workflow-title">
-            <span>创作可以复杂，</span>
-            <span>开始可以简单。</span>
+            <span>三个动作，</span>
+            <span>把知识变成视频。</span>
           </h2>
         </div>
         <ol>
           <li>
             <span>01</span>
             <div>
-              <h3>说出你的想法</h3>
-              <p>一句话、一个主题，或一份自己的素材。</p>
+              <h3>说清知识点</h3>
+              <p>一句话，或一份资料。</p>
             </div>
           </li>
           <li>
             <span>02</span>
             <div>
-              <h3>一起打磨细节</h3>
-              <p>查看脚本与镜头，通过对话继续调整。</p>
+              <h3>边看边改</h3>
+              <p>脚本、分镜，用对话调整。</p>
             </div>
           </li>
           <li>
             <span>03</span>
             <div>
-              <h3>预览，再带走</h3>
-              <p>确认当前版本，下载或导出你的作品。</p>
+              <h3>预览后导出</h3>
+              <p>满意了，导出 MP4。</p>
             </div>
           </li>
         </ol>
@@ -475,8 +472,8 @@ onBeforeUnmount(() => {
         <Icon name="aperture" :size="21" />
         ExplainCraft
       </a>
-      <span>给灵感一个镜头。</span>
-      <p>Rust + Tauri 桌面应用 · 本地项目与可恢复制作任务</p>
+      <span>把知识，讲给更多人听。</span>
+      <p>桌面应用 · 本地保存 · 断点续做</p>
       <a :href="DOWNLOAD_URL">
         立即下载
         <Icon name="arrowRight" :size="12" />
@@ -484,7 +481,7 @@ onBeforeUnmount(() => {
     </footer>
     <Modal
       :open="previewOpen"
-      title="一杯咖啡的慢时光"
+      title="一束光，讲清楚相对论"
       subtitle="内置示例成片 · 30 秒 · 720p MP4"
       wide
       @close="closePreview"
@@ -492,7 +489,7 @@ onBeforeUnmount(() => {
       <video
         ref="player"
         class="landing-modal-video"
-        :src="mediaUrl('coffee-16x9.mp4')"
+        :src="mediaUrl('relativity-16x9.mp4')"
         controls
         autoplay
         playsinline

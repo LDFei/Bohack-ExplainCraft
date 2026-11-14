@@ -81,6 +81,46 @@
   --success: #39786c;
   --danger: #ae4969;
 }
+[data-theme="forest"] {
+  --bg: #f5f2ea;
+  --surface: #fcfaf4;
+  --surface-raised: #fffefb;
+  --surface-hover: #ebe6da;
+  --surface-input: #fffefb;
+  --canvas-bg: #e7e2d5;
+  --rail-bg: #f0ece1;
+  --text: #22302a;
+  --secondary: #55665c;
+  --muted: #6b7b71;
+  --line: #ddd7c8;
+  --line-subtle: #ece7da;
+  --accent: #2f5a4a;
+  --accent-hover: #24493c;
+  --accent-soft: #e3ece6;
+  --accent-secondary: #8a7b5c;
+  --success: #4a7a5c;
+  --danger: #a8444c;
+}
+[data-theme="glass"] {
+  --bg: #f7f9fc;
+  --surface: #fdfeff;
+  --surface-raised: #ffffff;
+  --surface-hover: #edf3fa;
+  --surface-input: #ffffff;
+  --canvas-bg: #e8eff7;
+  --rail-bg: #f1f6fb;
+  --text: #17232e;
+  --secondary: #4e6070;
+  --muted: #66788a;
+  --line: #e0e8f1;
+  --line-subtle: #edf2f8;
+  --accent: #4a86b8;
+  --accent-hover: #3a719f;
+  --accent-soft: #e8f2fa;
+  --accent-secondary: #7e8fa6;
+  --success: #3f7a63;
+  --danger: #a8444c;
+}
 /* 派生色在每个主题作用域内计算，弹窗和主题小样都能获得一致的分层与对比。 */
 :root,
 [data-theme] {

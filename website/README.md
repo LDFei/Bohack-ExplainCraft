@@ -1,7 +1,7 @@
 # ExplainCraft 官网
 
 独立的静态产品网站，与 `front/` 的 Tauri 工作台分离。只包含 Vue 页面、样式和
-`shared/public/media/` 中的本地示例，不加载任何后端接口。
+`website/public/media/` 中的本地示例，不加载任何后端接口；目录自身即可独立构建与发布。
 
 ```bash
 npm ci

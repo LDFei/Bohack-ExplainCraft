@@ -1467,3 +1467,62 @@
   display: inline-block;
   white-space: nowrap;
 }
+
+/* 鐜荤拑钃濅富棰橈細鍐风櫧椤甸潰 + 娣¤摑鍏夋檿 + 鍗婇€忔槑闈㈡澘锛岃銆岀幓鐠冦€嶇湡鐨勬垚绔嬭€屼笉鍙槸钃濊壊銆?*/
+[data-theme="glass"] .landing-page {
+  background:
+    radial-gradient(
+      52% 42% at 76% 14%,
+      rgba(120, 178, 226, 0.36),
+      transparent 68%
+    ),
+    radial-gradient(
+      46% 38% at 12% 4%,
+      rgba(168, 210, 240, 0.32),
+      transparent 70%
+    ),
+    radial-gradient(
+      60% 50% at 62% 96%,
+      rgba(96, 152, 205, 0.24),
+      transparent 72%
+    ),
+    linear-gradient(180deg, #f9fcff, #eef5fb);
+  background-attachment: fixed;
+}
+[data-theme="glass"] .hero-product,
+[data-theme="glass"] .ac-bento-item {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.72),
+    rgba(255, 255, 255, 0.4)
+  );
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 24px 60px -30px rgba(36, 96, 150, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 0 0 1px rgba(122, 182, 226, 0.16);
+}
+[data-theme="glass"] .landing-page .button.primary {
+  background: linear-gradient(
+    180deg,
+    rgba(126, 186, 228, 0.96),
+    rgba(74, 134, 184, 0.96)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 12px 26px -12px rgba(74, 134, 184, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+}
+[data-theme="glass"] .landing-page .button.primary:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    rgba(138, 196, 234, 0.98),
+    rgba(60, 118, 168, 0.98)
+  );
+}
+[data-theme="glass"] #hero-title span {
+  text-shadow: 0 0 28px rgba(120, 178, 226, 0.35);
+}

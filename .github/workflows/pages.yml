@@ -3,10 +3,9 @@ name: Deploy website to GitHub Pages
 on:
   push:
     branches: [main]
-    # 前端源码或其部署配置变化时重新发布，Rust 后端改动不触发。
+    # 官网自包含在 website/ 下；Rust 后端与桌面端改动不会触发官网发布。
     paths:
       - "website/**"
-      - "shared/public/media/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
