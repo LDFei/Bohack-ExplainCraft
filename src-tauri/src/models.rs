@@ -18,10 +18,10 @@ pub enum StageKey {
     Script,
     /// 分镜：景别、运镜、画面内容与时长（llm1）。
     Storyboard,
-    /// 拍摄筹备：为每个镜头准备 SVG 动画（llm1）。
-    Visuals,
     /// 音频：背景音乐（llm3）与配音（llm4）。
     Audio,
+    /// 拍摄筹备：按配音的真实长度，为每个镜头准备 SVG 动画（llm1）。
+    Visuals,
     /// 剪辑：转场、字幕、音画对齐（llm1 生成剪辑方案）。
     Edit,
     /// 调色与特效：应用用户选择的预设。
@@ -36,8 +36,8 @@ impl StageKey {
         StageKey::Planning,
         StageKey::Script,
         StageKey::Storyboard,
-        StageKey::Visuals,
         StageKey::Audio,
+        StageKey::Visuals,
         StageKey::Edit,
         StageKey::Finishing,
         StageKey::Render,

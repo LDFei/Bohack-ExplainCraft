@@ -4,7 +4,7 @@
 /** 任务生命周期。queued/running/waiting_input/cancelling 占用项目，其他三种状态表示任务已结束。 */
 export type JobStatus =
   'queued' | 'running' | 'waiting_input' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled';
-/** 制作阶段的稳定标识，对应 content.ts 的中文阶段名称；真实后端可以并行准备画面和音频。 */
+/** 制作阶段的稳定标识，对应 content.ts 的中文阶段名称；配音先生成，画面再按配音长度生成。 */
 export type StageKey =
   'planning' | 'script' | 'storyboard' | 'visuals' | 'audio' | 'edit' | 'finishing' | 'render';
 /** 消息意图：generate 首次制作，revise 修改已有成片，chat 只讨论而不生成。 */

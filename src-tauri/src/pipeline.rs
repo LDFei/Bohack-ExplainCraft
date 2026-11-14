@@ -104,7 +104,8 @@ fn duration_exceeds_limit(text: &str) -> bool {
 
 #[cfg(test)]
 mod duration_tests {
-    use super::{duration_exceeds_limit, requested_duration_seconds};
+    use super::{duration_exceeds_limit, narration_key, requested_duration_seconds};
+    use crate::models::{AudioSettings, Shot};
 
     #[test]
     fn honors_explicit_duration_and_rejects_overlong_requests() {
@@ -113,6 +114,35 @@ mod duration_tests {
         assert_eq!(requested_duration_seconds("请做301秒的视频"), None);
         assert!(duration_exceeds_limit("请做301秒的视频"));
         assert!(!duration_exceeds_limit("请做300秒的视频"));
+    }
+
+    /// 镜头时长由配音反向决定，不能参与配音复用指纹，否则会自己让指纹失效。
+    #[test]
+    fn narration_key_ignores_the_shot_duration() {
+        let shot = |duration_ms| Shot {
+            id: "shot".into(),
+            duration_ms,
+            narration: "一句话".into(),
+            visual_prompt: String::new(),
+            shot_size: String::new(),
+            camera_motion: String::new(),
+            asset_ids: vec![],
+            thumbnail_url: None,
+        };
+        let audio = AudioSettings {
+            voice_id: "bella".into(),
+            speech_rate: 1.0,
+            music_mode: "auto".into(),
+            music_id: None,
+            music_asset_id: None,
+            resolved_music_asset_id: None,
+            narration_volume: 1.0,
+            music_volume: 0.2,
+        };
+        assert_eq!(
+            narration_key(&shot(3300), &audio, "zh-CN"),
+            narration_key(&shot(9100), &audio, "zh-CN")
+        );
     }
 }
 
@@ -126,14 +156,15 @@ fn provider_error(stage: StageKey, error: ProviderError) -> Stop {
     })
 }
 
-/// 配音指纹：旁白、音色、语速、语言、时长都相同时可以复用已生成的配音。
+/// 配音指纹：旁白、音色、语速、语言都相同时可以复用已生成的配音。
 ///
+/// 镜头时长反过来由配音长度决定，因此不参与指纹，避免复用判断自我引用。
 /// 只取 SHA-256 的前 12 字节，足以区分同一镜头的不同版本。
 fn narration_key(shot: &Shot, audio: &AudioSettings, language: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!(
-        "{}|{}|{}|{}|{}",
-        shot.narration, audio.voice_id, audio.speech_rate, language, shot.duration_ms
+        "{}|{}|{}|{}",
+        shot.narration, audio.voice_id, audio.speech_rate, language
     ));
     hex::encode(&hasher.finalize()[..12])
 }
@@ -602,98 +633,28 @@ impl Runner {
             self.apply_attachments(&mut draft, &mut input)?;
         }
 
-        // 4. SVG 画面（llm1）与 5. 音频（llm3 + llm4）并行
+        // 4. 音频（llm4 配音 + llm3 背景音乐）
+        //    一段画面配一段配音：先出配音，再由配音的真实长度决定每段画面多长。
         let ctx = context(&draft, &input);
-        // 有失效标记，或有镜头还没有画面，才需要准备画面。
-        let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
-            || draft.shots.iter().any(|s| s.asset_ids.is_empty());
-        // 有失效标记、任一镜头的配音指纹变化、或需要音乐但还没解析出来，才需要准备音频。
         let need_audio = draft.invalidated_stages.contains(&StageKey::Audio)
             || draft.shots.iter().any(|s| {
                 artifacts.narration.get(&s.id).map(|n| n.key.as_str())
                     != Some(narration_key(s, &draft.audio, &draft.settings.language).as_str())
             })
             || (draft.audio.music_mode != "none" && draft.audio.resolved_music_asset_id.is_none());
-        let mut running = vec![];
-        if need_visuals {
-            running.push(StageKey::Visuals);
-        } else {
-            self.set_stage(&[StageKey::Visuals], "skipped", None)?;
-        }
         if need_audio {
-            running.push(StageKey::Audio);
-        } else {
-            self.set_stage(&[StageKey::Audio], "skipped", None)?;
-        }
-        if !running.is_empty() {
-            self.set_stage(&running, "running", None)?;
-        }
-        let visuals = async {
-            if !need_visuals {
-                return Ok(vec![]);
-            }
-            let r = self.prepare_visuals(&project_id, &ctx, &draft).await;
-            if r.is_ok() {
-                self.set_stage(&[StageKey::Visuals], "succeeded", Some("画面已就绪"))?;
-            }
-            r
-        };
-        let audio = async {
-            if !need_audio {
-                return Ok((vec![], None, false));
-            }
-            let r = self
+            self.set_stage(&[StageKey::Audio], "running", None)?;
+            let (narrations, music, music_changed) = self
                 .prepare_audio(&project_id, &ctx, &draft, &artifacts)
-                .await;
-            if r.is_ok() {
-                self.set_stage(&[StageKey::Audio], "succeeded", Some("配音与音乐已就绪"))?;
-            }
-            r
-        };
-        // 画面与音频互不依赖，并行执行；任一失败时整体失败，已完成的那一路产物不提交，重试时重新生成。
-        let (visuals, audio) = tokio::join!(visuals, audio);
-        let visuals = visuals?;
-        let (narrations, music, music_changed) = match audio {
-            Ok(audio) => audio,
-            Err(stop) => {
-                // 音频失败时先保存已经生成好的画面：云端文生图有成本，重试只补缺的部分。
-                if !visuals.is_empty() {
-                    for (shot_id, asset) in &visuals {
-                        if let Some(shot) = draft.shots.iter_mut().find(|s| &s.id == shot_id) {
-                            shot.asset_ids = vec![asset.asset.id.clone()];
-                        }
-                    }
-                    draft.invalidated_stages.retain(|s| *s != StageKey::Visuals);
-                    let saved_draft = draft.clone();
-                    let assets: Vec<AssetRow> =
-                        visuals.into_iter().map(|(_, asset)| asset).collect();
-                    self.guarded(move |t, job, project| {
-                        for asset in &assets {
-                            db::insert_asset(t, asset)?;
-                        }
-                        Self::save_draft(t, job, project, &saved_draft)?;
-                        ops::emit_job_updated(t, &job.job, "画面已保存")
-                    })?;
-                }
-                return Err(stop);
-            }
-        };
-        if need_visuals || need_audio {
+                .await?;
             let mut new_assets: Vec<AssetRow> = vec![];
-            for (shot_id, asset) in visuals {
-                if let Some(shot) = draft.shots.iter_mut().find(|s| s.id == shot_id) {
-                    shot.asset_ids = vec![asset.asset.id.clone()];
-                }
-                new_assets.push(asset);
-            }
             for (shot_id, key, asset) in narrations {
-                let duration = asset.asset.duration_ms.unwrap_or_default();
                 artifacts.narration.insert(
                     shot_id,
                     NarrationArtifact {
                         asset_id: asset.asset.id.clone(),
                         key,
-                        duration_ms: duration,
+                        duration_ms: asset.asset.duration_ms.unwrap_or_default(),
                     },
                 );
                 new_assets.push(asset);
@@ -709,9 +670,8 @@ impl Runner {
                     None => None,
                 };
             }
-            draft
-                .invalidated_stages
-                .retain(|s| *s != StageKey::Visuals && *s != StageKey::Audio);
+            draft.invalidated_stages.retain(|s| *s != StageKey::Audio);
+            // 音频产物先落库：画面阶段失败重试时不必重新合成配音。
             let (saved_draft, saved_artifacts) = (draft.clone(), artifacts.clone());
             self.guarded(move |t, job, project| {
                 for asset in &new_assets {
@@ -719,8 +679,64 @@ impl Runner {
                 }
                 project.artifacts = saved_artifacts;
                 Self::save_draft(t, job, project, &saved_draft)?;
-                ops::emit_job_updated(t, &job.job, "画面与声音已就绪")
+                ops::emit_job_updated(t, &job.job, "配音与音乐已就绪")
             })?;
+            self.set_stage(&[StageKey::Audio], "succeeded", Some("配音与音乐已就绪"))?;
+        } else {
+            self.set_stage(&[StageKey::Audio], "skipped", None)?;
+        }
+
+        // 配音的实际长度就是这一段的长度（句尾留一点呼吸）；
+        // 各镜头因此不等长，成片总时长也不强行对齐目标时长。
+        let mut retimed = false;
+        for shot in draft.shots.iter_mut() {
+            let Some(narration) = artifacts.narration.get(&shot.id) else {
+                continue;
+            };
+            if narration.duration_ms <= 0 {
+                continue;
+            }
+            let duration = narration.duration_ms + NARRATION_TAIL_MS;
+            if shot.duration_ms != duration {
+                shot.duration_ms = duration;
+                retimed = true;
+            }
+        }
+        if retimed {
+            let saved_draft = draft.clone();
+            self.guarded(move |t, job, project| Self::save_draft(t, job, project, &saved_draft))?;
+        }
+
+        // 5. 画面（llm1）：按当前的镜头长度生成 SVG 动画。
+        //    配音长度变了（换音色/语速/改文案）时，清掉旧画面按新长度重画。
+        self.clear_retimed_visuals(&mut draft)?;
+        let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
+            || draft.shots.iter().any(|s| s.asset_ids.is_empty());
+        if need_visuals {
+            self.set_stage(&[StageKey::Visuals], "running", None)?;
+            let visuals = self.prepare_visuals(&project_id, &ctx, &draft).await?;
+            let mut new_assets: Vec<AssetRow> = vec![];
+            for (shot_id, cut_index, asset) in visuals {
+                if let Some(shot) = draft.shots.iter_mut().find(|s| s.id == shot_id) {
+                    if shot.asset_ids.len() <= cut_index {
+                        shot.asset_ids.resize(cut_index + 1, String::new());
+                    }
+                    shot.asset_ids[cut_index] = asset.asset.id.clone();
+                }
+                new_assets.push(asset);
+            }
+            draft.invalidated_stages.retain(|s| *s != StageKey::Visuals);
+            let saved_draft = draft.clone();
+            self.guarded(move |t, job, project| {
+                for asset in &new_assets {
+                    db::insert_asset(t, asset)?;
+                }
+                Self::save_draft(t, job, project, &saved_draft)?;
+                ops::emit_job_updated(t, &job.job, "画面已就绪")
+            })?;
+            self.set_stage(&[StageKey::Visuals], "succeeded", Some("画面已就绪"))?;
+        } else {
+            self.set_stage(&[StageKey::Visuals], "skipped", None)?;
         }
 
         // 6. 剪辑方案（llm1）
@@ -927,36 +943,107 @@ impl Runner {
         Ok(())
     }
 
-    /// llm1：为没有画面的镜头生成 SVG 动画（用户上传的素材保留）。
+    /// 配音长度变了以后，之前按旧长度生成的画面就不对了：清掉，让画面按新长度重画。
+    ///
+    /// 只处理我们生成的视频画面；用户上传的素材保持原样，不因为时长差异被替换。
+    fn clear_retimed_visuals(&self, draft: &mut Draft) -> Step<()> {
+        let ids: Vec<String> = draft
+            .shots
+            .iter()
+            .filter_map(|shot| shot.asset_ids.first().cloned())
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let rows: HashMap<String, AssetRow> = self
+            .state
+            .db
+            .read(|conn| {
+                let mut rows = HashMap::new();
+                for id in &ids {
+                    if let Some(row) = db::load_asset(conn, id)? {
+                        rows.insert(id.clone(), row);
+                    }
+                }
+                Ok(rows)
+            })
+            .map_err(Stop::from)?;
+        for shot in draft.shots.iter_mut() {
+            if shot.asset_ids.is_empty() {
+                continue;
+            }
+            // 用户上传的素材保持原样。
+            let Some(first) = shot.asset_ids.first().and_then(|id| rows.get(id)) else {
+                continue;
+            };
+            if first.asset.source != "generated" || first.asset.kind != "video" {
+                continue;
+            }
+            let cuts = cut_count(shot.duration_ms);
+            let durations = cut_durations(shot.duration_ms, cuts);
+            let stale = shot.asset_ids.len() != cuts
+                || shot.asset_ids.iter().zip(&durations).any(|(id, wanted)| {
+                    rows.get(id)
+                        .and_then(|row| row.asset.duration_ms)
+                        .is_none_or(|actual| (actual - wanted).abs() > 150)
+                });
+            if stale {
+                shot.asset_ids.clear();
+            }
+        }
+        Ok(())
+    }
+
+    /// llm1：为每个镜头生成它的画面切点（长旁白切成多段画面；用户上传的素材保留）。
+    ///
+    /// 一个镜头的旁白有多长，就按 [`cut_count`] 切几个画面；每个切点单独生成、单独渲染，
+    /// 返回 (镜头 ID, 切点序号, 素材)，由调用方按序号写回 `shot.asset_ids`。
     async fn prepare_visuals(
         &self,
         project_id: &str,
         ctx: &ProductionContext,
         draft: &Draft,
-    ) -> Step<Vec<(String, AssetRow)>> {
+    ) -> Step<Vec<(String, usize, AssetRow)>> {
         let count = draft.shots.len();
-        // 各镜头互不依赖，并发生成（云端文生图单张约 20 秒）；任一失败则整体失败，重试时只补缺失的镜头。
-        let jobs = draft
-            .shots
-            .iter()
-            .enumerate()
-            .filter(|(_, shot)| shot.asset_ids.is_empty())
-            .map(|(index, shot)| async move {
+        // 各切点互不依赖，并发生成（云端一次约 10～20 秒）；任一失败则整体失败，重试时只补缺失的切点。
+        let jobs = draft.shots.iter().enumerate().flat_map(|(index, shot)| {
+            let cuts = cut_count(shot.duration_ms);
+            let durations = cut_durations(shot.duration_ms, cuts);
+            // 已有的切点保留，只补后面缺的（重试时不会重复烧模型调用）。
+            let existing = shot.asset_ids.len().min(cuts);
+            (existing..cuts).map(move |cut_index| {
                 let request = VisualRequest {
                     ctx: ctx.clone(),
                     shot: shot.clone(),
                     shot_index: index,
                     shot_count: count,
+                    duration_ms: durations[cut_index],
+                    cut_index,
+                    cut_count: cuts,
                 };
-                let media = self
-                    .call(
-                        StageKey::Visuals,
-                        &format!("llm1 生成 SVG 画面（镜头 {}/{}）", index + 1, count),
-                        self.state.providers.load().visual.generate_shot(request),
-                    )
-                    .await?;
-                Ok::<_, Stop>((shot.id.clone(), self.store_asset(project_id, &media).await?))
-            });
+                let shot_id = shot.id.clone();
+                async move {
+                    let media = self
+                        .call(
+                            StageKey::Visuals,
+                            &format!(
+                                "llm1 生成 SVG 画面（镜头 {}/{} · 切点 {}/{}）",
+                                index + 1,
+                                count,
+                                cut_index + 1,
+                                cuts
+                            ),
+                            self.state.providers.load().visual.generate_shot(request),
+                        )
+                        .await?;
+                    Ok::<_, Stop>((
+                        shot_id,
+                        cut_index,
+                        self.store_asset(project_id, &media).await?,
+                    ))
+                }
+            })
+        });
         futures::future::join_all(jobs).await.into_iter().collect()
     }
 
@@ -993,11 +1080,8 @@ impl Runner {
                         self.state.providers.load().voice.synthesize(request),
                     )
                     .await?;
-                narrations.push((
-                    shot.id.clone(),
-                    key,
-                    self.store_asset(project_id, &media).await?,
-                ));
+                let asset = self.store_asset(project_id, &media).await?;
+                narrations.push((shot.id.clone(), key, asset));
             }
             Ok::<_, Stop>(narrations)
         };

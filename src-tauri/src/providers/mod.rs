@@ -272,6 +272,40 @@ pub struct EditPlan {
     pub ops: Vec<edit_ops::EditOp>,
 }
 
+/// 一个画面切点的目标长度（毫秒）：旁白越长，画面切得越多。
+pub const CUT_TARGET_MS: i64 = 3200;
+
+/// 单个镜头最多的画面切点数，避免一段长旁白被切成过多小片段。
+pub const MAX_CUTS: usize = 4;
+
+/// 一段旁白配几个画面切点：按目标切点长度四舍五入，最多 [`MAX_CUTS`] 个。
+pub fn cut_count(duration_ms: i64) -> usize {
+    let target = CUT_TARGET_MS.max(1) as f64;
+    ((duration_ms.max(0) as f64 / target).round() as usize).clamp(1, MAX_CUTS)
+}
+
+/// 把一段时长切成 `cuts` 段（毫秒），余数并入最后一段。
+pub fn cut_durations(duration_ms: i64, cuts: usize) -> Vec<i64> {
+    let cuts = cuts.max(1);
+    let duration_ms = duration_ms.max(cuts as i64);
+    let base = duration_ms / cuts as i64;
+    (0..cuts)
+        .map(|index| {
+            if index + 1 == cuts {
+                duration_ms - base * (cuts as i64 - 1)
+            } else {
+                base
+            }
+        })
+        .collect()
+}
+
+/// 每段配音在句尾留出的呼吸时长（毫秒）。
+///
+/// 片段时长由分镜决定，配音必须在这段窗口内说完；生成配音时按
+/// `片段时长 - 呼吸时长` 适配，剪辑时再留出同样的尾巴。
+pub const NARRATION_TAIL_MS: i64 = 300;
+
 /// 时间线上的一个片段，对应一个镜头。
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Clip {
@@ -285,6 +319,12 @@ pub struct Clip {
     pub visual_asset_id: Option<String>,
     /// 配音素材。
     pub narration_asset_id: Option<String>,
+    /// 本段配音的实际时长（毫秒）。
+    ///
+    /// 配音一定短于或等于片段时长：片段时长由分镜决定，配音在生成时被适配进这个窗口，
+    /// 所以不能按片段时长去拉长配音。`None` 表示没配音或旧版本方案没有记录。
+    #[serde(default)]
+    pub narration_duration_ms: Option<i64>,
     /// 字幕文字；关闭字幕时为 `None`。
     pub subtitle: Option<String>,
     /// 进入本片段的转场：`cut` / `fade` 等。
@@ -330,6 +370,12 @@ pub struct VisualRequest {
     pub shot_index: usize,
     /// 镜头总数，便于保持整体风格一致。
     pub shot_count: usize,
+    /// 这个画面切点的时长（毫秒）。
+    pub duration_ms: i64,
+    /// 切点在镜头内的序号（从 0 开始）与总数；长旁白会切成多个切点。
+    pub cut_index: usize,
+    /// 本镜头一共切几个画面。
+    pub cut_count: usize,
 }
 
 /// llm1 复用：为镜头生成或检索画面。
@@ -503,10 +549,31 @@ impl Providers {
                 other => anyhow::bail!("PROVIDER_LLM4 不支持供应商 `{other}`"),
             },
             renderer: match config.provider_renderer.as_str() {
-                
                 "quercus" => Arc::new(quercus::QuercusRenderer::new(config)),
                 other => anyhow::bail!("PROVIDER_RENDERER 不支持供应商 `{other}`"),
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod cut_tests {
+    use super::{cut_count, cut_durations};
+
+    #[test]
+    fn long_narration_gets_more_visual_cuts() {
+        assert_eq!(cut_count(1200), 1);
+        assert_eq!(cut_count(3300), 1);
+        assert_eq!(cut_count(6400), 2);
+        assert_eq!(cut_count(9300), 3);
+        // 再长也不超过上限，避免一段旁白被切成过多小片段。
+        assert_eq!(cut_count(60000), 4);
+    }
+
+    #[test]
+    fn cut_durations_cover_the_whole_shot() {
+        assert_eq!(cut_durations(9300, 3), vec![3100, 3100, 3100]);
+        assert_eq!(cut_durations(10000, 3), vec![3333, 3333, 3334]);
+        assert_eq!(cut_durations(500, 4), vec![125, 125, 125, 125]);
     }
 }

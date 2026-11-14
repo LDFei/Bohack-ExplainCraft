@@ -325,6 +325,26 @@ impl GlmScript {
     }
 }
 
+/// 从文案模型输出的 JSON 里取出逐句解说词。
+fn script_lines(value: &Value) -> Vec<String> {
+    value["lines"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|line| line.as_str())
+                .map(|line| line.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 一句话的朗读时长估计（毫秒）：中文约每秒 4 字，另加收尾缓冲。
+fn narration_estimate_ms(line: &str) -> i64 {
+    ((line.chars().count() as f64 / CHARS_PER_SECOND) * 1000.0) as i64 + 800
+}
+
 /// 镜头数：每个镜头约 7 秒，限制在 3～8 个。
 fn shot_count(seconds: u32) -> usize {
     ((seconds as f64 / 7.0).round() as usize).clamp(3, 40)
@@ -408,19 +428,35 @@ impl ScriptModel for GlmScript {
                 1200,
             )
             .await?;
-        let lines: Vec<String> = value["lines"]
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|line| line.as_str())
-                    .map(|line| line.trim().to_string())
-                    .filter(|line| !line.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut lines = script_lines(&value);
         if lines.is_empty() {
             return Err(ProviderError::unavailable("文案生成结果为空，请重试。"));
+        }
+        // 文案明显超出参考时长时重写一版更短的：成片长度跟着配音走，
+        // 文案越长成片越长；这里只是尽量贴近用户要的时长。
+        let budget = (seconds as f64 * CHARS_PER_SECOND) as usize;
+        if lines.iter().map(|line| line.chars().count()).sum::<usize>() > budget * 11 / 10 {
+            let actual: usize = lines.iter().map(|line| line.chars().count()).sum();
+            let retry = format!(
+                "{user}\n\n上一版解说词共 {actual} 字，超过 {seconds} 秒能读完的长度。请重写：\
+                 仍然 {count} 句，全部加起来不超过 {budget} 字（每句约 {per_line} 字）。"
+            );
+            if let Ok(value) = self
+                .client
+                .chat_json(
+                    &self.access,
+                    "你是短视频文案，擅长把解说词压缩到指定字数，语言仍然自然、可朗读。",
+                    &retry,
+                    1200,
+                )
+                .await
+            {
+                let shorter = script_lines(&value);
+                let shorter_len: usize = shorter.iter().map(|line| line.chars().count()).sum();
+                if !shorter.is_empty() && shorter_len < actual {
+                    lines = shorter;
+                }
+            }
         }
         Ok(Script {
             title: crate::util::preview(&text_or(&value, "title", &brief.subject), 30),
@@ -440,63 +476,83 @@ impl ScriptModel for GlmScript {
             return Err(ProviderError::invalid("脚本内容为空，无法规划分镜。"));
         }
         let settings = &request.ctx.settings;
-        let total_ms = settings.target_duration_seconds as i64 * 1000;
+        let expected = shot_count(settings.target_duration_seconds);
         let numbered: Vec<String> = lines
             .iter()
             .enumerate()
             .map(|(i, l)| format!("{}. {l}", i + 1))
             .collect();
+        // 镜头不要求和解说词一一对应：一句可以拆成两个镜头，短句也可以合并。
+        // 镜头时长由它自己的旁白长度决定，所以这里不要模型填时长。
         let user = format!(
-            "主题：{}\n风格：{}\n画面比例：{}\n总时长：{} 秒\n解说词（每句对应一个镜头）：\n{}\n\
-             请为每句解说词设计一个镜头，输出 JSON：{{\"shots\": [{{\"narration\": 原句, \
-             \"visual_prompt\": 用于文生图的详细中文画面描述（主体、环境、光线、色调、构图，不要出现文字和人物对白）, \
-             \"shot_size\": 景别（远景/全景/中景/近景/特写）, \"camera_motion\": 运镜（推/拉/摇/移/固定）, \
-             \"duration_ms\": 该镜头毫秒数}}]}}，镜头数与解说词句数相同，时长总和约等于总时长。",
+            "主题：{}\n风格：{}\n画面比例：{}\n参考总时长：{} 秒（只作节奏参考，成片按每段配音的实际长度排，不必精确等于它）\n\
+             解说词：\n{}\n\
+             请把解说词组织成约 {} 个镜头（可以上下浮动 1～2 个）：一句可以拆成两个镜头（各自配前半句、后半句），\
+             两三句短句也可以合并到一个镜头。每个镜头的 narration 必须是从解说词里连续截取的原文，不要改写、不要漏字。\n\
+             输出 JSON：{{\"shots\": [{{\"narration\": 该镜头要念的原文, \
+             \"visual_prompt\": 用于画面的详细中文描述（主体、环境、光线、色调、构图，不要出现文字和人物对白）, \
+             \"shot_size\": 景别（远景/全景/中景/近景/特写）, \"camera_motion\": 运镜（推/拉/摇/移/固定）}}]}}，\
+             不要输出时长字段，时长由配音决定。",
             request.brief.subject,
             request.brief.style,
             settings.aspect_ratio,
             settings.target_duration_seconds,
             numbered.join("\n"),
+            expected,
         );
         let value = self
             .client
             .chat_json(
                 &self.access,
-                "你是短视频分镜师，把文案转化为具体、可拍摄的画面。",
+                "你是短视频分镜师，把文案拆成画面清晰、节奏合适的镜头。",
                 &user,
                 2500,
             )
             .await?;
         let items = value["shots"].as_array().cloned().unwrap_or_default();
-        // 以解说词为准：镜头数与句数一致，模型缺的补默认画面。
-        let mut shots: Vec<ShotPlan> = lines
+        let mut shots: Vec<ShotPlan> = items
             .iter()
-            .enumerate()
-            .map(|(i, line)| {
-                let item = items.get(i).cloned().unwrap_or(Value::Null);
-                let estimate =
-                    ((line.chars().count() as f64 / CHARS_PER_SECOND) * 1000.0) as i64 + 800;
-                ShotPlan {
-                    duration_ms: item["duration_ms"]
-                        .as_i64()
-                        .filter(|d| *d > 0)
-                        .unwrap_or(estimate),
-                    narration: line.to_string(),
-                    visual_prompt: text_or(
-                        &item,
-                        "visual_prompt",
-                        &format!("{}，{}", request.brief.subject, line),
-                    ),
-                    shot_size: text_or(&item, "shot_size", "中景"),
-                    camera_motion: text_or(&item, "camera_motion", "缓慢推进"),
+            .filter_map(|item| {
+                let narration = item["narration"].as_str().map(str::trim)?.to_string();
+                if narration.is_empty() {
+                    return None;
                 }
+                Some(ShotPlan {
+                    // 时长先按旁白字数估一个，配音生成后会以配音的实际长度为准。
+                    duration_ms: narration_estimate_ms(&narration),
+                    visual_prompt: text_or(
+                        item,
+                        "visual_prompt",
+                        &format!("{}，{}", request.brief.subject, narration),
+                    ),
+                    shot_size: text_or(item, "shot_size", "中景"),
+                    camera_motion: text_or(item, "camera_motion", "缓慢推进"),
+                    narration,
+                })
             })
             .collect();
-        // 时长归一到目标总时长，每个镜头不少于 2 秒。
-        let sum: i64 = shots.iter().map(|s| s.duration_ms).sum::<i64>().max(1);
-        for shot in &mut shots {
-            shot.duration_ms =
-                ((shot.duration_ms as f64 * total_ms as f64 / sum as f64) as i64).max(2000);
+        // 模型没给分镜时退回“一句一个镜头”。
+        if shots.is_empty() {
+            shots = lines
+                .iter()
+                .map(|line| ShotPlan {
+                    duration_ms: narration_estimate_ms(line),
+                    narration: line.to_string(),
+                    visual_prompt: format!("{}，{}", request.brief.subject, line),
+                    shot_size: "中景".into(),
+                    camera_motion: "缓慢推进".into(),
+                })
+                .collect();
+        }
+        let total: i64 = shots.iter().map(|shot| shot.duration_ms).sum();
+        let target = settings.target_duration_seconds as i64 * 1000;
+        if (total - target).abs() * 2 > target {
+            tracing::info!(
+                target: "job",
+                "  · 分镜按旁白估算共 {:.1}s，与参考时长 {}s 有明显差异，成片长度以配音为准",
+                total as f64 / 1000.0,
+                settings.target_duration_seconds
+            );
         }
         Ok(shots)
     }
@@ -611,10 +667,11 @@ impl ScriptModel for GlmScript {
         if let Some(seconds) = value["target_duration_seconds"].as_u64() {
             let seconds = (seconds as u32).clamp(15, 60);
             if seconds != draft.settings.target_duration_seconds {
-                // 时长变化：保留文案，重新分镜。
+                // 时长变化：文案要按新时长重写，否则配音只能被压成倍速，再重新分镜。
                 draft.settings.target_duration_seconds = seconds;
+                draft.script = None;
                 draft.shots.clear();
-                invalidated.extend(StageKey::Storyboard.and_after());
+                invalidated.extend(StageKey::Script.and_after());
             }
         }
         let mut narration_changed = false;
@@ -766,32 +823,43 @@ fn timeline(request: &EditRequest) -> EditPlan {
         "cut"
     };
     let mut start = 0;
-    let clips = draft
-        .shots
-        .iter()
-        .map(|shot| {
-            let narration = request.narration.get(&shot.id);
-            // 配音比镜头长时延长镜头，并在句尾留 0.4 秒呼吸。
-            let duration = narration
-                .map(|(_, ms)| (*ms + 400).max(shot.duration_ms))
-                .unwrap_or(shot.duration_ms);
-            let clip = Clip {
+    let mut clips: Vec<Clip> = vec![];
+    for shot in &draft.shots {
+        let narration = request.narration.get(&shot.id);
+        // 长旁白切成多个画面切点：每个切点一段画面，配音整段从第一个切点开始播。
+        let cuts = shot.asset_ids.len().max(1);
+        let durations = cut_durations(shot.duration_ms.max(1), cuts);
+        let subtitle = draft
+            .finishing
+            .subtitles_enabled
+            .then(|| shot.narration.clone());
+        for (index, duration) in durations.iter().enumerate() {
+            clips.push(Clip {
                 shot_id: shot.id.clone(),
                 start_ms: start,
-                duration_ms: duration,
-                visual_asset_id: shot.asset_ids.first().cloned(),
-                narration_asset_id: narration.map(|(id, _)| id.clone()),
-                subtitle: draft
-                    .finishing
-                    .subtitles_enabled
-                    .then(|| shot.narration.clone()),
+                duration_ms: *duration,
+                visual_asset_id: shot
+                    .asset_ids
+                    .get(index)
+                    .cloned()
+                    .or_else(|| shot.asset_ids.first().cloned()),
+                // 整段配音只放在第一个画面切点上：音频可以跨多个画面片段播放，
+                // 这样长旁白不会在每个切点被截断重放。
+                narration_asset_id: (index == 0)
+                    .then(|| narration.map(|(id, _)| id.clone()))
+                    .flatten(),
+                narration_duration_ms: if index == 0 {
+                    narration.map(|(_, ms)| *ms)
+                } else {
+                    None
+                },
+                subtitle: if index == 0 { subtitle.clone() } else { None },
                 transition: transition.into(),
                 camera_motion: shot.camera_motion.clone(),
-            };
+            });
             start += duration;
-            clip
-        })
-        .collect();
+        }
+    }
     EditPlan {
         aspect_ratio: draft.settings.aspect_ratio.clone(),
         total_ms: start,
@@ -821,11 +889,15 @@ fn describe_assets(plan: &EditPlan) -> String {
             ));
         }
         if let Some(id) = &clip.narration_asset_id {
+            let narration_end = clip
+                .narration_duration_ms
+                .map(|ms| clip.start_ms + ms)
+                .unwrap_or(end);
             lines.push(format!(
-                "- 镜头{} 配音 asset_id={id}，应从 {} 毫秒开始，到 {} 毫秒结束",
+                "- 镜头{} 配音 asset_id={id}，应从 {} 毫秒开始，到 {} 毫秒结束（配音可以跨多个画面片段）",
                 i + 1,
                 clip.start_ms,
-                end
+                narration_end
             ));
         }
     }
@@ -1090,6 +1162,89 @@ mod tests {
         assert_eq!(shot_count(30), 4);
         assert_eq!(shot_count(60), 9);
         assert_eq!(shot_count(300), 40);
+    }
+
+
+
+    /// 长旁白配多个画面切点：每个切点一段画面，配音整段只在第一个切点开始。
+    #[test]
+    fn long_narration_is_split_into_several_visual_cuts() {
+        let shot: crate::models::Shot = serde_json::from_value(json!({
+            "id": "s1",
+            "duration_ms": 9600,
+            "narration": "一段很长的旁白",
+            "visual_prompt": "测试画面",
+            "shot_size": "中景",
+            "camera_motion": "推",
+            "asset_ids": ["ast_cut1", "ast_cut2", "ast_cut3"],
+        }))
+        .expect("镜头");
+        let mut draft = crate::catalog::empty_draft();
+        draft.shots = vec![shot];
+        let plan = timeline(&EditRequest {
+            draft,
+            narration: std::collections::HashMap::from([(
+                "s1".to_string(),
+                ("ast_voice".to_string(), 9300),
+            )]),
+            music_duration_ms: None,
+        });
+        assert_eq!(plan.clips.len(), 3);
+        assert_eq!(plan.total_ms, 9600);
+        assert_eq!(
+            plan.clips
+                .iter()
+                .map(|clip| clip.visual_asset_id.clone().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["ast_cut1", "ast_cut2", "ast_cut3"]
+        );
+        // 配音只挂第一个切点，但长度是整段旁白（音频跨画面播放）。
+        assert_eq!(
+            plan.clips[0].narration_asset_id.as_deref(),
+            Some("ast_voice")
+        );
+        assert_eq!(plan.clips[0].narration_duration_ms, Some(9300));
+        assert!(plan.clips[1].narration_asset_id.is_none());
+        assert!(plan.clips[2].narration_asset_id.is_none());
+        // 字幕只在第一个切点上，避免重复显示。
+        assert!(plan.clips[0].subtitle.is_some());
+        assert!(plan.clips[1].subtitle.is_none());
+    }
+
+    /// 一段素材配一段配音：片段时长以分镜为准，配音只在窗口内播放。
+    #[test]
+    fn timeline_keeps_shot_lengths_and_fits_narration() {
+        let shot = |id: &str, duration_ms: i64, narration: &str| {
+            serde_json::from_value::<crate::models::Shot>(json!({
+                "id": id,
+                "duration_ms": duration_ms,
+                "narration": narration,
+                "visual_prompt": "测试画面",
+                "shot_size": "中景",
+                "camera_motion": "固定",
+                "asset_ids": ["ast_visual"],
+            }))
+            .expect("镜头")
+        };
+        let mut draft = crate::catalog::empty_draft();
+        draft.shots = vec![shot("s1", 3000, "第一句"), shot("s2", 2000, "第二句")];
+        let request = EditRequest {
+            draft,
+            narration: std::collections::HashMap::from([
+                ("s1".to_string(), ("ast_voice1".to_string(), 5000)),
+                ("s2".to_string(), ("ast_voice2".to_string(), 1200)),
+            ]),
+            music_duration_ms: None,
+        };
+        let plan = timeline(&request);
+        // 片段时长永远是镜头自己的长度：配音不会把画面拉长。
+        assert_eq!(plan.total_ms, 5000);
+        assert_eq!(plan.clips[0].duration_ms, 3000);
+        assert_eq!(plan.clips[0].narration_duration_ms, Some(5000));
+        assert_eq!(plan.clips[1].duration_ms, 2000);
+        assert_eq!(plan.clips[1].narration_duration_ms, Some(1200));
+        // 段与段首尾相接；配音跨片段播放，不改变画面边界。
+        assert_eq!(plan.clips[1].start_ms, plan.clips[0].start_ms + 3000);
     }
 
     #[test]

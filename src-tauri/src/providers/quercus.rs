@@ -664,10 +664,15 @@ mod tests {
         }
     }
 
-    /// 生成一秒双声道正弦波，便于逐段确认每一路旁白都进入最终混音。
+    /// 生成一段双声道正弦波，便于逐段确认每一路旁白都进入最终混音。
     fn write_tone(path: &Path, frequency: f64) {
+        write_tone_for(path, frequency, 2_000);
+    }
+
+    /// 按指定毫秒数生成正弦波（长旁白要跨多个画面切点时用）。
+    fn write_tone_for(path: &Path, frequency: f64, duration_ms: i64) {
         let sample_rate = 48_000_u32;
-        let samples = sample_rate as usize * 2;
+        let samples = (sample_rate as i64 * duration_ms / 1000).max(1) as usize;
         let mut bytes = Vec::with_capacity(44 + samples * 2);
         bytes.extend_from_slice(b"RIFF");
         bytes.extend_from_slice(&((36 + samples * 2) as u32).to_le_bytes());
@@ -681,7 +686,7 @@ mod tests {
         bytes.extend_from_slice(&16_u16.to_le_bytes());
         bytes.extend_from_slice(b"data");
         bytes.extend_from_slice(&(samples as u32 * 2).to_le_bytes());
-        for index in 0..sample_rate as usize {
+        for index in 0..samples {
             let value = (0.65
                 * (std::f64::consts::TAU * frequency * index as f64 / sample_rate as f64).sin())
                 as f32;
@@ -990,6 +995,190 @@ mod tests {
             );
         }
         let _ = std::fs::remove_file(video);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 提取成片指定时刻的一帧并返回平均 RGB，用于判断画面有没有在动。
+    fn frame_pixels(path: &Path, start: f64, root: &Path) -> image::RgbImage {
+        let frame = root.join(format!("frame-{start}.png"));
+        let status = std::process::Command::new(
+            std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
+        )
+        .args(["-v", "error", "-y", "-ss", &start.to_string(), "-i"])
+        .arg(path)
+        .args(["-frames:v", "1"])
+        .arg(&frame)
+        .status()
+        .expect("提取成片帧");
+        assert!(status.success());
+        image::open(frame).expect("读取成片帧").to_rgb8()
+    }
+
+    /// 平均像素差：0 表示两帧完全一样（画面冻住）。
+    fn frame_delta(a: &image::RgbImage, b: &image::RgbImage) -> f64 {
+        a.pixels()
+            .zip(b.pixels())
+            .map(|(left, right)| {
+                left.0
+                    .iter()
+                    .zip(right.0.iter())
+                    .map(|(l, r)| (*l as f64 - *r as f64).abs())
+                    .sum::<f64>()
+                    / 3.0
+            })
+            .sum::<f64>()
+            / (a.width() * a.height()) as f64
+    }
+
+    /// “一段画面素材配一段配音”：每个片段里画面都在动，段与段之间切换，
+    /// 成片时长等于各分镜时长之和（配音不拖长画面）。
+    #[tokio::test]
+    async fn keeps_footage_moving_inside_each_narration_segment() {
+        let root = std::env::temp_dir().join(format!("quercus-seg-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("测试目录");
+        let moving = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect width="160" height="160" fill="#eeeeee"/><rect x="4" y="60" width="24" height="24" fill="#337799"><animate attributeName="x" values="4;132;4" dur="1s"/></rect></svg>"##;
+        let still = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect width="160" height="160" fill="#333333"/></svg>"##;
+        let shot_a = crate::svg_animation::render(moving, 3000, 160, 160, 0)
+            .await
+            .expect("镜头一");
+        let shot_b = crate::svg_animation::render(still, 3000, 160, 160, 1)
+            .await
+            .expect("镜头二");
+        let (MediaData::Path(video_a), MediaData::Path(video_b)) = (shot_a.data, shot_b.data)
+        else {
+            panic!("镜头路径")
+        };
+        let voice_a = root.join("voice-a.wav");
+        let voice_b = root.join("voice-b.wav");
+        write_tone(&voice_a, 330.0);
+        write_tone(&voice_b, 440.0);
+        // 每段 3 秒画面 + 2 秒配音：配音只占片段前半段，画面仍然铺满整段。
+        let plan = EditPlan {
+            aspect_ratio: "9:16".into(),
+            total_ms: 6000,
+            clips: vec![
+                Clip {
+                    shot_id: "shot_a".into(),
+                    start_ms: 0,
+                    duration_ms: 3000,
+                    visual_asset_id: Some("visual_a".into()),
+                    narration_asset_id: Some("voice_a".into()),
+                    narration_duration_ms: Some(2000),
+                    ..Default::default()
+                },
+                Clip {
+                    shot_id: "shot_b".into(),
+                    start_ms: 3000,
+                    duration_ms: 3000,
+                    visual_asset_id: Some("visual_b".into()),
+                    narration_asset_id: Some("voice_b".into()),
+                    narration_duration_ms: Some(2000),
+                    ..Default::default()
+                },
+            ],
+            subtitles_enabled: false,
+            ..Default::default()
+        };
+        let output = root.join("two-segments.mp4");
+        let inputs = HashMap::from([
+            ("visual_a".to_string(), video_a.clone()),
+            ("visual_b".to_string(), video_b.clone()),
+            ("voice_a".to_string(), voice_a.clone()),
+            ("voice_b".to_string(), voice_b.clone()),
+        ]);
+        execute_ops(&ops_from_plan(&plan), &inputs, &output, plan.total_ms, None)
+            .expect("两段成片");
+        assert!(output.is_file());
+
+        // 成片时长等于两段之和，配音不会把片段拉长。
+        let probe = std::process::Command::new(
+            std::env::var("FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".into()),
+        )
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&output)
+        .output()
+        .expect("运行 ffprobe");
+        let duration: f64 = String::from_utf8_lossy(&probe.stdout)
+            .trim()
+            .parse()
+            .expect("成片时长");
+        assert!((5.8..6.2).contains(&duration), "成片时长 {duration}");
+
+        // 第一段内部画面一直在动（同一素材不要冻在最后一帧）。
+        let moving_delta = frame_delta(
+            &frame_pixels(&output, 0.6, &root),
+            &frame_pixels(&output, 2.4, &root),
+        );
+        assert!(moving_delta > 1.0, "第一段画面没有运动：{moving_delta}");
+        // 第二段换了画面（硬切）。
+        let cut_delta = frame_delta(
+            &frame_pixels(&output, 2.8, &root),
+            &frame_pixels(&output, 3.2, &root),
+        );
+        assert!(cut_delta > 20.0, "段与段之间没有切换：{cut_delta}");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 一段长旁白配多个画面切点：画面在切点处换掉，但配音整段连续，不会每个切点重来。
+    #[tokio::test]
+    async fn one_narration_can_span_several_visual_cuts() {
+        let root = std::env::temp_dir().join(format!("quercus-cuts-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("测试目录");
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect width="160" height="160" fill="#223344"/><rect x="10" y="60" width="30" height="30" fill="#f0c060"><animate attributeName="x" values="10;120;10" dur="1s"/></rect></svg>"##;
+        let mut inputs = HashMap::new();
+        let mut clips = vec![];
+        let mut visuals = vec![];
+        for cut in 0..3 {
+            let shot = crate::svg_animation::render(svg, 2000, 160, 160, cut)
+                .await
+                .expect("切点画面");
+            let MediaData::Path(path) = shot.data else {
+                panic!("切点路径")
+            };
+            let id = format!("visual{cut}");
+            inputs.insert(id.clone(), path.clone());
+            visuals.push(path);
+            clips.push(Clip {
+                shot_id: "shot".into(),
+                start_ms: cut as i64 * 2000,
+                duration_ms: 2000,
+                visual_asset_id: Some(id),
+                // 只有第一个切点挂配音，长度覆盖整段。
+                narration_asset_id: (cut == 0).then(|| "voice".to_string()),
+                narration_duration_ms: (cut == 0).then_some(5400),
+                ..Default::default()
+            });
+        }
+        let voice = root.join("voice.wav");
+        write_tone_for(&voice, 440.0, 5400);
+        inputs.insert("voice".into(), voice.clone());
+        let plan = EditPlan {
+            aspect_ratio: "9:16".into(),
+            total_ms: 6000,
+            clips,
+            subtitles_enabled: false,
+            ..Default::default()
+        };
+        let output = root.join("cuts.mp4");
+        execute_ops(&ops_from_plan(&plan), &inputs, &output, plan.total_ms, None)
+            .expect("切点成片");
+        assert!(output.is_file());
+        // 三个切点区间都应能听到同一段旁白（音频跨画面片段播放）。
+        for start in [0.5, 2.5, 4.5] {
+            let volume = mean_volume(&output, start);
+            assert!(volume > -45.0, "{start}s 的旁白断了，平均音量 {volume} dB");
+        }
+        for path in visuals {
+            let _ = std::fs::remove_file(path);
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 }

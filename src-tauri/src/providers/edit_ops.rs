@@ -130,12 +130,18 @@ pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
                 alias: alias.clone(),
                 asset_id: asset.clone(),
             });
+            // 整段配音从本片段开始，可以跨过后面几个画面切点（音频与画面在不同轨道）。
+            let narration_end_ms = clip
+                .narration_duration_ms
+                .filter(|ms| *ms > 0)
+                .map(|ms| clip.start_ms + ms)
+                .unwrap_or(end_ms);
             ops.push(EditOp::PlaceClip {
                 media: alias,
                 track: TrackType::Audio,
                 track_index: 0,
                 start_ms: clip.start_ms,
-                end_ms,
+                end_ms: narration_end_ms,
                 media_in_ms: 0,
                 // 每段旁白都保留独立片段 ID，便于核对时间线、设置音量和导出工程。
                 clip: Some(format!("voice_clip{index}")),
@@ -178,7 +184,17 @@ pub fn srt_from_plan(plan: &super::EditPlan) -> Option<String> {
     }
     let mut srt = String::new();
     let mut index = 1;
-    for clip in &plan.clips {
+    // 同一镜头可能被切成多个画面切点，字幕按镜头合并成一条，覆盖整段旁白。
+    let mut cursor = 0;
+    while cursor < plan.clips.len() {
+        let clip = &plan.clips[cursor];
+        let mut end_ms = clip.start_ms + clip.duration_ms;
+        let mut next = cursor + 1;
+        while next < plan.clips.len() && plan.clips[next].shot_id == clip.shot_id {
+            end_ms = plan.clips[next].start_ms + plan.clips[next].duration_ms;
+            next += 1;
+        }
+        cursor = next;
         let Some(text) = clip
             .subtitle
             .as_deref()
@@ -188,7 +204,7 @@ pub fn srt_from_plan(plan: &super::EditPlan) -> Option<String> {
             continue;
         };
         let start = clip.start_ms.max(0);
-        let end = (clip.start_ms + clip.duration_ms).max(start + 1);
+        let end = end_ms.max(start + 1);
         srt.push_str(&format!(
             "{index}\n{} --> {}\n{}\n\n",
             srt_timestamp(start),
@@ -281,18 +297,102 @@ mod tests {
         assert_eq!(ms_to_frames(16, 30), 0);
     }
 
+    /// 配音片段按配音实际时长结束，不铺满整段画面（句尾留呼吸）。
+    #[test]
+    fn narration_clip_stops_where_the_voice_ends() {
+        let plan = super::super::EditPlan {
+            clips: vec![super::super::Clip {
+                start_ms: 1000,
+                duration_ms: 3000,
+                visual_asset_id: Some("ast_visual".into()),
+                narration_asset_id: Some("ast_voice".into()),
+                narration_duration_ms: Some(1800),
+                ..Default::default()
+            }],
+            total_ms: 4000,
+            ..Default::default()
+        };
+        let ops = ops_from_plan(&plan);
+        let audio = ops
+            .iter()
+            .find_map(|op| match op {
+                EditOp::PlaceClip {
+                    track: TrackType::Audio,
+                    ..
+                } => Some(op.clone()),
+                _ => None,
+            })
+            .expect("配音片段");
+        let EditOp::PlaceClip {
+            start_ms, end_ms, ..
+        } = audio
+        else {
+            panic!("应为 place_clip");
+        };
+        assert_eq!(start_ms, 1000);
+        assert_eq!(end_ms, 2800);
+        // 画面仍是整段 3 秒。
+        let video = ops
+            .iter()
+            .find_map(|op| match op {
+                EditOp::PlaceClip {
+                    track: TrackType::Video,
+                    end_ms,
+                    ..
+                } => Some(*end_ms),
+                _ => None,
+            })
+            .expect("画面片段");
+        assert_eq!(video, 4000);
+    }
+
+    /// 同一镜头切成多个画面时，字幕仍然只有一条，并覆盖整段旁白。
+    #[test]
+    fn subtitles_merge_cuts_of_the_same_shot() {
+        let plan = super::super::EditPlan {
+            subtitles_enabled: true,
+            clips: vec![
+                super::super::Clip {
+                    shot_id: "s1".into(),
+                    start_ms: 0,
+                    duration_ms: 3000,
+                    subtitle: Some("长旁白字幕".into()),
+                    ..Default::default()
+                },
+                super::super::Clip {
+                    shot_id: "s1".into(),
+                    start_ms: 3000,
+                    duration_ms: 3200,
+                    ..Default::default()
+                },
+                super::super::Clip {
+                    shot_id: "s1".into(),
+                    start_ms: 6200,
+                    duration_ms: 3400,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let srt = srt_from_plan(&plan).expect("SRT");
+        assert!(srt.contains("00:00:00,000 --> 00:00:09,600"), "{srt}");
+        assert_eq!(srt.matches("长旁白字幕").count(), 1, "{srt}");
+    }
+
     #[test]
     fn subtitles_include_every_nonempty_clip() {
         let plan = super::super::EditPlan {
             subtitles_enabled: true,
             clips: vec![
                 super::super::Clip {
+                    shot_id: "s1".into(),
                     start_ms: 500,
                     duration_ms: 1500,
                     subtitle: Some("第一段字幕".into()),
                     ..Default::default()
                 },
                 super::super::Clip {
+                    shot_id: "s2".into(),
                     start_ms: 2000,
                     duration_ms: 1000,
                     subtitle: Some("第二段字幕".into()),
