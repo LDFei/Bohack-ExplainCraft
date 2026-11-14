@@ -46,7 +46,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
-          echo 'FFMPEG_DIR=/usr' >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ffmpeg-sdk"
+          ln -s /usr/include/x86_64-linux-gnu "$RUNNER_TEMP/ffmpeg-sdk/include"
+          ln -s /usr/lib/x86_64-linux-gnu "$RUNNER_TEMP/ffmpeg-sdk/lib"
+          echo "FFMPEG_DIR=$RUNNER_TEMP/ffmpeg-sdk" >> "$GITHUB_ENV"
       - name: Install macOS build libraries and tools
         if: runner.os == 'macOS'
         run: |
