@@ -81,12 +81,12 @@ onBeforeUnmount(() => {
         <span>
           Explain
           <span class="brand-light">Craft</span>
-          <small>IDEAS INTO MOTION</small>
+          <small>KNOWLEDGE INTO MOTION</small>
         </span>
       </a>
       <nav aria-label="首页导航">
-        <a href="#features">创作能力</a>
-        <a href="#workflow">工作流程</a>
+        <a href="#features">能做什么</a>
+        <a href="#workflow">怎么用</a>
         <a :href="DOWNLOAD_URL">
           立即下载
           <Icon name="arrowRight" :size="14" />
@@ -250,7 +250,7 @@ onBeforeUnmount(() => {
       >
         <div class="landing-section-heading">
           <div>
-            <span class="section-kicker">A COMPLETE CREATIVE SPACE</span>
+            <span class="section-kicker">BUILT FOR EXPLAINING</span>
             <h2 id="features-title">
               <span>一支让人想学的片，</span>
               <span>长这样。</span>
@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
         </div>
         <BentoGrid>
           <BentoGridItem
-            title="AI 脚本生成"
+            title="讲清知识点"
             description="说出知识点，生成分镜脚本；文案和镜头都能改。"
             wide
           >
@@ -307,7 +307,7 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="语音合成与配乐"
+            title="配好声音"
             description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
           >
             <template #header>
@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="动态视频生成"
+            title="生成画面"
             description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
           >
             <template #header>
@@ -381,7 +381,7 @@ onBeforeUnmount(() => {
             </template>
           </BentoGridItem>
           <BentoGridItem
-            title="视频预览与导出"
+            title="预览导出"
             description="按镜头预览、切换版本，满意后导出 MP4。"
             wide
           >
@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
         aria-labelledby="workflow-title"
       >
         <div>
-          <span class="section-kicker">FROM IDEA TO STORY</span>
+          <span class="section-kicker">FROM KNOWLEDGE TO VIDEO</span>
           <h2 id="workflow-title">
             <span>三个动作，</span>
             <span>把知识变成视频。</span>
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
         ExplainCraft
       </a>
       <span>把知识，讲给更多人听。</span>
-      <p>Rust + Tauri 桌面应用 · 本地项目与可恢复制作任务</p>
+      <p>桌面应用 · 本地保存 · 断点续做</p>
       <a :href="DOWNLOAD_URL">
         立即下载
         <Icon name="arrowRight" :size="12" />
