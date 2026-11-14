@@ -264,9 +264,7 @@ onBeforeUnmount(() => {
           class="landing-workflow landing-workflow-inline"
           aria-labelledby="workflow-title"
         >
-          <h3 id="workflow-title" class="workflow-inline-title">
-            两条路，把知识变成视频。
-          </h3>
+          <h3 id="workflow-title" class="workflow-inline-title">制作流程</h3>
           <p class="workflow-lead">
             通用流程自己写；Vibe 大赏模板，照着那一系列的手感来。
           </p>
@@ -356,10 +354,6 @@ onBeforeUnmount(() => {
               背景音乐已锁定 · 这一系列每期都是同一首
             </p>
           </div>
-          <a :href="DOWNLOAD_URL" class="button primary">
-            立即下载
-            <Icon name="arrowRight" :size="15" />
-          </a>
         </div>
         <BentoGrid>
           <BentoGridItem
