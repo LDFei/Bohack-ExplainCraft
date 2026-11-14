@@ -1642,7 +1642,11 @@
   border-radius: 10px;
   overflow: hidden;
   background:
-    radial-gradient(60% 50% at 30% 20%, rgba(120, 178, 226, 0.28), transparent 70%),
+    radial-gradient(
+      60% 50% at 30% 20%,
+      rgba(120, 178, 226, 0.28),
+      transparent 70%
+    ),
     linear-gradient(150deg, #0a1119, #16232f 55%, #20374c);
 }
 .vibe-mini-strip i::after {
@@ -1653,5 +1657,53 @@
   bottom: 18px;
   height: 1px;
   background: rgba(190, 220, 245, 0.45);
-  box-shadow: 0 -10px 0 rgba(190, 220, 245, 0.22), 0 -20px 0 rgba(190, 220, 245, 0.14);
+  box-shadow:
+    0 -10px 0 rgba(190, 220, 245, 0.22),
+    0 -20px 0 rgba(190, 220, 245, 0.14);
+}
+
+/* 流程分支移到功能区标题下：作为独立小块，不再占页尾整节。 */
+.landing-workflow-inline {
+  border-top: 0;
+  padding: 4px 0 42px;
+  text-align: center;
+}
+.workflow-inline-title {
+  font-size: 15px;
+  letter-spacing: 1px;
+  font-weight: 550;
+  color: var(--secondary);
+}
+.landing-workflow-inline .workflow-lead {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+.landing-workflow-inline .workflow-tabs {
+  margin-top: 18px;
+}
+.landing-workflow-inline .workflow-panel ol {
+  margin: 22px 0 20px;
+}
+
+/* 流程分支移到功能区标题下：作为独立小块，不再占页尾整节。 */
+.landing-workflow-inline {
+  border-top: 0;
+  padding: 4px 0 42px;
+  text-align: center;
+}
+.workflow-inline-title {
+  font-size: 15px;
+  letter-spacing: 1px;
+  font-weight: 550;
+  color: var(--secondary);
+}
+.landing-workflow-inline .workflow-lead {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+.landing-workflow-inline .workflow-tabs {
+  margin-top: 18px;
+}
+.landing-workflow-inline .workflow-panel ol {
+  margin: 22px 0 20px;
 }
