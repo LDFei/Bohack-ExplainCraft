@@ -395,10 +395,25 @@ onBeforeUnmount(() => {
             >
               <template #header>
                 <div class="feature-script">
-                  <div class="script-prompt">
-                    <Icon name="sparkles" :size="14" />
-                    用一束光，讲清楚相对论。
-                    <span>↵</span>
+                  <div class="script-left">
+                    <div class="script-prompt">
+                      <Icon name="sparkles" :size="14" />
+                      用一束光，讲清楚相对论。
+                      <span>↵</span>
+                    </div>
+                    <div class="script-meta">
+                      <span>
+                        <Icon name="check" :size="11" />
+                        已生成 4 个镜头
+                      </span>
+                      <span>70 秒</span>
+                      <span>已同步到时间线</span>
+                    </div>
+                    <div class="script-hints">
+                      <i>换一种讲法</i>
+                      <i>再短一点</i>
+                      <i>加点比喻</i>
+                    </div>
                   </div>
                   <div class="script-result">
                     <span>
