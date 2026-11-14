@@ -7,6 +7,8 @@ resolver = "2"
 # Windows/MSVC 下 ffmpeg-sys-next 9.1.1 的构建修复（AMX 内建类型屏蔽、bindgen 大栈线程），
 # 见 vendor/ffmpeg-sys-next。
 ffmpeg-sys-next = { path = "vendor/ffmpeg-sys-next" }
+# Rust 1.100 禁止在命令行覆盖 Cargo 的链接修饰符；Linux 使用静态库默认修饰符。
+quercus-ffmpeg-link = { path = "vendor/quercus-ffmpeg-link" }
 
 [profile.dev.package."*"]
 opt-level = 1
