@@ -4,8 +4,14 @@ set -euo pipefail
 app=target/release/bundle/macos/Lingjing.app
 frameworks="$app/Contents/Frameworks"
 mkdir -p "$frameworks"
+# OCIO 的附属动态库位于 Cargo 构建目录，不一定在 Homebrew 中。
+search_args=(-s "$(brew --prefix)/lib/" -s "$frameworks/")
+while IFS= read -r directory; do
+  search_args+=(-s "$(cd "$directory" && pwd)/")
+done < <(find target/release/build -name '*.dylib' -exec dirname {} \; | sort -u)
 for executable in "$app/Contents/MacOS/lingjing" "$app/Contents/Resources/runtime/ffmpeg" "$app/Contents/Resources/runtime/ffprobe"; do
-  dylibbundler -of -b -x "$executable" -d "$frameworks" -p @rpath/
+  # 缺少库时立即报错，禁止在无人值守的构建机上等待交互输入。
+  dylibbundler -ns -of -b -x "$executable" "${search_args[@]}" -d "$frameworks" -p @rpath/ <<< quit
 done
 # 已有的 rpath 保留；重试打包时也能安全执行。
 add_rpath() {
