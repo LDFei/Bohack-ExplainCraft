@@ -4,12 +4,16 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, isActive } from '../services/api.ts';
-import { capabilities as defaults, copy } from '../domain/content.ts';
-import { makeId } from '../domain/engine.ts';
+import {
+  capabilities as defaults,
+  copy,
+  durationTooLong,
+  requestedDurationSeconds,
+} from '../domain/content.ts';
+import { makeId } from '../domain/id.ts';
 import type {
   Asset,
   Capabilities,
-  DemoScenario,
   DraftChanges,
   Intent,
   Job,
@@ -242,7 +246,7 @@ export function useStudio() {
     },
     { immediate: true },
   );
-  // 能力读取失败时保留演示默认值并提示；真实接入时可按产品登录流程进一步处理。
+  // 能力读取失败时保留初始默认值并提示。
   void api
     .getCapabilities()
     .then((value) => {
@@ -250,7 +254,7 @@ export function useStudio() {
     })
     .catch((error) => notify(errorText(error), 'error'));
   /**
-   * 响应其他浏览器标签页对本机演示数据的修改，刷新当前项目或历史列表。
+   * 响应其他标签页对本机数据的修改，刷新当前项目或历史列表。
    */
   const storageListener = () => {
     if (projectId.value) void refresh(projectId.value);
@@ -288,9 +292,13 @@ export function useStudio() {
    * 发送一次生成、修改或讨论需求：必要时建项目，先保存面板设置，再提交消息。
    * 提交使用最新修订号和最新成片 ID；完成后只清理仍属于本项目的输入，避免串到其他项目。
    */
-  async function send(scenario: DemoScenario = 'normal', overrideText?: string) {
+  async function send(overrideText?: string) {
     const text = (overrideText ?? input.value).trim();
     if (!text || busy.value || pending.value || uploading.value) return;
+    if (durationTooLong(text)) {
+      notify('单个作品最长支持 300 秒，请缩短目标时长后重试。', 'error');
+      return;
+    }
     if (historical.value) {
       notify('请先回到当前草稿，再基于最新版本修改。', 'info');
       return;
@@ -299,6 +307,8 @@ export function useStudio() {
     const nextSettings = copy(settings),
       chosen = [...selectedAssets.value],
       mode = intent.value;
+    nextSettings.target_duration_seconds =
+      requestedDurationSeconds(text) ?? nextSettings.target_duration_seconds;
     try {
       const id = await ensureProject();
       const state = await api.getSnapshot(id);
@@ -317,7 +327,6 @@ export function useStudio() {
           base_video_version_id: mode === 'chat' ? null : latest.project.latest_video_version_id,
         },
         makeId('request'),
-        scenario,
       );
       if (projectId.value === id) {
         input.value = '';
@@ -476,14 +485,6 @@ export function useStudio() {
     await router.push('/create');
   }
   /**
-   * 用固定提示词发起指定演示情景，供帮助面板展示失败重试或补充信息流程。
-   */
-  async function scenario(kind: DemoScenario) {
-    await newProject();
-    input.value = '帮我做一个温暖的咖啡店宣传视频。';
-    await send(kind);
-  }
-  /**
    * 记录不一定出现在消息中的额外任务，例如导出；终态后也继续查询它以读取下载结果。
    */
   function trackJob(jobId: string) {
@@ -526,7 +527,6 @@ export function useStudio() {
     remove,
     useExample,
     newProject,
-    scenario,
     trackJob,
   };
 }

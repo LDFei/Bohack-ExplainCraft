@@ -34,7 +34,6 @@ const props = defineProps<{
   pending: boolean;
   uploading: { name: string; percent: number } | null;
   historical: boolean;
-  demo: boolean;
   layoutEnabled: boolean;
   sendShortcut: SendShortcut;
 }>();
@@ -762,7 +761,7 @@ defineExpose({
                 @change="updateSetting('target_duration_seconds', $event)"
               >
                 <option
-                  v-for="seconds in [15, 30, 60].filter(
+                  v-for="seconds in [15, 30, 60, 120, 180, 300].filter(
                     (value) =>
                       value >= caps.duration_range_seconds.min &&
                       value <= caps.duration_range_seconds.max,
@@ -859,11 +858,7 @@ defineExpose({
         </div>
       </div>
       <p class="composer-footnote">
-        <span v-if="demo">
-          <span class="demo-dot" />
-          演示空间 · 当前生成使用 30 秒示例素材
-        </span>
-        <span v-else>AI 创作内容请预览确认后再使用</span>
+        <span>AI 创作内容请预览确认后再使用</span>
         <span class="keyboard-note">
           {{ sendShortcut === 'mod-enter' ? '⌘ / Ctrl + Enter 发送' : 'Enter 发送' }}
           <span>·</span>

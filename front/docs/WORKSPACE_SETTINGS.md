@@ -1,6 +1,6 @@
 # 工作台布局与设置
 
-日期：2026-11-14。所有调整位于 `front/`，不改变项目数据、后端接口或当前演示生成方式。
+日期：2026-11-14。所有调整位于 `front/`，供应商配置通过 Tauri commands 热应用。
 
 ## 操作
 
@@ -25,24 +25,23 @@ Grid 定位，不移动或重新挂载播放器、输入框组件。拖拽布局
 
 除“恢复默认布局”外，弹窗内修改在点击“保存设置”后应用；取消丢弃未保存的输入。
 
-## 四类 API 配置预留
+## 真实供应商配置
 
-| 模块                | 独立端点                 | 预留字段                          |
-| ------------------- | ------------------------ | --------------------------------- |
-| 文生视频模块        | 文生图 API、图生视频 API | 各自的接口地址、模型名称、API Key |
-| 背景音乐 API 模块   | 背景音乐 API             | 接口地址、模型名称、API Key       |
-| 人声 API 模型       | 人声 API                 | 接口地址、人声模型名称、API Key   |
-| 视觉大语言 API 模块 | 视觉大语言 API           | 接口地址、视觉模型名称、API Key   |
+| 模块     | 供应商                                               | 字段                        |
+| -------- | ---------------------------------------------------- | --------------------------- |
+| 创作 LLM | OpenAI、阿里云百炼、DeepSeek、MiniMax、硅基流动、GLM | base URL、模型名称、API Key |
+| 背景音乐 | MiniMax、Stable Audio、硅基流动                      | base URL、模型名称、API Key |
+| 配音     | Qwen-TTS、本地 IndexTTS、breezeTTS2                  | base URL、模型名称、API Key |
 
-当前是四类模块、五个独立配置槽。配置地址必须为完整 HTTP / HTTPS 地址，可留空。
+创作对话、分镜与 SVG 共用同一个 llm1，不再有独立视觉模型设置。保存通过
+`update_model_settings` 写入应用配置并原子替换供应商，新任务立即生效；密钥不会回显到页面。
 
-这些字段仅为后续接入预留，不发出服务请求，不测试连通性，不会把当前演示标为已接入真实模型。地址和模型名称保存到当前浏览器；API
-Key 仅保留在当前页面的内存中，关闭设置后可再次查看已填写值，整页刷新后清空，不写入 localStorage。没有改动已有 StudioApi 契约。
+通用偏好仍保存在当前浏览器，供应商配置则保存到应用数据目录。
 
 ## 文件
 
-- `src/components/SettingsPanel.vue`：通用设置、四类 API 预留、取消与保存。
-- `src/composables/useAppSettings.ts`：通用偏好与非敏感配置保存，会话密钥隔离。
+- `src/components/SettingsPanel.vue`：通用偏好与真实供应商配置。
+- `src/services/settings.ts`：供应商预设及 get/update command 调用。
 - `src/components/PanelDragHandle.vue`：可拖动与键盘移动的共用手柄。
 - `src/composables/useWorkspaceLayout.ts`：网格顺序、尺寸边界、指针捕获、持久化与损坏配置回退。
 - `src/workspace-layout.css`：三栏网格、分隔线和设置的响应式样式。

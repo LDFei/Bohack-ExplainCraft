@@ -11,8 +11,6 @@ export type StageKey =
 export type Intent = 'generate' | 'revise' | 'chat';
 /** 内置示例主题，用来选择随工程打包的图片、文案和视频。 */
 export type Theme = 'coffee' | 'travel' | 'product';
-/** 演示情景：正常完成、模拟失败、等待用户回答；不属于真实生成参数。 */
-export type DemoScenario = 'normal' | 'failure' | 'question';
 
 /** 用户可选择的创作参数；目标时长与实际成片时长分开记录。 */
 export interface Settings {
@@ -27,7 +25,7 @@ export interface Settings {
 }
 /** 配音、音乐来源与混音设置。ID 来源要互斥，真实音色和曲目由 capabilities 提供。 */
 export interface AudioSettings {
-  /** 配音音色 ID。演示只保存设置，没有调用真实 TTS。 */
+  /** 配音音色 ID。 */
   voice_id: string;
   /** 语速倍率，1 表示正常速度。 */
   speech_rate: number;
@@ -50,7 +48,7 @@ export interface Finishing {
   color_preset_id: string;
   /** 特效预设 ID；none 表示不叠加额外特效。 */
   effect_preset_id: string;
-  /** 是否在真正渲染时生成字幕；演示文件不会因这个开关重渲染。 */
+  /** 是否在真正渲染时生成字幕。 */
   subtitles_enabled: boolean;
 }
 /** 一个分镜。数组中的顺序决定播放顺序，旁白和画面提示词分别服务于配音与素材准备。 */
@@ -147,7 +145,7 @@ export interface Message {
   job_id: string | null;
   /** 与自然语言分开的结构化结果。 */
   blocks: MessageBlock[];
-  /** 已持久化的最后文本增量序号，用于断线恢复去重；本地演示初始为 0。 */
+  /** 已持久化的最后文本增量序号，用于断线恢复去重。 */
   last_delta_seq: number;
   created_at: string;
 }
@@ -240,7 +238,7 @@ export interface Snapshot {
   active_job: Job | null;
   /** 最近成功成片详情，与查看中的历史版本不是同一个概念。 */
   latest_video: VideoVersion | null;
-  /** 最近消息与加载更早消息的游标；演示当前返回全部消息。 */
+  /** 最近消息与加载更早消息的游标。 */
   messages_page: { items: Message[]; next_cursor: string | null };
   /** 订阅事件的起点，保持字符串，不能转成可能丢精度的 Number。 */
   event_cursor: string;
@@ -250,7 +248,7 @@ export interface Capabilities {
   /** 新项目和输入框的默认设置。 */
   defaults: Settings & {
     voice_id: string;
-    music_mode: 'auto';
+    music_mode: 'auto' | 'none' | 'library' | 'upload';
     color_preset_id: string;
     effect_preset_id: string;
     subtitles_enabled: boolean;
@@ -273,8 +271,6 @@ export interface Capabilities {
   };
   /** 后端保证可补发事件的保留秒数。 */
   event_retention_seconds: number;
-  /** 后端仍在使用演示供应商（示例素材）时为 true；本地演示模式下不存在。 */
-  demo_mode?: boolean;
 }
 /** 某一种媒体允许的 MIME 类型和单文件字节上限。 */
 export interface FileLimit {
@@ -296,36 +292,3 @@ export interface MessageInput {
 export type DraftChanges = Partial<
   Pick<Draft, 'settings' | 'script' | 'shots' | 'audio' | 'finishing'>
 >;
-/** 仅供本机演示调度的私有输入与计时记录，不是 Rust 接口约定中的公共 Job 字段。 */
-export interface DemoRun {
-  input: MessageInput;
-  scenario: DemoScenario;
-  theme: Theme;
-  /** 演示计时起点，使用毫秒时间戳，刷新后仍可恢复计算。 */
-  started_ms: number;
-  /** 收到取消请求的时间，给界面留出正在停止的短暂状态。 */
-  cancelled_ms?: number;
-  /** 演示追问是否已回答，防止恢复时再次提问。 */
-  answered: boolean;
-  /** 本任务最后保存草稿时的修订号，重试时检测输入是否已被改动。 */
-  checkpoint_revision: number;
-}
-/** 本地演示数据库的聚合记录；对外通过 snapshot 转换，页面不直接持有它。 */
-export interface ProjectRecord {
-  project: Project;
-  draft: Draft;
-  messages: Message[];
-  assets: Asset[];
-  versions: VideoVersion[];
-  jobs: Job[];
-  /** 用任务 ID 索引的演示调度输入。 */
-  runs: Record<string, DemoRun>;
-  /** 本项目的演示事件序号，状态变化后递增。 */
-  event_seq: number;
-}
-/** localStorage 内保存的演示元数据；schema_version 用于识别当前存储结构。 */
-export interface Database {
-  /** 存储结构版本，不是产品版本。 */
-  schema_version: 1;
-  projects: ProjectRecord[];
-}

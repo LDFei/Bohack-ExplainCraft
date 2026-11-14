@@ -3,7 +3,8 @@
  * 作品预览与可编辑草稿面板。播放器读取成片，表单编辑当前草稿；历史版本以只读快照展示。
  */
 
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { getModelSettings, listVoices } from '../services/settings.ts';
 import { copy, emptyDraft, imagePath } from '../domain/content.ts';
 import type {
   Asset,
@@ -35,6 +36,28 @@ const props = defineProps<{
   timelineHeight?: number;
   onSave: (changes: DraftChanges, revision: number) => Promise<boolean>;
 }>();
+
+const remoteVoices = ref<string[]>([]);
+const voiceChoices = computed(() =>
+  remoteVoices.value.length ? remoteVoices.value : props.caps.voices.map((voice) => voice.id),
+);
+
+/** 优先使用供应商返回的声线，接口不可用时保留 capabilities 中的配置候选。 */
+onMounted(async () => {
+  try {
+    const settings = await getModelSettings();
+    remoteVoices.value = await listVoices(settings.voice);
+    if (
+      remoteVoices.value.length &&
+      (!form.value.audio.voice_id ||
+        ['voice_warm', 'voice_calm', 'voice_bright'].includes(form.value.audio.voice_id))
+    ) {
+      form.value.audio.voice_id = remoteVoices.value[0]!;
+    }
+  } catch {
+    // 不支持 /audio/voices 的供应商使用 capabilities 中的配置候选。
+  }
+});
 const emit = defineEmits<{
   select: [id: string];
   download: [id: string];
@@ -499,7 +522,6 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                   :size="21"
                 />
               </button>
-              <span class="preview-demo-tag">示例作品</span>
             </template>
             <div
               v-else-if="mediaError"
@@ -890,7 +912,7 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                   :alt="shot.visual_prompt"
                 />
               </div>
-              <p class="editor-hint">示例预览使用内置画面；上传文件会保存在本机。</p>
+              <p class="editor-hint">上传文件会保存在应用数据目录。</p>
             </template>
           </template>
           <template v-if="tab === 'audio'">
@@ -906,18 +928,19 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                   />
                   配音音色
                 </span>
-                <select
+                <input
                   v-model="form.audio.voice_id"
+                  list="voice-options"
+                  aria-label="配音音色"
                   @change="formDirty = true"
-                >
+                />
+                <datalist id="voice-options">
                   <option
-                    v-for="voice in caps.voices"
-                    :key="voice.id"
-                    :value="voice.id"
-                  >
-                    {{ voice.name }}
-                  </option>
-                </select>
+                    v-for="voice in voiceChoices"
+                    :key="voice"
+                    :value="voice"
+                  />
+                </datalist>
               </label>
               <label class="range-field">
                 <span>
@@ -950,8 +973,8 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                   :value="musicValue"
                   @change="musicMode"
                 >
-                  <option value="auto">由灵镜自动匹配</option>
-                  <option value="none">无背景音乐</option>
+                  <option value="auto">程序化合成背景音乐（默认）</option>
+                  <option value="none">不生成背景音乐</option>
                   <option
                     v-for="track in caps.music_tracks"
                     :key="track.id"
@@ -1051,7 +1074,7 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                   @change="formDirty = true"
                 >
                   <option
-                    v-for="seconds in [15, 30, 60].filter(
+                    v-for="seconds in [15, 30, 60, 120, 180, 300].filter(
                       (value) =>
                         value >= caps.duration_range_seconds.min &&
                         value <= caps.duration_range_seconds.max,

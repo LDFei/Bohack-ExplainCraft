@@ -9,12 +9,11 @@ import vue from '@vitejs/plugin-vue';
 const tauriPlatform = process.env.TAURI_ENV_PLATFORM;
 const tauriDebug = !!process.env.TAURI_ENV_DEBUG;
 
-export default defineConfig(({ mode }) => {
-  // 官网与工作台共享源码，但各自独立构建；Pages 不会拿到工作台及其演示服务代码。
-  const studio = mode === 'studio';
+export default defineConfig(() => {
+  // front/ 只构建 Tauri 工作台；独立官网位于 website/。
   return {
-    // 官网通过 VITE_BASE 支持 Pages 子路径；桌面资源使用相对地址。
-    base: studio ? './' : (process.env.VITE_BASE ?? '/'),
+    base: './',
+    publicDir: '../shared/public',
     // 将 .vue 单文件组件编译成浏览器可以加载的模块。
     plugins: [vue()],
     // 桌面端开发时 Tauri 与 Vite 共用一个终端，不清屏以免挡住 Rust 编译错误。
@@ -30,18 +29,16 @@ export default defineConfig(({ mode }) => {
     },
     preview: { port: 4173, strictPort: true },
     build: {
-      outDir: studio ? 'dist/studio' : 'dist/website',
+      outDir: 'dist/studio',
       emptyOutDir: true,
       // Windows 桌面端使用 WebView2（Chromium 内核）；浏览器构建保持 Vite 默认目标。
       ...(tauriPlatform === 'windows' ? { target: 'chrome105' } : {}),
       // 桌面端调试构建保留可读代码与 sourcemap。
       minify: !tauriDebug,
       sourcemap: tauriDebug,
-      // 两种产物只包含自己的 HTML 入口，避免官网和工作台互相携带业务代码。
+      // 工作台唯一 HTML 入口。
       rollupOptions: {
-        input: studio
-          ? fileURLToPath(new URL('./studio.html', import.meta.url))
-          : fileURLToPath(new URL('./index.html', import.meta.url)),
+        input: fileURLToPath(new URL('./studio.html', import.meta.url)),
       },
     },
   };

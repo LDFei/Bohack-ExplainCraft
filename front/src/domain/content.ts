@@ -1,5 +1,5 @@
 /**
- * 本地演示能力、主题内容及纯工具函数。真实服务接入后，界面选项应以 /capabilities 返回值为准。
+ * 初始能力、主题内容及纯工具函数。运行时界面选项以 capabilities 返回值为准。
  */
 import type { Capabilities, Draft, StageKey, Theme } from './types.ts';
 
@@ -15,7 +15,21 @@ export const stageLabels: Record<StageKey, string> = {
   render: '输出成片',
 };
 export const stageKeys = Object.keys(stageLabels) as StageKey[];
-// 演示能力只公布已经打包的 720p 文件，避免提供实际上无法下载的导出规格。
+
+/** 从明确文本中读取 15～300 秒目标时长，未提及时返回 null。 */
+export function requestedDurationSeconds(text: string) {
+  const match = text.match(/(?:^|\D)([1-6]?\d)(?:\s*)(?:秒|s(?:ec(?:onds?)?)?)\b/i);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  return seconds >= 15 && seconds <= 300 ? seconds : null;
+}
+
+/** 检测文本中明确超过 300 秒的请求，避免静默截断。 */
+export function durationTooLong(text: string) {
+  const match = text.match(/(?:^|\D)(\d+)(?:\s*)(?:秒|s(?:ec(?:onds?)?)?)\b/i);
+  return !!match && Number(match[1]) > 300;
+}
+// 初始能力只公布已经支持的 720p 输出规格。
 export const capabilities: Capabilities = {
   defaults: {
     target_duration_seconds: 30,
@@ -28,7 +42,7 @@ export const capabilities: Capabilities = {
     effect_preset_id: 'none',
     subtitles_enabled: true,
   },
-  duration_range_seconds: { min: 15, max: 60 },
+  duration_range_seconds: { min: 15, max: 300 },
   aspect_ratios: ['9:16', '16:9', '1:1'],
   languages: ['zh-CN'],
   styles: [
@@ -142,7 +156,7 @@ export const imagePath = (name: string) => `media/${name}.jpg`;
  */
 export const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 /**
- * 通过少量关键词选择咖啡、旅行或产品示例；这是演示规则，不是大模型理解。
+ * 通过少量关键词选择咖啡、旅行或产品示例。
  */
 export const inferTheme = (text: string): Theme =>
   /旅行|山野|风景|山峰|露营|湖泊/.test(text)

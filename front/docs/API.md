@@ -20,7 +20,7 @@
 | 调色与特效 | 应用用户选择的预设                     | 少量容易理解的预设选项     |
 | 输出       | 渲染预览、生成版本、按需导出           | 播放器、版本切换、下载     |
 
-前端只调用 Rust 业务接口。模型、素材库、TTS 和剪辑库都由后端调用；截图中的 llm1/llm2 等编号不进入前端接口。Vue 关闭、刷新或者网络断开，都不应终止后端任务。
+前端只调用 Rust 业务接口。模型、素材库、TTS 和剪辑库都由后端调用；Vue 关闭或刷新都不应终止后端任务。
 
 第一版默认自动完成整个流程，不强制用户逐步确认。只有无法继续执行的关键信息缺失时才提问。调色与特效默认使用
 `natural`、`none`，用户可以主动修改。
@@ -275,11 +275,9 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 
 上面的范围是首版拟定值，不代表现有供应商支持情况。后端只能返回已经接通的能力；前端不能把示例中的风格、音色、分辨率写死。分辨率指短边：720p 竖屏为 720×1280，横屏为 1280×720，方形为 720×720。
 
-实现说明：当前返回值为目标时长 15～60 秒；风格 `warm / cinematic / minimal / energetic`；音色
-`voice_warm`（温柔女声）、`voice_calm`（沉稳男声）、`voice_bright`（元气女声）；调色
-`natural / warm / cool`；特效 `none / fade`；导出只开放 `720p`（复用预览文件）。另有扩展字段
-`demo_mode`（boolean）：只要有任一环节仍在使用演示供应商就为
-`true`，前端据此显示“后端演示”标识和演示情景入口；全部换成真实模型后为 `false`。
+实现说明：当前返回值为目标时长 15～300 秒；风格 `warm / cinematic / minimal / energetic`；
+声线由当前 TTS 供应商配置决定；调色 `natural / warm / cool`；特效 `none / fade`；
+预览与导出均通过 Quercus 执行。另有扩展字段
 
 ### 5.2 创建、查询和管理项目
 
@@ -412,9 +410,6 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
 ```
 
 HTTP 202 表示已受理，不能显示“视频生成完成”。
-
-实现说明：仅当后端使用演示供应商（`demo_mode=true`）时，可以附带请求头
-`X-Demo-Scenario: failure | question`，用于体验“画面阶段失败后重试”和“追问补充信息”两个流程；使用真实模型时后端忽略这个请求头。这两个消息 ID 已持久化；后续从消息列表或快照获得完整 Message。
 
 `GET /projects/{project_id}/messages?cursor=<opaque>&limit=50` → 200，返回
 `items: Message[] / next_cursor`。首次取最近一页，cursor 向更早翻页；每一页内部按时间正序，默认 50、最大 100。未知的 block 类型显示通用结果卡片，不让页面报错。
@@ -549,14 +544,20 @@ HTTP 202 表示已受理，不能显示“视频生成完成”。
 ```json
 {
   "format": "mp4",
-  "resolution": "1080p",
-  "fps": 30
+  "resolution": "720p",
+  "fps": 30,
+  "include_project": false
 }
 ```
 
 返回
 `data.job_id / data.job_status`。导出严格使用指定成片的不可变快照，不读取后来编辑的 Draft。生成阶段默认已有可下载的预览文件；导出用于其他输出规格。若同一版本已有相同规格的成功文件，直接返回 200 和
 `data.asset_id / data.cached=true`，无需重新渲染。异步成功通过 Job.result.asset_id 获取文件。
+
+`include_project=true` 时导出 ZIP 工程包，成功记录的 `format` 为 `zip`。包内包含当前版本 MP4、
+时间线引用的全部素材、用户上传素材、独立 SRT 字幕、`project.ove`、`project.otio`、
+`project.fcpxml` 和 `manifest.json`。工程文件使用相对素材路径，应完整解压后再交给人工剪辑。
+新版本同时持久化不可变剪辑时间线，保证历史工程包不会读取后来修改的草稿。
 
 `GET /assets/{asset_id}/download` → 200：
 
@@ -692,7 +693,8 @@ token，旧 worker、超时调用和取消后迟到的结果均不能覆盖新�
 
 - 以上要求均已实现：状态与项目事件在同一事务提交；`jobs.attempt` 作为 fencing
   token；重启时把中断的任务放回队列，从检查点继续。
-- 真实模型闭环已跑通（20 秒竖屏成片）：GLM-5.3 负责文案、分镜和剪辑指令，Qwen-Image 生成画面，MiniMax-H3 生成背景音，本地 breezeTTS2 配音，quercus-engine 剪辑出片。
+- 当前链路：GLM 负责文案、分镜和剪辑工具调用，视觉 LLM 输出 SVG/SMIL，本地逐帧渲染后由
+  quercus-engine 剪辑导出；音乐与配音可分别选择 MiniMax/Stable Audio、Qwen-TTS/IndexTTS。
 - 尚未覆盖：播放 / 下载地址过期后的前端自动续期、事件游标过期（410）的端到端演练、登录与令牌校验。
 
 ## 10. 桌面应用（Tauri）
@@ -705,7 +707,7 @@ workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后�
 1. 读取本地配置：应用配置目录下的 `.env`；调试构建再读取 `src-tauri/.env`。已存在的环境变量优先。
 2. 创建
    `AppState`、SQLite 和后台 worker。数据库和生成的文件保存在应用数据目录（Windows：`%APPDATA%\com.explaincraft.lingjing`），演示素材作为应用资源打包（`media/`）。
-3. 创建主窗口。前端使用 `@tauri-apps/api/core` 的 `invoke` 调用 commands；浏览器演示不包含这些调用。
+3. 创建主窗口。前端使用 `@tauri-apps/api/core` 的 `invoke` 调用 commands。
 4. 退出应用时停止异步运行时。未完成的任务状态在数据库中，下次启动会继续执行。
 
 业务入口包括 `capabilities`、`list_projects`、`create_project`、`get_project`、`send_message`、
@@ -716,7 +718,7 @@ workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后�
 媒体文件通过 `explaincraft` 自定义协议读取并保留签名、Range 与下载响应头。CSP 只允许 IPC
 和对应媒体协议，不开放本机 HTTP 端口。dev 鉴权模式使用单用户 `local_user`。
 
-桌面端只使用 Tauri 的默认权限（`capabilities/default.json`）和应用自有 commands。浏览器工作台仅使用无后端的演示状态机。
+桌面端只使用 Tauri 的默认权限（`capabilities/default.json`）和应用自有 commands。
 
 ## 11. 后端内部：制作流程与剪辑指令（不对前端暴露）
 
@@ -725,7 +727,7 @@ workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后�
 | 阶段 key                             | 执行者                                                        |
 | ------------------------------------ | ------------------------------------------------------------- |
 | `planning` / `script` / `storyboard` | llm1：选题、文案、分镜（GLM-5.3）                             |
-| `visuals`                            | llm2：每个镜头并发生成画面（Qwen-Image）                      |
+| `visuals`                            | llm1：每个镜头生成 SVG/SMIL 动画并本地渲染                    |
 | `audio`                              | llm4 配音（breezeTTS2）与 llm3 背景音乐（MiniMax-H3）同时进行 |
 | `edit`                               | llm1 输出剪辑指令（见下）                                     |
 | `finishing`                          | 按调色 / 特效预设整理剪辑方案与转场                           |

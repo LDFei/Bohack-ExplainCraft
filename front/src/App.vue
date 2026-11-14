@@ -17,7 +17,6 @@ import ThemeSwitcher from './components/ThemeSwitcher.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useAppSettings } from './composables/useAppSettings.ts';
 import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
-import { WEBSITE_URL } from './domain/links.ts';
 
 // 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
@@ -78,10 +77,6 @@ const {
   messages,
   playing,
 } = studio;
-// 已连接 Rust 后端，但后端模型仍是演示供应商（使用示例素材），需要继续向用户说明演示边界。
-const backendDemo = computed(() => studio.api.mode === 'tauri' && !!caps.value.demo_mode);
-// 本地演示或后端演示时都显示演示标识、说明和演示情景入口。
-const showDemo = computed(() => studio.api.mode === 'demo' || backendDemo.value);
 const sidebarOpen = ref(false),
   previewOpen = ref(false),
   moreOpen = ref(false);
@@ -94,7 +89,8 @@ const modal = ref<'templates' | 'guide' | 'rename' | 'delete' | 'export' | null>
 const exportResolution = ref('720p'),
   exportedAsset = ref(''),
   exportJobId = ref(''),
-  exportError = ref('');
+  exportError = ref(''),
+  exportProject = ref(false);
 const title = computed(() => current.value?.project.title ?? '新的创作');
 const exportJob = computed(() => (exportJobId.value ? jobs.value[exportJobId.value] : null));
 // 路由导航会丢弃尚未保存的设置弹窗副本，不让首页往返意外保留打开状态。
@@ -168,17 +164,11 @@ function latest() {
     void studio.selectVersion(current.value.project.latest_video_version_id);
 }
 /**
- * 打开独立 GitHub Pages 官网；桌面产物本身不再包含官网页面。
- */
-function goHome() {
-  window.location.assign(WEBSITE_URL);
-}
-/**
  * 用已保存的脚本和设置发起更新；与“保存设置”分开，避免把旧预览误认为新视频。
  */
 function updateVideo() {
   intent.value = versions.value.length ? 'revise' : 'generate';
-  void studio.send('normal', '按当前已保存的脚本与设置更新视频。');
+  void studio.send('按当前已保存的脚本与设置更新视频。');
 }
 /**
  * 打开导出弹窗并清空上一次导出状态；默认清晰度来自服务能力。
@@ -203,6 +193,7 @@ async function exportVideo() {
       projectId.value,
       selectedVersion.value.id,
       exportResolution.value,
+      exportProject.value,
     );
     if (result.asset_id) {
       exportedAsset.value = result.asset_id;
@@ -248,13 +239,6 @@ function prompt(text: string) {
 function closeModal() {
   if (!modalPending.value) modal.value = null;
 }
-/**
- * 从帮助面板启动失败或追问演示；页面只在演示模式展示此入口。
- */
-async function scenario(kind: 'failure' | 'question') {
-  modal.value = null;
-  await studio.scenario(kind);
-}
 </script>
 <template>
   <div
@@ -295,7 +279,6 @@ async function scenario(kind: 'failure' | 'question') {
       @seek="preview?.seek($event)"
       @panel="openPanel"
       @resize="sidebarExpanded = $event"
-      @home="goHome"
       @settings="settingsOpen = true"
       @panel-drag-start="startDrag"
       @panel-drag-end="endDrag"
@@ -332,11 +315,7 @@ async function scenario(kind: 'failure' | 'question') {
     <!-- 右侧对话和中央作品共享 useStudio 数据，通过事件完成三栏联动。 -->
     <div class="workspace">
       <header class="topbar">
-        <a
-          class="topbar-brand"
-          :href="WEBSITE_URL"
-          aria-label="返回产品首页"
-        >
+        <div class="topbar-brand">
           <span class="brand-icon">
             <Icon
               name="aperture"
@@ -348,7 +327,7 @@ async function scenario(kind: 'failure' | 'question') {
             <span class="brand-light">Craft</span>
             <small>VIDEO STUDIO</small>
           </span>
-        </a>
+        </div>
         <div class="breadcrumbs">
           <button
             class="icon-button mobile-menu"
@@ -411,21 +390,8 @@ async function scenario(kind: 'failure' | 'question') {
               :size="16"
             />
             {{
-              connection === 'reconnecting'
-                ? '正在恢复连接'
-                : pending
-                  ? '正在保存'
-                  : studio.api.mode === 'demo'
-                    ? '已保存到本机'
-                    : '已自动保存'
+              connection === 'reconnecting' ? '正在恢复连接' : pending ? '正在保存' : '已自动保存'
             }}
-          </span>
-          <span
-            v-if="showDemo"
-            class="mode-badge"
-          >
-            <span />
-            {{ backendDemo ? '后端演示' : '演示模式' }}
           </span>
           <button
             class="icon-button top-help"
@@ -583,7 +549,6 @@ async function scenario(kind: 'failure' | 'question') {
           :pending="pending"
           :uploading="uploading"
           :historical="historical"
-          :demo="showDemo"
           @update:input="input = $event"
           @update:intent="intent = $event"
           @update:settings="Object.assign(settings, $event)"
@@ -739,46 +704,6 @@ async function scenario(kind: 'failure' | 'question') {
           </section>
         </div>
       </div>
-      <div
-        v-if="showDemo"
-        class="demo-explanation"
-      >
-        <Icon
-          name="info"
-          :size="18"
-        />
-        <p v-if="backendDemo">
-          已连接 Rust
-          后端，创作记录和上传文件保存在服务端。文案、画面、配音与音乐目前由演示模型提供，成片使用内置的
-          30 秒示例视频。
-        </p>
-        <p v-else>
-          当前是可交互演示版。创作记录和上传文件保存在本机，视频使用内置的 30
-          秒示例画面与音乐，尚未调用真实 AI 生成服务。
-        </p>
-      </div>
-      <div
-        v-if="showDemo"
-        class="demo-scenarios"
-      >
-        <span>也可以体验制作中的小插曲</span>
-        <div>
-          <button @click="scenario('failure')">
-            <Icon
-              name="refresh"
-              :size="15"
-            />
-            失败后继续制作
-          </button>
-          <button @click="scenario('question')">
-            <Icon
-              name="help"
-              :size="15"
-            />
-            补充信息后继续
-          </button>
-        </div>
-      </div>
       <template #footer>
         <button
           class="button primary"
@@ -866,7 +791,7 @@ async function scenario(kind: 'failure' | 'question') {
     </Modal>
     <Modal
       :open="modal === 'export'"
-      :title="exportedAsset ? '你的故事，准备好被看见了' : '把作品带走'"
+      :title="exportedAsset ? '导出文件已准备就绪' : '把作品带走'"
       :subtitle="`导出当前查看的 v${selectedVersion?.version_number ?? 1} 版本`"
       :locked="modalPending && !exportJobId"
       @close="closeModal"
@@ -881,8 +806,12 @@ async function scenario(kind: 'failure' | 'question') {
             :size="30"
           />
         </span>
-        <h3>视频文件已准备就绪</h3>
-        <p>MP4 · {{ exportResolution }} · 30 fps</p>
+        <h3>{{ exportProject ? '工程包已准备就绪' : '视频文件已准备就绪' }}</h3>
+        <p>
+          {{
+            exportProject ? 'ZIP · 全部素材与三种剪辑工程' : `MP4 · ${exportResolution} · 30 fps`
+          }}
+        </p>
         <button
           class="button primary"
           @click="studio.download(exportedAsset)"
@@ -891,7 +820,7 @@ async function scenario(kind: 'failure' | 'question') {
             name="download"
             :size="17"
           />
-          下载视频
+          {{ exportProject ? '下载工程包' : '下载视频' }}
         </button>
       </div>
       <template v-else>
@@ -924,19 +853,32 @@ async function scenario(kind: 'failure' | 'question') {
             <strong>{{ Math.round((selectedVersion?.duration_ms ?? 30000) / 1000) }} 秒</strong>
           </span>
         </div>
+        <label class="export-bundle">
+          <input
+            v-model="exportProject"
+            type="checkbox"
+            :disabled="modalPending"
+          />
+          <span>
+            <strong>同时导出工程与全部素材</strong>
+            <small>
+              ZIP 包含 MP4、独立字幕、全部素材，以及 OVE / OTIO / FCPXML，便于人工继续剪辑。
+            </small>
+          </span>
+        </label>
         <p class="export-note">
           <Icon
             name="info"
             :size="15"
           />
-          导出保留这个版本的画面与设置。
+          导出基于这个版本的不可变快照；工程包使用相对素材路径，完整解压后即可人工编辑。
         </p>
         <div
           v-if="modalPending"
           class="export-progress"
         >
           <span class="spinner" />
-          {{ exportJob?.current_stage ? '正在渲染视频文件…' : '正在准备视频文件…' }}
+          {{ exportProject ? '正在保存工程并打包素材…' : '正在准备视频文件…' }}
         </div>
         <p
           v-if="exportError"
@@ -963,7 +905,7 @@ async function scenario(kind: 'failure' | 'question') {
             name="export"
             :size="16"
           />
-          {{ modalPending ? '准备中…' : '导出视频' }}
+          {{ modalPending ? '准备中…' : exportProject ? '导出工程包' : '导出视频' }}
         </button>
       </template>
     </Modal>

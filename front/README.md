@@ -1,113 +1,69 @@
-# ExplainCraft 前端与桌面工作台
+# ExplainCraft Tauri 工作台
 
-`front/` 保存全部 Vue、TypeScript、样式、静态素材和前端测试。代码有两个独立入口：
+`front/` 只保存 Tauri 工作台的 Vue、TypeScript、样式与测试。独立静态官网位于
+[`website/`](../website/README.md)，共享示例媒体位于 `shared/public/media/`。
 
-| 入口          | 用途              | 开发命令             | 构建产物                  |
-| ------------- | ----------------- | -------------------- | ------------------------- |
-| `index.html`  | GitHub Pages 官网 | `npm run dev`        | `dist/website/index.html` |
-| `studio.html` | Tauri 创作工作台  | `npm run dev:studio` | `dist/studio/studio.html` |
+工作台没有 `DemoApi`、本地伪造任务或首页入口。项目、对话、上传、任务、版本与导出全部通过
+Tauri commands 访问真实 Rust 后端。
 
-两种构建共享主题和少量工具，但不会把对方入口打进产物。官网只负责产品展示、示例播放和桌面版下载；
-工作台通过 `src/services/api.ts` 使用 Rust 后端，桌面端不会因为存在浏览器演示适配而绕过内嵌服务。
+## 桌面端开发
 
-![ExplainCraft 产品首页](docs/screenshots/aceternity/round-4/home-desktop.png)
-
-## 桌面端
-
-需要 Node.js 24.12+、Rust 和 Tauri 2 平台依赖。首次运行：
+需要 Node.js 24.12+、Rust、Tauri 2 平台依赖、FFmpeg 开发包和 Quercus 编译环境。
 
 ```bash
 npm ci
 npm run desktop:dev
 ```
 
-根目录 `src-tauri/` 在同一个 crate 中提供 Rust commands，工作台通过 IPC 调用它们。
-数据库和生成文件保存在应用数据目录，演示素材随应用打包，媒体文件通过 Tauri 自定义协议读取。
-
-```bash
-npm run desktop:build
-```
-
-Windows 的 quercus 版本使用：
+Tauri 会执行 `npm run dev:studio` 并打开工作台。macOS 可设置 `FFMPEG_DIR=/opt/homebrew`。
+Windows 的 MSVC 环境使用：
 
 ```powershell
 npm run desktop:dev:windows
 npm run desktop:build:windows
 ```
 
-这两个脚本要求 MSVC 和 FFmpeg 开发包，详见
-[后端说明](../src-tauri/README.md)。普通 `desktop:*` 命令不启用 quercus，默认使用后端演示供应商。
+## 真实生成链路
 
-## 官网
+- 文案、对话、分镜与 SVG 动画共用 llm1，不单独配置视觉模型。
+- 视觉场景以受约束的 SVG/SMIL 输出，本地逐帧渲染后交给 Quercus。
+- 新项目默认使用本地程序化配乐：按风格合成和弦、贝斯、琶音与轻打击乐，直接生成 WAV。
+- 也可关闭音乐，或改用 MiniMax、Stable Audio、硅基流动、曲库和上传音频。
+- Qwen-TTS、本地 IndexTTS 或 breezeTTS2 负责配音。
+- Quercus 负责预览剪辑与 MP4 导出，不直接复制示例成片。
 
-```bash
-npm run dev
-npm run build:website
-npm run preview
-```
+“工作台设置 → API 配置”用于选择供应商、base URL、模型与密钥。保存通过
+`get_model_settings` / `update_model_settings` commands 写入应用配置并热替换供应商，
+新任务立即生效；密钥不会回显到页面。
 
-浏览器打开 <http://127.0.0.1:5173>。所有“立即下载”链接均指向
-<https://github.com/LDFei/Bohack-ExplainCraft/releases>。
-
-GitHub Pages 工作流以 `VITE_BASE=/<仓库名>/` 构建并只上传 `dist/website/`。官网不包含
-`studio.html`、接口适配或任何后端服务，线上访客必须下载桌面应用后使用工作台。
+选择“自定义 OpenAI
+Compatible”时，可填写自己的 Endpoint 和模型名称；Endpoint 必须包含完整 HTTP(S) 地址。
+填写 API Key 后会自动请求该 Endpoint 的 `/models`，模型名可从下拉列表选择，也可手动输入。
+配音可选择 Qwen-TTS、硅基流动 TTS、本地 IndexTTS 或 breezeTTS2。
+每次创作可在作品设置中选择或手填声线；旧音色 ID 会迁移到当前默认声线。
+目标时长支持 15～300 秒，超过 300 秒直接返回 `DURATION_TOO_LONG`，不会静默截断。
 
 ## 工作台功能
 
-- 左侧素材与项目历史、中央画布和时间轴、右侧 AI Copilot；手机上按区切换。
-- 一句话发起制作，逐阶段展示进度，支持停止、失败重试和回答追问后继续。
-- 对话修改生成新版本；历史版本保留，脚本和设置以只读快照查看。
-- 图片、视频、音频上传；文件类型、大小和可解码性由前后端共同校验。
-- 脚本编辑、音色、语速、音乐、音量、字幕、风格和比例设置。
-- 成片播放、MP4 导出下载、仅讨论模式、灵感模板、改名和删除。
-- 可调整三栏布局、收起侧栏、切换四套主题并保存通用偏好。
-
-后端默认 `demo` 供应商使用本地示例素材，界面会显示“后端演示”。配置真实模型供应商后，
-同一工作台可以执行真实文案、画面、配音、配乐与渲染流程；供应商配置不属于前端环境变量。
-
-## 浏览器开发适配
-
-原有纯前端演示状态机保留在 `src/domain/engine.ts`，便于无 Rust 环境时测试工作台交互：
-
-```bash
-npm run dev:studio
-```
-
-打开 <http://127.0.0.1:5173/studio.html#/create>。这个模式只用于开发测试，不部署到官网。
-
-浏览器工作台始终使用这个无后端演示模式，不能连接外部 Rust 服务。真实后端只随 Tauri
-桌面应用启动，接口地址由桌面壳注入。接口细节见 [API 文档](docs/API.md)。
+- 项目历史、素材上传、对话创作与修改、追问、取消和失败重试。
+- 脚本、音色、语速、音乐、音量、字幕、风格和比例设置。
+- 成片播放、历史版本、MP4 导出下载、项目改名和删除。
+- 三栏自定义布局、侧栏收缩、四套主题与发送快捷键。
 
 ## 验证
-
-所有 npm、uv 和 Playwright 命令都从 `front/` 执行：
 
 ```bash
 npm run format
 npm run format:check
 npm test
-npm run test:e2e
-npm run build:website
-npm run check:website
 npm run build:studio
 ```
 
-浏览器测试使用本机 Google Chrome，并自动启动开发服务。Rust workspace 检查从仓库根目录执行：
+Rust workspace 检查从仓库根目录执行：
 
 ```bash
-npm run build:studio
 cargo fmt --all --check
 cargo test --workspace
 ```
 
-上面的 Cargo 命令从仓库根目录执行；`build:studio` 仍从 `front/`
-执行。也可以只检查不需要前端产物的业务库：
-
-```bash
-cargo fmt --all --check
-cargo test -p lingjing-desktop
-```
-
-第一次阅读源码可从 [代码阅读顺序](docs/CODE_GUIDE.md) 开始。布局、视觉评审与素材来源分别见
-[工作台设置](docs/WORKSPACE_SETTINGS.md)、[视觉审查](docs/aceternity/VISUAL_REVIEW.md) 和
-[素材来源](docs/MEDIA_SOURCES.md)。
+接口说明见 [API 文档](docs/API.md)，官网开发见 [website/README.md](../website/README.md)。

@@ -31,7 +31,6 @@ const emit = defineEmits<{
   seek: [seconds: number];
   panel: [tab: string];
   resize: [expanded: boolean];
-  home: [];
 }>();
 // 参照官方 Sidebar 的受控展开与悬停行为：300px / 60px，额外保留固定展开供编辑器长时间工作。
 const pinned = ref(true),
@@ -119,17 +118,6 @@ function select(id: string) {
           :size="20"
         />
         <span>{{ pinned ? '收起' : '展开' }}</span>
-      </button>
-      <button
-        class="rail-button"
-        aria-label="产品首页"
-        @click="emit('home')"
-      >
-        <Icon
-          name="home"
-          :size="20"
-        />
-        <span>首页</span>
       </button>
       <button
         class="rail-button active"
@@ -254,7 +242,7 @@ function select(id: string) {
         <template v-if="libraryTab === 'clips'">
           <div class="library-section-title">
             当前序列
-            <span>本地演示素材</span>
+            <span>当前分镜</span>
           </div>
           <button
             v-for="shot in filteredShots"

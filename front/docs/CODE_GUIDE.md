@@ -1,7 +1,7 @@
 # 前端代码阅读顺序
 
-这份说明配合源码中的中文注释使用。当前工作台通过 `HttpApi`
-连接 Rust 后端；原演示状态机仍用于无后端的浏览器测试，官网则只展示产品并提供桌面版下载。
+这份说明配合源码中的中文注释使用。工作台只通过 `TauriApi`
+连接 Rust commands；独立官网位于 `website/`。
 
 ## 先分清五种数据
 
@@ -21,12 +21,10 @@
 
 | 文件                                            | 先看什么                                       |
 | ----------------------------------------------- | ---------------------------------------------- |
-| [cover/main.ts](../src/cover/main.ts)           | 封面入口：只装载首页组件，不含工作台状态       |
 | [studio/main.ts](../src/studio/main.ts)         | 工作区入口：hash 路由怎么决定当前项目          |
 | [App.vue](../src/App.vue)                       | 三栏和弹窗如何组合，用户操作如何转发           |
 | [useStudio.ts](../src/composables/useStudio.ts) | 页面状态、发送、上传、保存、刷新与订阅的总流程 |
-| [api.ts](../src/services/api.ts)                | StudioApi 合同以及 DemoApi / HttpApi 两种实现  |
-| [engine.ts](../src/domain/engine.ts)            | 演示任务如何从排队变为成功、失败、待回答或取消 |
+| [api.ts](../src/services/api.ts)                | Tauri command 调用、上传、事件轮询与错误处理   |
 | [content.ts](../src/domain/content.ts)          | 默认能力、示例主题及静态媒体路径               |
 | [组件目录](../src/components)                   | 对照页面，阅读对话、预览、导航和弹窗的局部逻辑 |
 | [测试目录](../tests)                            | 查看正常流程、异常恢复与并发边界的具体例子     |
@@ -37,11 +35,8 @@
 flowchart TD
     A[Conversation 发送事件] --> B[App 转发给 useStudio.send]
     B --> C[建项目 / 保存参数 / 提交消息]
-    C --> D{StudioApi 实现}
-    D --> E[DemoApi + 本机状态机]
-    D --> F[HttpApi + Rust 接口]
-    E --> G[快照 + 变更通知]
-    F --> G
+    C --> D[TauriApi + Rust commands]
+    D --> G[快照 + 变更通知]
     G --> H[useStudio.refresh 更新页面状态]
     H --> I[对话进度与右侧成片重新展示]
 ```
@@ -50,8 +45,8 @@ flowchart TD
 2. App 把事件交给 `useStudio.send()`，所有三栏使用同一份状态。
 3. 第一次发送时 `ensureProject()` 才建立实际项目；先选择模板只会填写输入框。
 4. 面板参数有修改时，先保存参数，再取得新的 `draft_revision` 发消息。
-5. `api` 根据模式选择演示或真实 HTTP 适配；组件不用分别实现两条流程。
-6. 浏览器演示模式通过开始时间与当前时间推进任务；Tauri 模式依赖内嵌后端持久化快照和事件。
+5. `api` 只调用真实 Tauri commands，不在浏览器伪造任务。
+6. 项目更新通过 `project_events` 轮询和一致性快照恢复。
 7. 成功后追加 VideoVersion，并把当前草稿深拷贝进它的 snapshot；旧版本继续保留。
 
 ## Vue 中常见的几个写法
@@ -85,8 +80,7 @@ flowchart TD
 
 ### 本机文件与临时地址
 
-演示元数据放在 localStorage，附件 Blob 放在 IndexedDB。`URL.createObjectURL()`
-创建的地址只能用于当前页面，因此刷新后 `hydrate()` 需要重新把文件 ID 关联成可显示地址。
+项目元数据和附件保存在应用数据目录，前端通过签名媒体地址读取，不直接暴露磁盘路径。
 
 ## 与后端队友如何衔接
 

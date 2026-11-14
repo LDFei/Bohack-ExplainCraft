@@ -177,7 +177,7 @@ function seekAt(event: MouseEvent) {
                   name="music"
                   :size="11"
                 />
-                示例配乐 · 波形示意
+                配乐 · 波形示意
               </span>
               <div
                 class="waveform"
