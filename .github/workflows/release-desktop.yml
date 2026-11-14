@@ -1,0 +1,124 @@
+name: Desktop release
+on:
+  push:
+    branches: [codex/release-desktop-0.1.1]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: windows-2022
+            platform: windows-x64
+          - os: macos-15
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      HUSKY: '0'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev ffmpeg
+          echo 'FFMPEG_DIR=/usr' >> "$GITHUB_ENV"
+      - name: Install macOS build libraries and tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg mpg123 zstd dylibbundler
+          echo "FFMPEG_DIR=$(brew --prefix)" >> "$GITHUB_ENV"
+          mkdir -p src-tauri/runtime
+          cp "$(command -v ffmpeg)" "$(command -v ffprobe)" src-tauri/runtime/
+      - name: Install Windows FFmpeg SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest
+          $asset = $release.assets | Where-Object name -Match '^ffmpeg-n8\.1-.*win64-gpl-shared-8\.1\.zip$' | Select-Object -First 1
+          if (-not $asset) { $asset = $release.assets | Where-Object name -Match '^ffmpeg-n8\.1-.*win64-gpl-shared.*\.zip$' | Select-Object -First 1 }
+          if (-not $asset) { throw 'FFmpeg 8.1 shared SDK not available' }
+          Invoke-WebRequest $asset.browser_download_url -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" "$env:RUNNER_TEMP/ffmpeg-sdk"
+          $sdk = (Get-ChildItem "$env:RUNNER_TEMP/ffmpeg-sdk" -Directory | Select-Object -First 1).FullName
+          "FFMPEG_DIR=$sdk" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          "$sdk/bin" >> $env:GITHUB_PATH
+          New-Item src-tauri/runtime -ItemType Directory -Force | Out-Null
+          Copy-Item "$sdk/bin/*" src-tauri/runtime/
+          @{ bundle = @{ resources = @{ 'runtime/' = './' }; windows = @{ nsis = @{ installMode = 'currentUser' } } } } | ConvertTo-Json -Depth 8 | Set-Content src-tauri/tauri.release.json
+      - name: Configure Linux package dependencies
+        if: runner.os == 'Linux'
+        run: |
+          echo '{"bundle":{"linux":{"deb":{"depends":["ffmpeg","libmpg123-0t64","libzstd1"]}}}}' > src-tauri/tauri.release.json
+      - name: Install frontend
+        working-directory: front
+        run: npm ci
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        working-directory: front
+        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.release.json
+      - name: Build Linux installer
+        if: runner.os == 'Linux'
+        working-directory: front
+        run: npm run tauri -- build --bundles deb --config src-tauri/tauri.release.json
+      - name: Build macOS application
+        if: runner.os == 'macOS'
+        working-directory: front
+        run: npm run tauri -- build --bundles app
+      - name: Make self-contained macOS disk image
+        if: runner.os == 'macOS'
+        run: bash src-tauri/scripts/package-macos.sh
+      - name: Collect installers and licenses
+        shell: bash
+        run: |
+          mkdir -p dist-release
+          find target/release/bundle -type f \( -name '*-setup.exe' -o -name '*.deb' \) -exec cp {} dist-release/ \;
+          cp LICENSE dist-release/LICENSE-${{ matrix.platform }}.txt
+          test -n "$(find dist-release -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' \) -print -quit)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: dist-release/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Verify platform coverage and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -n "$(find installers -name '*.exe' -print -quit)"
+          test -n "$(find installers -name '*.deb' -print -quit)"
+          test "$(find installers -name '*.dmg' | wc -l)" -eq 2
+          (cd installers && sha256sum * > SHA256SUMS.txt)
+          gh release create v0.1.1 --draft --target "$GITHUB_SHA" --title 'ExplainCraft v0.1.1 · 首个跨平台桌面版' --notes-file front/docs/RELEASE-0.1.1.md
+          gh release upload v0.1.1 installers/*
+          gh release edit v0.1.1 --draft=false --latest

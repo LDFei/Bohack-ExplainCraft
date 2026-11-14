@@ -1,6 +1,6 @@
 [package]
 name = "lingjing-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "灵镜 · AI 视频创作空间桌面应用：Tauri 窗口 + 进程内嵌入的 Rust 后端。"
 edition = "2021"
 publish = false
