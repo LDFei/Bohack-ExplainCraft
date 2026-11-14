@@ -3,10 +3,16 @@ import { computed, onBeforeUnmount, onMounted, readonly, ref } from "vue";
 
 export const themeOptions = [
   {
+    id: "glass",
+    name: "玻璃蓝工作台",
+    subtitle: "通透的冷白，让内容更开阔",
+    tag: "默认推荐",
+  },
+  {
     id: "silver",
     name: "银灰工作室",
     subtitle: "清晰的层次，专注每一个镜头",
-    tag: "默认推荐",
+    tag: "经典中性",
   },
   {
     id: "lilac",
@@ -32,15 +38,9 @@ export const themeOptions = [
     subtitle: "沉静的墨绿，让内容显得可信",
     tag: "沉静学术",
   },
-  {
-    id: "glass",
-    name: "玻璃蓝工作台",
-    subtitle: "通透的冷白，让内容更开阔",
-    tag: "通透大气",
-  },
 ] as const;
 export type ThemeId = (typeof themeOptions)[number]["id"];
-export const DEFAULT_THEME: ThemeId = "silver";
+export const DEFAULT_THEME: ThemeId = "glass";
 export const THEME_STORAGE_KEY = "explaincraft.ui-theme";
 const selectedTheme = ref<ThemeId>(DEFAULT_THEME);
 const persistenceError = ref(false);
