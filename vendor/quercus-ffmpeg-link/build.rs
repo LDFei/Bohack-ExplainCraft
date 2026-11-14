@@ -147,6 +147,14 @@ fn main() {
 			if lib == "dl" {
 				continue;
 			}
+			// The distro may ship linker scripts named libm.a or libz.a.
+			// Rust cannot parse those as native archives, and the runtime
+			// version is present on every supported Linux system.
+			#[cfg(target_os = "linux")]
+			if ["m", "z", "dl", "pthread", "rt", "resolv"].contains(&lib) {
+				println!("cargo:rustc-link-lib={lib}");
+				continue;
+			}
 			// FFmpeg's configure hardcodes -lstdc++ for C++ externals
 			// (libsnappy), but Apple's toolchain only ships libc++ (the
 			// libstdc++ stub was removed from the SDK) — remap to the
