@@ -50,7 +50,7 @@ function navigateTheme(event: KeyboardEvent, index: number) {
   <Modal
     :open="open"
     title="给创作空间，换一种心情"
-    subtitle="选择你喜欢的外观，让每个镜头都看得更清楚。"
+    subtitle="选一个舒服的外观，立即生效。"
     wide
     @close="open = false"
   >

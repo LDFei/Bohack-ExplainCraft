@@ -235,9 +235,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="hero-bottom">
-          <span>从灵感出发，按你的节奏创作。</span>
+          <span>从一个知识点开始。</span>
           <a href="#features">
-            探索创作可能
+            看看能做什么
             <Icon name="down" :size="13" />
           </a>
           <span>01 — EXPLAINCRAFT STUDIO</span>
@@ -257,15 +257,15 @@ onBeforeUnmount(() => {
             </h2>
           </div>
           <p>
-            把分散的创作步骤，放回同一个空间。
+            先想清楚讲什么，
             <br />
-            先把想法表达清楚，再逐个打磨细节。
+            再让画面跟上。
           </p>
         </div>
         <BentoGrid>
           <BentoGridItem
             title="AI 脚本生成"
-            description="写下一句想法，由创作方案生成分镜脚本。文案可编辑，镜头可继续调整。"
+            description="说出知识点，生成分镜脚本；文案和镜头都能改。"
             wide
           >
             <template #header>
@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
                 <div class="audio-avatar">
                   <Icon name="mic" :size="23" />
                 </div>
-                <span>为故事，找到合适的声音。</span>
+                <span>为讲解，配上合适的声音。</span>
                 <div class="feature-wave">
                   <i
                     v-for="bar in 42"
@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
           </BentoGridItem>
           <BentoGridItem
             title="视频预览与导出"
-            description="在时间轴上浏览镜头，切换版本，预览声音与画面，再把确认好的作品导出为 MP4。"
+            description="按镜头预览、切换版本，满意后导出 MP4。"
             wide
           >
             <template #header>
@@ -443,22 +443,22 @@ onBeforeUnmount(() => {
           <li>
             <span>01</span>
             <div>
-              <h3>说出你的想法</h3>
-              <p>一句话、一个主题，或一份自己的素材。</p>
+              <h3>说清知识点</h3>
+              <p>一句话，或一份资料。</p>
             </div>
           </li>
           <li>
             <span>02</span>
             <div>
-              <h3>一起打磨细节</h3>
-              <p>查看脚本与镜头，通过对话继续调整。</p>
+              <h3>边看边改</h3>
+              <p>脚本、分镜，用对话调整。</p>
             </div>
           </li>
           <li>
             <span>03</span>
             <div>
-              <h3>预览，再带走</h3>
-              <p>确认当前版本，下载或导出你的作品。</p>
+              <h3>预览后导出</h3>
+              <p>满意了，导出 MP4。</p>
             </div>
           </li>
         </ol>
@@ -473,7 +473,7 @@ onBeforeUnmount(() => {
         <Icon name="aperture" :size="21" />
         ExplainCraft
       </a>
-      <span>给灵感一个镜头。</span>
+      <span>把知识，讲给更多人听。</span>
       <p>Rust + Tauri 桌面应用 · 本地项目与可恢复制作任务</p>
       <a :href="DOWNLOAD_URL">
         立即下载

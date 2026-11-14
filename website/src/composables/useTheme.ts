@@ -17,7 +17,7 @@ export const themeOptions = [
   {
     id: "lilac",
     name: "浅丁香创意空间",
-    subtitle: "轻盈的粉紫，让灵感自然发生",
+    subtitle: "轻盈的粉紫，让画面更柔和",
     tag: "轻盈创意",
   },
   {
