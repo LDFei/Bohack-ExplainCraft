@@ -3,7 +3,7 @@ name: Rust workspace
 on:
   workflow_dispatch:
   push:
-    branches: [main, develop]
+    branches: [main, develop, codex/release-v0.1.0]
     paths:
       - 'src-tauri/**'
       - 'Cargo.toml'

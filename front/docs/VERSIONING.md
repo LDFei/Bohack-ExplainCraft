@@ -14,7 +14,7 @@ Rust 后端与桌面壳。工作台的安装依赖、测试和构建命令均从
 
 ## 正式发布
 
-1. 在独立功能分支完成修改、测试和版本更新，再整合至 `main`。
+1. 本次从 `codex/release-v0.1.0` 独立发布分支构建，保留 `main` 中的其他开发工作。
 2. GitHub Actions 的 `Desktop release` 构建 Windows x64、Apple Silicon Mac 和 Intel
    Mac 安装包，并执行原生测试与安装后自检。
 3. `Publish desktop release` 接收已完成的构建编号，重新校验提交、测试结果、版本、产物来源及 SHA256。

@@ -2,7 +2,7 @@ name: Frontend code quality
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, codex/release-v0.1.0]
     # 前端变更才运行；队友仅改后端时不要求执行这套 Node/Python 检查。
     paths:
       - 'front/**'

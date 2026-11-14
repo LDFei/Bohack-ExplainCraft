@@ -316,7 +316,13 @@ function publish(runId, channel, meta) {
   const build = api(`actions/runs/${runId}`);
   const commit = run('git', ['rev-parse', 'HEAD']);
   assert.equal(build.head_sha, commit, '必须发布当前检出的已验证提交');
-  assert.equal(build.head_branch, 'main');
+  const sourceBranch = process.env.GITHUB_REF_NAME ?? 'main';
+  assert.ok(
+    sourceBranch === 'main' ||
+      (sourceBranch === 'codex/release-v0.1.0' && meta.version === '0.1.0'),
+    '只允许正式分支或本次 v0.1.0 发布分支',
+  );
+  assert.equal(build.head_branch, sourceBranch);
   assert.equal(build.name, 'Desktop release');
   if (channel === 'stable') assert.equal(build.conclusion, 'success', '完整打包工作流尚未成功');
   const checks = api(`commits/${commit}/check-runs?per_page=100`).check_runs;

@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/release-v0.1.0'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -39,7 +39,7 @@ jobs:
         run: |
           [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
           build=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")
-          jq -e '.head_branch == "main" and .name == "Desktop release" and .path == ".github/workflows/release-desktop.yml"' <<< "$build" > /dev/null
+          jq -e --arg branch "$GITHUB_REF_NAME" '.head_branch == $branch and .name == "Desktop release" and .path == ".github/workflows/release-desktop.yml"' <<< "$build" > /dev/null
           commit=$(jq -er '.head_sha | select(test("^[a-f0-9]{40}$"))' <<< "$build")
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v6

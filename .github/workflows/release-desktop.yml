@@ -1,7 +1,7 @@
 name: Desktop release
 on:
   push:
-    branches: [main]
+    branches: [main, codex/release-v0.1.0]
     paths:
       - 'front/**'
       - 'src-tauri/**'
