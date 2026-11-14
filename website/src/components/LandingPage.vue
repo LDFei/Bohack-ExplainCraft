@@ -422,6 +422,32 @@ onBeforeUnmount(() => {
               </button>
             </template>
           </BentoGridItem>
+          <BentoGridItem
+            class="bento-full"
+            title="Vibe 知识大赏模板"
+            description="选模板即锁定这一系列的 BGM 与节奏；AI 按它的语气写提示词，素材照着归位。"
+          >
+            <template #header>
+              <div class="vibe-mini">
+                <div class="vibe-mini-strip">
+                  <i v-for="n in 4" :key="n" />
+                </div>
+                <span class="vibe-mini-lock">
+                  <Icon name="lock" :size="12" />
+                  BGM 已锁定
+                </span>
+              </div>
+            </template>
+            <template #icon>
+              <Icon name="layers" :size="18" />
+            </template>
+            <template #action>
+              <a href="#workflow" class="bento-action">
+                看这个流程
+                <Icon name="arrowRight" :size="13" />
+              </a>
+            </template>
+          </BentoGridItem>
         </BentoGrid>
         <p v-if="mediaError" class="landing-media-error" role="status">
           {{ mediaError }}
@@ -507,19 +533,16 @@ onBeforeUnmount(() => {
             <li>
               <span>02</span>
               <div>
-                <h3>BGM 自动锁定</h3>
-                <p>这一系列每期都用同一首，选模板即锁定。</p>
+                <h3>
+                  BGM 自动锁定
+                  <em class="step-plus">+</em>
+                  AI 生成风格提示词
+                </h3>
+                <p>BGM 不可更换；AI 按这一系列的语气与结构写提示词。</p>
               </div>
             </li>
             <li>
               <span>03</span>
-              <div>
-                <h3>AI 生成风格提示词</h3>
-                <p>按模板的语气和结构，写一段提示词。</p>
-              </div>
-            </li>
-            <li>
-              <span>04</span>
               <div>
                 <h3>提交素材，生成成片</h3>
                 <p>文字、图片、片段按提示词归位。</p>
