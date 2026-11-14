@@ -1,11 +1,15 @@
 <script setup lang="ts">
-/** 左侧素材与项目导航。素材仅定位预览，不改变服务层中的镜头顺序或内容。 */
+/**
+ * 全局左侧导航：rail 负责在工作台、素材库、历史、模板之间切换；
+ * 展开面板在工作台模块里只提供素材概述与快捷操作，完整管理在素材库模块。
+ */
 import { computed, ref, watch } from 'vue';
 import type { Asset, Project, Shot } from '../domain/types.ts';
 import { imagePath, inferTheme, themes } from '../domain/content.ts';
 import Icon from './Icon.vue';
 import PanelDragHandle from './PanelDragHandle.vue';
 import type { WorkspacePanel } from '../composables/useWorkspaceLayout.ts';
+
 const props = defineProps<{
   projects: Project[];
   selectedId: string;
@@ -13,94 +17,152 @@ const props = defineProps<{
   shots: Shot[];
   assets: Asset[];
   busy: boolean;
-  duration: number;
   layoutEnabled: boolean;
+  /** 素材库模块中只显示 rail，不渲染展开面板。 */
+  railOnly?: boolean;
+  /** 当前模块；决定 rail 高亮。 */
+  module?: 'workbench' | 'library';
 }>();
+
 const emit = defineEmits<{
   new: [];
   select: [id: string];
   templates: [];
   settings: [];
+  workbench: [];
+  library: [];
+  history: [];
   panelDragStart: [panel: WorkspacePanel, event: DragEvent];
   panelDragEnd: [];
   panelMove: [panel: WorkspacePanel, direction: number];
   rename: [project: Project];
   delete: [project: Project];
   close: [];
-  upload: [];
-  seek: [seconds: number];
-  panel: [tab: string];
+  upload: [files: FileList | File[]];
   resize: [expanded: boolean];
 }>();
-// 参照官方 Sidebar 的受控展开与悬停行为：300px / 60px，额外保留固定展开供编辑器长时间工作。
+
+type Panel = 'overview' | 'history';
 const pinned = ref(true),
   hovered = ref(false),
   focused = ref(false);
 const expanded = computed(() => pinned.value || hovered.value || focused.value);
 watch(expanded, (value) => emit('resize', value), { immediate: true });
-/** 分隔线开始调整或恢复布局时固定展开，不改变素材与项目状态。 */
+const panel = ref<Panel>('overview');
+const query = ref(''),
+  menuId = ref('');
+
 function pinOpen() {
   pinned.value = true;
 }
-defineExpose({ pinOpen });
-/** 点击立即收起或固定，清除当次悬停，避免按钮位于侧栏内时无法收起。 */
+/** 从素材库模块返回时直接展示历史面板，不额外占用一次点击。 */
+function openHistoryPanel() {
+  panel.value = 'history';
+}
+defineExpose({ pinOpen, openHistoryPanel });
+
 function togglePinned() {
   pinned.value = !pinned.value;
   hovered.value = false;
   focused.value = false;
 }
-/** 键盘进入导航时展开；收起按钮自身保留直接操作能力。 */
+
 function focusIn(event: FocusEvent) {
   if (!(event.target as HTMLElement).closest('.sidebar-collapse-control')) focused.value = true;
 }
-/** 焦点离开整个侧栏后取消临时展开，仍保留用户设置的固定状态。 */
+
 function focusOut(event: FocusEvent) {
   if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null))
     focused.value = false;
 }
-const query = ref(''),
-  menuId = ref(''),
-  libraryTab = ref('clips'),
-  selectedShot = ref('');
+
+/** 历史是工作台里的面板；已经在素材库模块时先回到工作台。 */
+function openHistory() {
+  emit('history');
+  if (!props.railOnly) {
+    panel.value = 'history';
+    query.value = '';
+    menuId.value = '';
+  }
+}
+
+const uploadAssets = computed(() => props.assets.filter((asset) => asset.source === 'upload'));
+const countOf = (kind: Asset['kind']) =>
+  uploadAssets.value.filter((asset) => asset.kind === kind).length;
+const overview = computed(() => [
+  { kind: 'image' as const, label: '图片', icon: 'image', count: countOf('image') },
+  { kind: 'video' as const, label: '视频', icon: 'video', count: countOf('video') },
+  { kind: 'audio' as const, label: '音频', icon: 'music', count: countOf('audio') },
+]);
+
+const draggedFile = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+function dragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault();
+  draggedFile.value = true;
+}
+
+function dragLeave(event: DragEvent) {
+  if ((event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) return;
+  draggedFile.value = false;
+}
+
+function dropFiles(event: DragEvent) {
+  if (!event.dataTransfer?.files.length) return;
+  event.preventDefault();
+  draggedFile.value = false;
+  emit('upload', event.dataTransfer.files);
+}
+
+function pickFiles() {
+  if (!props.busy) fileInput.value?.click();
+}
+
+function onFilesChosen(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (input.files?.length) emit('upload', input.files);
+  input.value = '';
+}
+
 const filteredProjects = computed(() =>
   props.projects.filter((project) =>
     project.title.toLowerCase().includes(query.value.toLowerCase()),
   ),
 );
-const filteredShots = computed(() =>
-  props.shots
-    .map((shot, index) => ({
-      ...shot,
-      index,
-      start: props.shots.slice(0, index).reduce((sum, item) => sum + item.duration_ms / 1000, 0),
-    }))
-    .filter((shot) => shot.visual_prompt.includes(query.value)),
-);
-/** 切换项目并关闭手机导航；状态与实际项目数据由父级统一管理。 */
+const shotCount = computed(() => props.shots.length);
+
+function projectStatus(project: Project) {
+  if (project.status === 'processing') return '正在制作中';
+  if (project.status === 'failed') return '制作暂时中断';
+  if (project.status === 'waiting_input') return '等待补充信息';
+  return project.latest_video_version_id ? '已完成' : '草稿';
+}
+
 function select(id: string) {
   menuId.value = '';
-  selectedShot.value = '';
   emit('select', id);
   emit('close');
 }
 </script>
+
 <template>
   <button
     v-if="open"
     class="sidebar-scrim"
-    aria-label="关闭历史记录"
+    aria-label="关闭导航"
     @click="emit('close')"
   />
   <aside
     class="sidebar"
-    data-workspace-panel="library"
-    :class="{ 'is-open': open, 'is-expanded': expanded }"
+    :class="{ 'is-open': open, 'is-expanded': expanded, 'is-rail-only': railOnly }"
     :data-expanded="expanded"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
     @focusin="focusIn"
     @focusout="focusOut"
-    aria-label="项目导航"
+    aria-label="工作台导航"
   >
     <nav
       class="tool-rail"
@@ -108,28 +170,58 @@ function select(id: string) {
     >
       <button
         class="rail-button sidebar-collapse-control"
-        :aria-label="pinned ? '收起项目侧栏' : '固定展开侧栏'"
+        :aria-label="railOnly ? '返回工作台' : pinned ? '收起侧栏' : '固定展开侧栏'"
         :aria-expanded="expanded"
         :aria-pressed="pinned"
-        @click="togglePinned"
+        @click="railOnly ? emit('workbench') : togglePinned()"
       >
         <Icon
           name="sidebar"
           :size="20"
         />
-        <span>{{ pinned ? '收起' : '展开' }}</span>
+        <span>{{ railOnly ? '返回' : pinned ? '收起' : '展开' }}</span>
       </button>
       <button
-        class="rail-button active"
-        title="项目素材"
-        aria-label="项目素材"
-        @click="libraryTab = 'clips'"
+        class="rail-button"
+        :class="{ active: module !== 'library' && panel === 'overview' }"
+        aria-label="工作台"
+        :aria-pressed="module !== 'library' && panel === 'overview'"
+        @click="
+          emit('workbench');
+          panel = 'overview';
+        "
+      >
+        <Icon
+          name="aperture"
+          :size="21"
+        />
+        <span>工作台</span>
+      </button>
+      <button
+        class="rail-button"
+        :class="{ active: module === 'library' }"
+        aria-label="素材库"
+        :aria-pressed="module === 'library'"
+        @click="emit('library')"
       >
         <Icon
           name="folder"
           :size="21"
         />
-        <span>素材</span>
+        <span>素材库</span>
+      </button>
+      <button
+        class="rail-button"
+        :class="{ active: module !== 'library' && panel === 'history' }"
+        aria-label="历史创作"
+        :aria-pressed="module !== 'library' && panel === 'history'"
+        @click="openHistory"
+      >
+        <Icon
+          name="clock"
+          :size="20"
+        />
+        <span>历史</span>
       </button>
       <button
         class="rail-button"
@@ -145,18 +237,6 @@ function select(id: string) {
         />
         <span>模板</span>
       </button>
-      <button
-        class="rail-button"
-        aria-label="上传媒体"
-        :disabled="busy"
-        @click="emit('upload')"
-      >
-        <Icon
-          name="upload"
-          :size="20"
-        />
-        <span>上传</span>
-      </button>
       <div class="rail-spacer" />
       <button
         class="icon-button workspace-settings"
@@ -171,19 +251,20 @@ function select(id: string) {
       </button>
     </nav>
     <div
+      v-if="!railOnly"
       class="library-panel"
       :inert="!expanded && !open"
     >
       <header class="library-heading">
         <PanelDragHandle
           panel="library"
-          label="项目素材"
+          label="素材概述"
           :enabled="layoutEnabled"
-          @start="(panel, event) => emit('panelDragStart', panel, event)"
+          @start="(id, event) => emit('panelDragStart', id, event)"
           @end="emit('panelDragEnd')"
-          @move="(panel, direction) => emit('panelMove', panel, direction)"
+          @move="(id, direction) => emit('panelMove', id, direction)"
         />
-        <h2>项目素材</h2>
+        <h2>{{ panel === 'overview' ? '素材概述' : '历史创作' }}</h2>
         <button
           class="icon-button mobile-only"
           aria-label="关闭导航"
@@ -194,169 +275,108 @@ function select(id: string) {
             :size="17"
           />
         </button>
-        <span class="library-count">{{ shots.length + assets.length }}</span>
+        <span class="library-count">
+          {{ panel === 'overview' ? uploadAssets.length : projects.length }}
+        </span>
       </header>
-      <button
-        aria-label="新建创作"
-        class="new-project"
-        @click="
-          emit('new');
-          emit('close');
-        "
-      >
-        <Icon
-          name="plus"
-          :size="16"
-        />
-        新建创作
-        <kbd>＋</kbd>
-      </button>
-      <label class="history-search">
-        <Icon
-          name="search"
-          :size="15"
-        />
-        <input
-          v-model="query"
-          aria-label="筛选已加载项目"
-          placeholder="搜索素材或项目…"
-        />
-      </label>
-      <div class="library-tabs">
-        <button
-          :class="{ active: libraryTab === 'clips' }"
-          @click="libraryTab = 'clips'"
+
+      <template v-if="panel === 'overview'">
+        <div
+          class="asset-overview"
+          :class="{ 'is-dragging': draggedFile }"
+          @dragover="dragOver"
+          @dragleave="dragLeave"
+          @drop="dropFiles"
         >
-          视频片段
-          <span>{{ shots.length }}</span>
-        </button>
-        <button
-          :class="{ active: libraryTab === 'uploads' }"
-          @click="libraryTab = 'uploads'"
-        >
-          已上传
-          <span>{{ assets.length }}</span>
-        </button>
-      </div>
-      <div class="library-scroll">
-        <template v-if="libraryTab === 'clips'">
-          <div class="library-section-title">
-            当前序列
-            <span>当前分镜</span>
-          </div>
           <button
-            v-for="shot in filteredShots"
-            :key="shot.id"
-            class="clip-card"
-            :class="{ selected: selectedShot === shot.id }"
-            :aria-label="`定位镜头 ${shot.index + 1}`"
-            @click="
-              selectedShot = shot.id;
-              emit(
-                'seek',
-                (shot.start /
-                  (shots.reduce((sum, item) => sum + item.duration_ms / 1000, 0) || 1)) *
-                  duration,
-              );
-              emit('close');
-            "
+            class="asset-upload"
+            :disabled="busy"
+            aria-label="添加素材"
+            @click="pickFiles"
           >
-            <div class="clip-thumbnail">
-              <img
-                :src="shot.thumbnail_url || imagePath('coffee-cup')"
-                :alt="shot.visual_prompt"
+            <Icon
+              name="plus"
+              :size="16"
+            />
+            <span>添加素材</span>
+            <small>点击或拖入</small>
+          </button>
+          <input
+            ref="fileInput"
+            class="sr-only"
+            type="file"
+            multiple
+            accept="image/*,video/*,audio/*"
+            tabindex="-1"
+            @change="onFilesChosen"
+          />
+          <div class="overview-list">
+            <button
+              v-for="item in overview"
+              :key="item.kind"
+              class="overview-row"
+              :aria-label="`打开素材库：${item.label}`"
+              @click="emit('library')"
+            >
+              <Icon
+                :name="item.icon"
+                :size="14"
               />
-              <span class="clip-number">{{ String(shot.index + 1).padStart(2, '0') }}</span>
-              <span class="clip-duration">
-                00:{{ String(Math.round(shot.duration_ms / 1000)).padStart(2, '0') }}
-              </span>
-              <span class="clip-hover-play">
-                <Icon
-                  name="play"
-                  :size="18"
-                />
-              </span>
-            </div>
-            <div class="clip-description">
-              <strong>{{ shot.visual_prompt.split('，')[0] }}</strong>
-              <span>{{ shot.shot_size }} · {{ shot.camera_motion }}</span>
-            </div>
-          </button>
-          <div
-            v-if="!filteredShots.length"
-            class="library-empty"
-          >
-            <Icon
-              name="video"
-              :size="28"
-            />
-            <strong>{{ query ? '没有匹配的片段' : '你的故事，从这里开始' }}</strong>
-            <p>生成后，镜头会出现在这里</p>
-          </div>
-        </template>
-        <template v-else>
-          <div class="library-section-title">
-            上传素材
-            <span>{{ assets.length }} 个文件</span>
+              <span>{{ item.label }}</span>
+              <strong>{{ item.count }}</strong>
+              <Icon
+                name="arrowRight"
+                :size="12"
+              />
+            </button>
           </div>
           <button
-            v-for="asset in assets"
-            :key="asset.id"
-            class="upload-library-item"
-            @click="
-              emit('panel', 'assets');
-              emit('close');
-            "
+            class="overview-manage"
+            @click="emit('library')"
           >
-            <img
-              v-if="asset.thumbnail_url"
-              :src="asset.thumbnail_url"
-              alt=""
-            />
+            打开素材库，管理全部素材
             <Icon
-              v-else
-              :name="asset.kind === 'audio' ? 'music' : 'video'"
-              :size="22"
+              name="arrowRight"
+              :size="13"
             />
-            <span>
-              <strong>{{ asset.file_name }}</strong>
-              <small>
-                {{
-                  asset.status === 'ready'
-                    ? '已就绪'
-                    : asset.status === 'failed'
-                      ? '处理失败'
-                      : '处理中'
-                }}
-              </small>
-            </span>
           </button>
-        </template>
+          <p
+            v-if="shotCount"
+            class="asset-hint"
+          >
+            已生成 {{ shotCount }} 个镜头，可在中央「脚本」中逐个查看。
+          </p>
+        </div>
+      </template>
+
+      <template v-else>
         <button
-          class="library-upload"
-          :disabled="busy"
-          @click="emit('upload')"
+          aria-label="新建创作"
+          class="new-project"
+          @click="
+            emit('new');
+            emit('close');
+          "
         >
           <Icon
             name="plus"
-            :size="18"
+            :size="16"
           />
-          <span>
-            上传媒体
-            <small>图片、视频或音频</small>
-          </span>
+          新建创作
+          <kbd>＋</kbd>
         </button>
-      </div>
-      <section class="project-history">
-        <div class="history-heading">
+        <label class="history-search">
           <Icon
-            name="clock"
-            :size="13"
+            name="search"
+            :size="15"
           />
-          <span>创作历史</span>
-          <span>{{ projects.length }}</span>
-        </div>
-        <div class="history-list">
+          <input
+            v-model="query"
+            aria-label="搜索项目"
+            placeholder="搜索项目…"
+          />
+        </label>
+        <div class="history-list history-list-full">
           <div
             v-for="project in filteredProjects"
             :key="project.id"
@@ -374,19 +394,7 @@ function select(id: string) {
               />
               <span class="project-label">
                 <span>{{ project.title }}</span>
-                <small>
-                  {{
-                    project.status === 'processing'
-                      ? '正在制作中'
-                      : project.status === 'failed'
-                        ? '制作暂时中断'
-                        : project.status === 'waiting_input'
-                          ? '等待补充信息'
-                          : project.latest_video_version_id
-                            ? '已完成'
-                            : '草稿'
-                  }}
-                </small>
+                <small>{{ projectStatus(project) }}</small>
               </span>
             </button>
             <button
@@ -438,15 +446,7 @@ function select(id: string) {
             {{ query ? '没有匹配的项目' : '尚无创作记录' }}
           </p>
         </div>
-      </section>
-      <footer class="library-footer">
-        <span class="ready-dot" />
-        本地工作空间
-        <Icon
-          name="lock"
-          :size="12"
-        />
-      </footer>
+      </template>
     </div>
   </aside>
 </template>

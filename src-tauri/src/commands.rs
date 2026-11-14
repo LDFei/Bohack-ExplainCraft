@@ -489,39 +489,72 @@ pub async fn project_events(
         .map_err(|error| error.message)
 }
 
-/// 把当前配置转换为 UI 视图，不返回任何密钥内容。
-fn settings_view(config: &crate::Config) -> ModelSettings {
-    let access = |provider: String, base: String, model: String, key: String| ProviderSetting {
+/// 单个流程的供应商视图；空密钥只表示“是否存在”，不泄露内容。
+fn access_view(provider: String, base: String, model: String, key: String) -> ProviderSetting {
+    ProviderSetting {
         provider,
         base_url: base,
         model,
         api_key: None,
         has_api_key: !key.trim().is_empty(),
         ..Default::default()
-    };
+    }
+}
+
+/// SVG 画面配置：未覆盖时把统一模型标为继承，便于页面展示「跟随创作模型」。
+fn visual_setting(config: &crate::Config) -> ProviderSetting {
+    if config.visual_overrides {
+        access_view(
+            config.provider_visual.clone(),
+            if config.visual_base.is_empty() {
+                provider_base(&config.provider_visual).into()
+            } else {
+                config.visual_base.clone()
+            },
+            config.visual.model.clone(),
+            config.visual.api_key.clone(),
+        )
+        .overridden(true)
+    } else {
+        access_view(
+            config.provider_llm1.clone(),
+            if config.llm1_base.is_empty() {
+                provider_base(&config.provider_llm1).into()
+            } else {
+                config.llm1_base.clone()
+            },
+            config.llm1.model.clone(),
+            config.llm1.api_key.clone(),
+        )
+        .overridden(false)
+    }
+}
+
+/// 把当前配置转换为 UI 视图，不返回任何密钥内容。
+fn settings_view(config: &crate::Config) -> ModelSettings {
     let voice = match config.provider_llm4.as_str() {
-        "siliconflow" => access(
+        "siliconflow" => access_view(
             "siliconflow".into(),
             config.siliconflow_tts_base.clone(),
             config.siliconflow_tts.model.clone(),
             config.siliconflow_tts.api_key.clone(),
         )
         .with_voice(config.siliconflow_tts_voice.clone()),
-        "indextts" => access(
+        "indextts" => access_view(
             "indextts".into(),
             config.indextts_base.clone(),
             config.indextts_model.clone(),
             String::new(),
         )
         .with_voice(config.indextts_voice.clone()),
-        "breeze" => access(
+        "breeze" => access_view(
             "breeze".into(),
             config.comfyui_url.clone(),
             config.breeze_model.clone(),
             String::new(),
         )
         .with_voice("voice_warm".into()),
-        _ => access(
+        _ => access_view(
             "qwen".into(),
             config.qwen_tts_base.clone(),
             config.qwen_tts.model.clone(),
@@ -530,7 +563,7 @@ fn settings_view(config: &crate::Config) -> ModelSettings {
         .with_voice(config.qwen_tts_voice.clone()),
     };
     ModelSettings {
-        script: access(
+        script: access_view(
             config.provider_llm1.clone(),
             if config.llm1_base.is_empty() {
                 provider_base(&config.provider_llm1).into()
@@ -540,7 +573,8 @@ fn settings_view(config: &crate::Config) -> ModelSettings {
             config.llm1.model.clone(),
             config.llm1.api_key.clone(),
         ),
-        music: access(
+        visual: visual_setting(config),
+        music: access_view(
             config.provider_llm3.clone(),
             if config.llm3_base.is_empty() {
                 provider_base(&config.provider_llm3).into()
@@ -598,6 +632,17 @@ fn validate_setting(setting: &ProviderSetting, allowed: &[&str]) -> Result<(), S
     Ok(())
 }
 
+/// 文案、分镜、剪辑与 SVG 画面可用的 OpenAI 兼容供应商。
+const CREATION_PROVIDERS: &[&str] = &[
+    "openai",
+    "aliyun",
+    "deepseek",
+    "minimax",
+    "siliconflow",
+    "glm",
+    "custom",
+];
+
 /// 保存配置并原子替换供应商；新任务立即使用新配置。
 #[tauri::command]
 pub fn update_model_settings(
@@ -606,18 +651,17 @@ pub fn update_model_settings(
 ) -> Result<ModelSettings, String> {
     validate_setting(
         &settings.script,
-        &[
-            "openai",
-            "aliyun",
-            "deepseek",
-            "minimax",
-            "siliconflow",
-            "glm",
-            "custom",
-        ],
+        CREATION_PROVIDERS,
     )?;
     if settings.script.provider == "custom" && settings.script.base_url.trim().is_empty() {
         return Err("自定义供应商必须填写 OpenAI Compatible Endpoint。".into());
+    }
+    // 只有开启独立配置时才校验画面模型；继承统一模型时字段会被忽略。
+    if settings.visual.is_overridden() {
+        validate_setting(&settings.visual, &CREATION_PROVIDERS)?;
+        if settings.visual.provider == "custom" && settings.visual.base_url.trim().is_empty() {
+            return Err("自定义画面供应商必须填写 OpenAI Compatible Endpoint。".into());
+        }
     }
     validate_setting(
         &settings.music,
@@ -637,6 +681,20 @@ pub fn update_model_settings(
     next.llm1.model = settings.script.model.trim().into();
     if let Some(key) = &settings.script.api_key {
         next.llm1.api_key = key.clone();
+    }
+    // 画面模型可以跟随统一模型，也可以单独选择；未覆盖时清空覆盖字段以保持配置干净。
+    next.visual_overrides = settings.visual.is_overridden();
+    if next.visual_overrides {
+        next.provider_visual = settings.visual.provider.clone();
+        next.visual.model = settings.visual.model.trim().into();
+        next.visual_base = settings.visual.base_url.trim().into();
+        if let Some(key) = &settings.visual.api_key {
+            next.visual.api_key = key.clone();
+        }
+    } else {
+        next.visual = next.llm1.clone();
+        next.provider_visual = next.provider_llm1.clone();
+        next.visual_base.clear();
     }
     next.provider_llm3 = settings.music.provider.clone();
     next.llm3_base = settings.music.base_url.trim().into();
@@ -685,6 +743,24 @@ pub fn update_model_settings(
         ("LLM1_BASE_URL", next.llm1_base.clone()),
         ("LLM1_MODEL", next.llm1.model.clone()),
         ("LLM1_API_KEY", next.llm1.api_key.clone()),
+        (
+            "VISUAL_MODEL",
+            if next.visual_overrides {
+                next.visual.model.clone()
+            } else {
+                String::new()
+            },
+        ),
+        (
+            "VISUAL_API_KEY",
+            if next.visual_overrides {
+                next.visual.api_key.clone()
+            } else {
+                String::new()
+            },
+        ),
+        ("VISUAL_BASE_URL", next.visual_base.clone()),
+        ("PROVIDER_VISUAL", next.provider_visual.clone()),
         ("PROVIDER_LLM3", next.provider_llm3.clone()),
         ("LLM3_BASE_URL", next.llm3_base.clone()),
         ("LLM3_MODEL", next.llm3.model.clone()),
@@ -739,6 +815,7 @@ pub async fn list_models(
                     config.siliconflow_tts.api_key.clone()
                 }
                 Some("voice") => config.qwen_tts.api_key.clone(),
+                Some("visual") if config.visual_overrides => config.visual.api_key.clone(),
                 _ => config.llm1.api_key.clone(),
             };
             Some(configured_key)
@@ -859,6 +936,52 @@ pub async fn list_voices(
         return Err("TTS 服务没有返回可选声线。".into());
     }
     Ok(voices.into_iter().collect())
+}
+
+/// 查询本地 breezeTTS2 模型是否就绪，以及下载目标目录。
+#[tauri::command]
+pub fn breeze_model_status(state: State<'_, AppState>) -> Result<crate::breeze_model::ModelStatus, String> {
+    Ok(crate::breeze_model::status(&state.model_config.load()))
+}
+
+/// 下载本地 breezeTTS2 模型（约 5.2 GB）；进度通过 `breeze-model-progress` 事件推送。
+#[tauri::command]
+pub async fn download_breeze_model(
+    app: tauri::AppHandle<tauri::Wry>,
+    state: State<'_, AppState>,
+    comfyui_dir: Option<String>,
+) -> Result<crate::breeze_model::ModelStatus, String> {
+    let config = state.model_config.load().clone();
+    let (root, source) = match comfyui_dir.filter(|dir| !dir.trim().is_empty()) {
+        Some(dir) => (std::path::PathBuf::from(dir.trim()), "config"),
+        None => {
+            crate::breeze_model::resolve_comfyui_dir(&config).ok_or_else(|| {
+                "没有找到 ComfyUI 安装目录，请先填写本地 ComfyUI 路径。".to_string()
+            })?
+        }
+    };
+    if !root.is_dir() {
+        return Err(format!("ComfyUI 目录不存在：{}", root.display()));
+    }
+    if source == "config" {
+        let path = root.display().to_string();
+        if config.comfyui_dir != path {
+            write_env_values(&config.settings_file, &[("COMFYUI_DIR", path.clone())])
+                .map_err(|error| format!("保存 ComfyUI 目录失败：{error}"))?;
+            let mut next = (*config).clone();
+            next.comfyui_dir = path;
+            state.model_config.store(std::sync::Arc::new(next));
+        }
+    }
+    crate::breeze_model::download(app, root)
+        .await
+        .map_err(|error| format!("模型下载失败：{error}"))
+}
+
+/// 中止正在进行的模型下载；已下载部分保留，下次继续。
+#[tauri::command]
+pub fn cancel_breeze_download() {
+    crate::breeze_model::cancel();
 }
 
 /// 自定义媒体协议：在进程内校验签名并读取文件，保留 Range 与下载响应头。

@@ -608,11 +608,14 @@ impl Runner {
         let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
             || draft.shots.iter().any(|s| s.asset_ids.is_empty());
         // 有失效标记、任一镜头的配音指纹变化、或需要音乐但还没解析出来，才需要准备音频。
-        let need_audio = draft.invalidated_stages.contains(&StageKey::Audio)
-            || draft.shots.iter().any(|s| {
+        // 关闭配音时不再检查台词指纹，避免每次都判定音频失效。
+        let narration_changed = draft.audio.narration_enabled
+            && draft.shots.iter().any(|s| {
                 artifacts.narration.get(&s.id).map(|n| n.key.as_str())
                     != Some(narration_key(s, &draft.audio, &draft.settings.language).as_str())
-            })
+            });
+        let need_audio = draft.invalidated_stages.contains(&StageKey::Audio)
+            || narration_changed
             || (draft.audio.music_mode != "none" && draft.audio.resolved_music_asset_id.is_none());
         let mut running = vec![];
         if need_visuals {
@@ -725,11 +728,16 @@ impl Runner {
 
         // 6. 剪辑方案（llm1）
         self.set_stage(&[StageKey::Edit], "running", None)?;
-        let narration_map: HashMap<String, (String, i64)> = artifacts
-            .narration
-            .iter()
-            .map(|(shot, n)| (shot.clone(), (n.asset_id.clone(), n.duration_ms)))
-            .collect();
+        // 关闭配音时忽略历史配音产物，避免旧版本的声音混进新成片。
+        let narration_map: HashMap<String, (String, i64)> = if draft.audio.narration_enabled {
+            artifacts
+                .narration
+                .iter()
+                .map(|(shot, n)| (shot.clone(), (n.asset_id.clone(), n.duration_ms)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
         // 背景音乐自身时长：比成片短时剪辑指令需要循环铺满。
         let music_duration_ms = match &draft.audio.resolved_music_asset_id {
             Some(id) => self
@@ -968,10 +976,23 @@ impl Runner {
         draft: &Draft,
         artifacts: &Artifacts,
     ) -> Step<(Vec<(String, String, AssetRow)>, Option<MusicChoice>, bool)> {
+        // 上传模式必须有音频素材；缺失时直接失败，避免静默生成一条没有声音的成片。
+        if draft.audio.music_mode == "upload" && draft.audio.music_asset_id.is_none() {
+            return Err(Stop::Failed(JobError {
+                code: "VALIDATION_ERROR".into(),
+                message: "背景音乐来源选的是上传，但项目里还没有音频素材，请先上传 BGM。".into(),
+                retryable: false,
+                failed_stage: Some(StageKey::Audio),
+            }));
+        }
         // 配音（llm4，逐句）与背景音乐（llm3，异步生成）互不依赖，同时进行：
         // 本地 TTS 每句数十秒、云端音乐需排队，串行会白白多等几分钟。
         let narration = async {
             let mut narrations = vec![];
+            // 关闭配音时字幕承担全部讲解，成片只保留背景音乐。
+            if !draft.audio.narration_enabled {
+                return Ok::<_, Stop>(narrations);
+            }
             for shot in &draft.shots {
                 let key = narration_key(shot, &draft.audio, &draft.settings.language);
                 if artifacts.narration.get(&shot.id).map(|n| &n.key) == Some(&key)

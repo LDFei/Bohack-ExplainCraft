@@ -479,7 +479,23 @@ impl Providers {
         };
         let visual: Arc<dyn VisualModel> = match config.provider_llm1.as_str() {
             "openai" | "aliyun" | "deepseek" | "minimax" | "siliconflow" | "glm" | "custom" => {
-                Arc::new(siliconflow::GlmScript::new(cloud.clone(), config))
+                // 画面单独配置时，按它自己的接口地址创建客户端；否则与文案共用 llm1。
+                if config.visual_overrides
+                    && config.provider_visual == "custom"
+                    && config.visual_base.trim().is_empty()
+                {
+                    anyhow::bail!("自定义画面供应商需要设置 VISUAL_BASE_URL");
+                }
+                let (access, base) = config.visual_access();
+                let visual_cloud = if config.visual_overrides {
+                    Arc::new(cloud.with_base(base)?)
+                } else {
+                    cloud.clone()
+                };
+                Arc::new(siliconflow::GlmScript::with_access(
+                    visual_cloud,
+                    access.clone(),
+                ))
             }
             _ => unreachable!(),
         };

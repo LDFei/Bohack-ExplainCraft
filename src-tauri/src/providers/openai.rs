@@ -263,10 +263,19 @@ impl OpenAiSpeech {
             return fallback
                 .ok_or_else(|| ProviderError::invalid("无法自动获取声线，请手动填写 voice ID。"));
         };
-        let data: Value = response
-            .json()
-            .await
-            .map_err(|_| ProviderError::invalid("声线服务返回格式不正确，请手动填写 voice ID。"))?;
+        // 硅基流动等供应商没有 /audio/voices 接口，404 时应回退到配置声线而不是中断配音。
+        if !response.status().is_success() {
+            return fallback
+                .ok_or_else(|| ProviderError::invalid("无法自动获取声线，请手动填写 voice ID。"));
+        }
+        let data: Value = match response.json().await {
+            Ok(data) => data,
+            Err(_) => {
+                return fallback.ok_or_else(|| {
+                    ProviderError::invalid("声线服务返回格式不正确，请手动填写 voice ID。")
+                });
+            }
+        };
         for item in data["data"]
             .as_array()
             .or_else(|| data["voices"].as_array())
@@ -282,9 +291,7 @@ impl OpenAiSpeech {
                 return Ok(id.into());
             }
         }
-        Err(ProviderError::invalid(
-            "TTS 未返回声线，请手动填写 voice ID。",
-        ))
+        fallback.ok_or_else(|| ProviderError::invalid("TTS 未返回声线，请手动填写 voice ID。"))
     }
 }
 
@@ -310,7 +317,13 @@ impl VoiceModel for OpenAiSpeech {
             request.voice_id.trim().into()
         };
         let voice = if self.siliconflow {
-            format!("{}:{voice}", self.model)
+            // 旧草稿里可能已保存完整 `model:voice`，避免再拼一次前缀。
+            let prefix = format!("{}:", self.model);
+            if voice.starts_with(&prefix) {
+                voice
+            } else {
+                format!("{prefix}{voice}")
+            }
         } else {
             voice
         };

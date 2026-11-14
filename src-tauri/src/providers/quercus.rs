@@ -296,7 +296,9 @@ fn export_built_session(built: &BuiltSession, output: &Path, total_ms: i64) -> P
         &params,
     )
     .ok_or_else(|| render_error("导出", "无法创建导出任务"))?;
-    let timeout = Duration::from_secs((total_ms.max(1000) as u64 / 250).clamp(120, 900));
+    // 编码耗时取决于素材数量和机器性能，与成片时长非线性相关：40 秒多镜头在未开硬件编码
+    // 的机器上实测超过 3 分钟，因此下限取 600 秒，避免正常成片被判超时取消。
+    let timeout = Duration::from_secs((total_ms.max(1000) as u64 / 250).clamp(600, 1800));
     wait_for_task(&task, "视频编码", timeout)?;
     if !output.is_file() {
         return Err(render_error("导出", "没有生成输出文件"));

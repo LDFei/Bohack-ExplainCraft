@@ -337,6 +337,22 @@
   margin-top: 5px;
   line-height: 1.7;
 }
+.api-module-state {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.api-inline-toggle {
+  align-items: flex-start;
+}
+.api-inline-toggle small code {
+  font-size: 10px;
+}
 .api-module > summary > svg {
   color: var(--muted);
   transition: transform 150ms;

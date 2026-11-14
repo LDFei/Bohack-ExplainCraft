@@ -3,10 +3,10 @@
  * 页面总装配：把左侧素材库、中央预览与时间轴、右侧对话和弹窗连接到 useStudio。业务数据由组合函数管理，此文件主要协调界面入口。
  */
 
-import { computed, ref, toRef, watch } from 'vue';
+import { computed, nextTick, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useStudio } from './composables/useStudio.ts';
-import { themes, imagePath } from './domain/content.ts';
+import { themes, imagePath, vibeAwards } from './domain/content.ts';
 import type { Project } from './domain/types.ts';
 import Sidebar from './components/Sidebar.vue';
 import Conversation from './components/Conversation.vue';
@@ -17,6 +17,7 @@ import ThemeSwitcher from './components/ThemeSwitcher.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useAppSettings } from './composables/useAppSettings.ts';
 import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
+import AssetLibrary from './components/AssetLibrary.vue';
 
 // 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
@@ -77,12 +78,30 @@ const {
   messages,
   playing,
 } = studio;
+/** 素材库是独立模块；路由在项目路径下加 /library 段，来回切换不丢项目。 */
+const libraryMode = computed(
+  () => typeof route.params.projectId === 'string' && route.path.endsWith('/library'),
+);
+function openLibrary() {
+  if (!projectId.value) return;
+  void router.push(`/projects/${projectId.value}/library`);
+}
+function closeLibrary() {
+  if (projectId.value) void router.push(`/projects/${projectId.value}`);
+}
+/** 在素材库模块点「历史」：先回到工作台，再展开历史面板。 */
+async function openHistoryFromLibrary() {
+  if (!libraryMode.value) return;
+  closeLibrary();
+  await nextTick();
+  sidebar.value?.openHistoryPanel();
+}
 const sidebarOpen = ref(false),
   previewOpen = ref(false),
   moreOpen = ref(false);
 const conversation = ref<InstanceType<typeof Conversation> | null>(null),
   preview = ref<InstanceType<typeof PreviewPanel> | null>(null);
-const modal = ref<'templates' | 'guide' | 'rename' | 'delete' | 'export' | null>(null),
+const modal = ref<'templates' | 'vibe' | 'guide' | 'rename' | 'delete' | 'export' | null>(null),
   managedProject = ref<Project | null>(null),
   titleInput = ref(''),
   modalPending = ref(false);
@@ -92,6 +111,18 @@ const exportResolution = ref('720p'),
   exportError = ref(''),
   exportProject = ref(false);
 const title = computed(() => current.value?.project.title ?? '新的创作');
+// Vibe 知识大赏的启动选项：默认标准模式，用户在教程里改选后再开始。
+const vibeStyle = ref<(typeof vibeAwards.styles)[number]['id']>('card'),
+  vibeRatio = ref<(typeof vibeAwards.ratios)[number]['id']>('9:16'),
+  vibeVoice = ref<'none' | 'tts'>('none'),
+  vibeBgm = ref<'fixed' | 'none'>('fixed');
+const vibeRatios = vibeAwards.ratios;
+// 只有比例、配音、BGM 都没改时才叫标准模式；风格方向不算偏离。
+const vibeMode = computed(() =>
+  vibeRatio.value === '9:16' && vibeVoice.value === 'none' && vibeBgm.value === 'fixed'
+    ? '标准 Vibe'
+    : 'Vibe 变体',
+);
 const exportJob = computed(() => (exportJobId.value ? jobs.value[exportJobId.value] : null));
 // 路由导航会丢弃尚未保存的设置弹窗副本，不让首页往返意外保留打开状态。
 watch(
@@ -157,6 +188,25 @@ function openVersion(id: string) {
   previewOpen.value = true;
 }
 /**
+ * 素材库把音频设为配乐：写入当前草稿的 upload 模式并立即保存。
+ * 历史版本只读时不写草稿，避免覆盖成片快照对应的当前草稿。
+ */
+async function setMusicAsset(assetId: string) {
+  const draft = current.value?.draft;
+  if (!draft || historical.value) return;
+  await studio.save(
+    {
+      audio: {
+        ...draft.audio,
+        music_mode: 'upload' as const,
+        music_id: null,
+        music_asset_id: assetId,
+      },
+    },
+    current.value!.project.draft_revision,
+  );
+}
+/**
  * 切回最近成功的成片，让历史只读状态回到可以继续修改的当前草稿。
  */
 function latest() {
@@ -217,6 +267,67 @@ async function newProject() {
   await studio.newProject();
 }
 /**
+ * 进入 Vibe 知识大赏：按教程里的选择新建创作、设定比例与配音，并在需要时导入固定 BGM。
+ * 只填提示词不自动生成；每一步的方向仍由用户确认后再继续。
+ */
+async function startVibeAwards() {
+  modal.value = null;
+  await useTemplate(vibeAwards.prompt);
+  // 把用户在教程里选的风格、比例、配音与剪辑要求写进提示词，让每一步都有明确目标。
+  const styleName =
+    vibeAwards.styles.find((item) => item.id === vibeStyle.value)?.name ?? '信息卡片';
+  const decisions = [
+    `风格方向：${styleName}`,
+    `画面比例：${vibeRatio.value}`,
+    `配音：${vibeVoice.value === 'tts' ? '使用' : '不使用'}`,
+    `BGM：${vibeBgm.value === 'fixed' ? vibeAwards.bgm.name : '不使用'}`,
+    '开始任何剪辑或转场前先问我要不要剪辑；我说不做就只按镜头表拼接。',
+  ].join('；');
+  studio.useExample(`${vibeAwards.prompt}【${decisions}】`);
+  await studio.save(
+    { settings: { ...settings, aspect_ratio: vibeRatio.value } },
+    current.value!.project.draft_revision,
+  );
+  try {
+    // 固定 BGM 随前端一起发布；用户选择「不用 BGM」时跳过导入。
+    if (vibeBgm.value === 'none') {
+      const draft = current.value?.draft;
+      if (draft)
+        await studio.save(
+          { audio: { ...draft.audio, music_mode: 'none', music_asset_id: null } },
+          current.value!.project.draft_revision,
+        );
+      return;
+    }
+    const response = await fetch(vibeAwards.bgm.url);
+    if (!response.ok) return;
+    const file = new File([await response.blob()], 'we-never.mp3', { type: 'audio/mpeg' });
+    await studio.upload([file]);
+    const asset = assets.value.find(
+      (item) =>
+        item.kind === 'audio' && item.source === 'upload' && item.file_name === 'we-never.mp3',
+    );
+    // 上传后重新取草稿：上传流程可能已经刷新过项目状态。
+    const draft = current.value?.draft;
+    if (!asset || !draft) return;
+    await studio.save(
+      {
+        audio: {
+          ...draft.audio,
+          narration_enabled: vibeVoice.value === 'tts',
+          music_mode: 'upload',
+          music_id: null,
+          music_asset_id: asset.id,
+          music_volume: 0.9,
+        },
+      },
+      current.value!.project.draft_revision,
+    );
+  } catch {
+    // 导入失败时不阻断流程；用户仍可在「声音」面板手动上传 BGM。
+  }
+}
+/**
  * 在空白创作中填入可编辑的模板提示词，仅填输入框，不自动启动生成。
  */
 async function useTemplate(text: string) {
@@ -248,8 +359,9 @@ function closeModal() {
       'sidebar-is-collapsed': !sidebarExpanded,
       'layout-resizing': resizing,
       'layout-dragging': draggedPanel,
+      'library-mode': libraryMode,
     }"
-    :style="workspaceStyle"
+    :style="libraryMode ? undefined : workspaceStyle"
     :data-drop-target="dropTarget"
     @dragover="dragOver"
     @drop="drop"
@@ -268,342 +380,358 @@ function closeModal() {
       :shots="selectedVersion?.snapshot.shots ?? current?.draft.shots ?? []"
       :assets="assets"
       :busy="busy || pending"
-      :duration="(selectedVersion?.duration_ms ?? 30000) / 1000"
+      :rail-only="libraryMode"
+      :module="libraryMode ? 'library' : 'workbench'"
       @new="newProject"
       @select="router.push(`/projects/${$event}`)"
       @templates="modal = 'templates'"
       @rename="openManage('rename', $event)"
       @delete="openManage('delete', $event)"
       @close="sidebarOpen = false"
-      @upload="conversation?.attach()"
-      @seek="preview?.seek($event)"
-      @panel="openPanel"
+      @upload="studio.upload"
+      @workbench="closeLibrary"
+      @library="openLibrary"
+      @history="openHistoryFromLibrary"
       @resize="sidebarExpanded = $event"
       @settings="settingsOpen = true"
       @panel-drag-start="startDrag"
       @panel-drag-end="endDrag"
       @panel-move="movePanel"
     />
-    <div
-      v-for="index in [0, 1]"
-      :key="index"
-      class="pane-separator"
-      :style="{ gridColumn: index * 2 + 2 }"
-      role="separator"
-      aria-orientation="vertical"
-      :aria-label="`调整${panelLabels[layoutState.order[index]!]}与${panelLabels[layoutState.order[index + 1]!]}宽度`"
-      :aria-valuenow="
-        Math.round(
-          (layoutState.weights[layoutState.order[index]!]! /
-            (layoutState.weights[layoutState.order[index]!]! +
-              layoutState.weights[layoutState.order[index + 1]!]!)) *
-            100,
-        )
-      "
-      aria-valuemin="0"
-      aria-valuemax="100"
-      tabindex="0"
-      @pointerdown="beginResize(index, $event)"
-      @pointermove="resizeMove"
-      @pointerup="endResize"
-      @pointercancel="endResize"
-      @lostpointercapture="endResize"
-      @keydown="resizeKey(index, $event)"
-    >
-      <span />
-    </div>
-    <!-- 右侧对话和中央作品共享 useStudio 数据，通过事件完成三栏联动。 -->
-    <div class="workspace">
-      <header class="topbar">
-        <div class="topbar-brand">
-          <span class="brand-icon">
+    <template v-if="!libraryMode">
+      <div
+        v-for="index in [0, 1]"
+        :key="index"
+        class="pane-separator"
+        :style="{ gridColumn: index * 2 + 2 }"
+        role="separator"
+        aria-orientation="vertical"
+        :aria-label="`调整${panelLabels[layoutState.order[index]!]}与${panelLabels[layoutState.order[index + 1]!]}宽度`"
+        :aria-valuenow="
+          Math.round(
+            (layoutState.weights[layoutState.order[index]!]! /
+              (layoutState.weights[layoutState.order[index]!]! +
+                layoutState.weights[layoutState.order[index + 1]!]!)) *
+              100,
+          )
+        "
+        aria-valuemin="0"
+        aria-valuemax="100"
+        tabindex="0"
+        @pointerdown="beginResize(index, $event)"
+        @pointermove="resizeMove"
+        @pointerup="endResize"
+        @pointercancel="endResize"
+        @lostpointercapture="endResize"
+        @keydown="resizeKey(index, $event)"
+      >
+        <span />
+      </div>
+      <!-- 右侧对话和中央作品共享 useStudio 数据，通过事件完成三栏联动。 -->
+      <div class="workspace">
+        <header class="topbar">
+          <div class="topbar-brand">
+            <span class="brand-icon">
+              <Icon
+                name="aperture"
+                :size="24"
+              />
+            </span>
+            <span>
+              Explain
+              <span class="brand-light">Craft</span>
+              <small>VIDEO STUDIO</small>
+            </span>
+          </div>
+          <div class="breadcrumbs">
+            <button
+              class="icon-button mobile-menu"
+              aria-label="打开项目导航"
+              @click="sidebarOpen = true"
+            >
+              <Icon name="menu" />
+            </button>
+            <span class="breadcrumb-home">工作空间</span>
             <Icon
-              name="aperture"
-              :size="24"
-            />
-          </span>
-          <span>
-            Explain
-            <span class="brand-light">Craft</span>
-            <small>VIDEO STUDIO</small>
-          </span>
-        </div>
-        <div class="breadcrumbs">
-          <button
-            class="icon-button mobile-menu"
-            aria-label="打开项目导航"
-            @click="sidebarOpen = true"
-          >
-            <Icon name="menu" />
-          </button>
-          <span class="breadcrumb-home">工作空间</span>
-          <Icon
-            class="breadcrumb-chevron"
-            name="chevron"
-            :size="13"
-          />
-          <button
-            class="project-title"
-            :disabled="!current"
-            @click="current && openManage('rename', current.project)"
-          >
-            {{ title }}
-            <Icon
-              name="edit"
+              class="breadcrumb-chevron"
+              name="chevron"
               :size="13"
             />
-          </button>
-        </div>
-        <div class="history-controls">
+            <button
+              class="project-title"
+              :disabled="!current"
+              @click="current && openManage('rename', current.project)"
+            >
+              {{ title }}
+              <Icon
+                name="edit"
+                :size="13"
+              />
+            </button>
+          </div>
+          <div class="history-controls">
+            <button
+              class="icon-button"
+              aria-label="撤销草稿编辑"
+              title="撤销未保存的草稿编辑"
+              :disabled="!preview?.canUndo"
+              @click="preview?.undo()"
+            >
+              <Icon
+                name="undo"
+                :size="17"
+              />
+            </button>
+            <button
+              class="icon-button"
+              aria-label="重做草稿编辑"
+              title="重做未保存的草稿编辑"
+              :disabled="!preview?.canRedo"
+              @click="preview?.redo()"
+            >
+              <Icon
+                name="redo"
+                :size="17"
+              />
+            </button>
+          </div>
+          <div class="topbar-actions">
+            <span
+              class="saved-status"
+              :class="{ reconnecting: connection === 'reconnecting' }"
+            >
+              <Icon
+                :name="connection === 'reconnecting' ? 'refresh' : 'cloud'"
+                :size="16"
+              />
+              {{
+                connection === 'reconnecting' ? '正在恢复连接' : pending ? '正在保存' : '已自动保存'
+              }}
+            </span>
+            <button
+              class="icon-button top-help"
+              aria-label="查看使用指南"
+              @click="modal = 'guide'"
+            >
+              <Icon
+                name="help"
+                :size="19"
+              />
+            </button>
+            <button
+              class="icon-button preview-toggle"
+              aria-label="打开作品预览"
+              :aria-expanded="previewOpen"
+              @click="previewOpen = !previewOpen"
+            >
+              <Icon
+                name="video"
+                :size="20"
+              />
+            </button>
+            <ThemeSwitcher />
+            <button
+              class="button primary top-export"
+              aria-label="导出视频"
+              :disabled="!selectedVersion || busy || pending"
+              @click="openExport"
+            >
+              <Icon
+                name="export"
+                :size="15"
+              />
+              导出视频
+            </button>
+            <div
+              v-if="current"
+              class="more-container"
+            >
+              <button
+                class="icon-button"
+                aria-label="更多项目操作"
+                :aria-expanded="moreOpen"
+                @click="moreOpen = !moreOpen"
+              >
+                <Icon name="more" />
+              </button>
+              <div
+                v-if="moreOpen"
+                class="toolbar-menu"
+              >
+                <button
+                  v-if="current"
+                  @click="openManage('rename', current.project)"
+                >
+                  <Icon
+                    name="edit"
+                    :size="15"
+                  />
+                  重命名项目
+                </button>
+                <button
+                  v-if="current"
+                  class="danger-text"
+                  @click="openManage('delete', current.project)"
+                >
+                  <Icon
+                    name="trash"
+                    :size="15"
+                  />
+                  删除项目
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+        <div class="mobile-workspace-tabs">
           <button
-            class="icon-button"
-            aria-label="撤销草稿编辑"
-            title="撤销未保存的草稿编辑"
-            :disabled="!preview?.canUndo"
-            @click="preview?.undo()"
+            :class="{ active: !previewOpen }"
+            @click="previewOpen = false"
           >
             <Icon
-              name="undo"
-              :size="17"
+              name="sparkles"
+              :size="15"
             />
+            创作对话
           </button>
           <button
-            class="icon-button"
-            aria-label="重做草稿编辑"
-            title="重做未保存的草稿编辑"
-            :disabled="!preview?.canRedo"
-            @click="preview?.redo()"
-          >
-            <Icon
-              name="redo"
-              :size="17"
-            />
-          </button>
-        </div>
-        <div class="topbar-actions">
-          <span
-            class="saved-status"
-            :class="{ reconnecting: connection === 'reconnecting' }"
-          >
-            <Icon
-              :name="connection === 'reconnecting' ? 'refresh' : 'cloud'"
-              :size="16"
-            />
-            {{
-              connection === 'reconnecting' ? '正在恢复连接' : pending ? '正在保存' : '已自动保存'
-            }}
-          </span>
-          <button
-            class="icon-button top-help"
-            aria-label="查看使用指南"
-            @click="modal = 'guide'"
-          >
-            <Icon
-              name="help"
-              :size="19"
-            />
-          </button>
-          <button
-            class="icon-button preview-toggle"
-            aria-label="打开作品预览"
-            :aria-expanded="previewOpen"
-            @click="previewOpen = !previewOpen"
+            :class="{ active: previewOpen }"
+            @click="previewOpen = true"
           >
             <Icon
               name="video"
-              :size="20"
-            />
-          </button>
-          <ThemeSwitcher />
-          <button
-            class="button primary top-export"
-            aria-label="导出视频"
-            :disabled="!selectedVersion || busy || pending"
-            @click="openExport"
-          >
-            <Icon
-              name="export"
               :size="15"
             />
-            导出视频
+            我的作品
+            <span
+              v-if="versions.length"
+              class="mobile-count"
+            >
+              {{ versions.length }}
+            </span>
           </button>
-          <div
-            v-if="current"
-            class="more-container"
-          >
-            <button
-              class="icon-button"
-              aria-label="更多项目操作"
-              :aria-expanded="moreOpen"
-              @click="moreOpen = !moreOpen"
-            >
-              <Icon name="more" />
-            </button>
-            <div
-              v-if="moreOpen"
-              class="toolbar-menu"
-            >
-              <button
-                v-if="current"
-                @click="openManage('rename', current.project)"
-              >
-                <Icon
-                  name="edit"
-                  :size="15"
-                />
-                重命名项目
-              </button>
-              <button
-                v-if="current"
-                class="danger-text"
-                @click="openManage('delete', current.project)"
-              >
-                <Icon
-                  name="trash"
-                  :size="15"
-                />
-                删除项目
-              </button>
-            </div>
-          </div>
         </div>
-      </header>
-      <div class="mobile-workspace-tabs">
-        <button
-          :class="{ active: !previewOpen }"
-          @click="previewOpen = false"
-        >
-          <Icon
-            name="sparkles"
-            :size="15"
-          />
-          创作对话
-        </button>
-        <button
-          :class="{ active: previewOpen }"
-          @click="previewOpen = true"
-        >
-          <Icon
-            name="video"
-            :size="15"
-          />
-          我的作品
-          <span
-            v-if="versions.length"
-            class="mobile-count"
-          >
-            {{ versions.length }}
-          </span>
-        </button>
-      </div>
-      <div
-        class="workspace-content"
-        :class="{ 'show-preview': previewOpen }"
-      >
         <div
-          v-if="loading || pageError"
-          class="workspace-placeholder"
+          class="workspace-content"
+          :class="{ 'show-preview': previewOpen }"
         >
-          <template v-if="loading">
-            <span class="spinner" />
-            <strong>正在打开你的创作空间</strong>
-            <span>让灵感接着发生</span>
-          </template>
-          <template v-else>
-            <Icon
-              name="folder"
-              :size="38"
-            />
-            <strong>{{ pageError }}</strong>
-            <button
-              class="button primary"
-              @click="studio.newProject"
-            >
-              开始新的创作
+          <div
+            v-if="loading || pageError"
+            class="workspace-placeholder"
+          >
+            <template v-if="loading">
+              <span class="spinner" />
+              <strong>正在打开你的创作空间</strong>
+              <span>让灵感接着发生</span>
+            </template>
+            <template v-else>
               <Icon
-                name="plus"
-                :size="15"
+                name="folder"
+                :size="38"
               />
-            </button>
-          </template>
+              <strong>{{ pageError }}</strong>
+              <button
+                class="button primary"
+                @click="studio.newProject"
+              >
+                开始新的创作
+                <Icon
+                  name="plus"
+                  :size="15"
+                />
+              </button>
+            </template>
+          </div>
+          <Conversation
+            v-else
+            ref="conversation"
+            :layout-enabled="isDesktop"
+            :send-shortcut="general.sendShortcut"
+            @panel-drag-start="startDrag"
+            @panel-drag-end="endDrag"
+            @panel-move="movePanel"
+            :messages="messages"
+            :jobs="jobs"
+            :draft="current?.draft ?? null"
+            :versions="versions"
+            :input="input"
+            :settings="settings"
+            :intent="intent"
+            :caps="caps"
+            :assets="assets"
+            :selected-assets="selectedAssets"
+            :busy="busy"
+            :pending="pending"
+            :uploading="uploading"
+            :historical="historical"
+            @update:input="input = $event"
+            @update:intent="intent = $event"
+            @update:settings="Object.assign(settings, $event)"
+            @send="studio.send()"
+            @new="newProject"
+            @upload="studio.upload"
+            @remove-asset="selectedAssets = selectedAssets.filter((id) => id !== $event)"
+            @stop="activeJob && studio.jobAction('cancel', activeJob.id)"
+            @retry="studio.jobAction('retry', $event)"
+            @answer="(jobId, value) => studio.jobAction('answer', jobId, value)"
+            @example="studio.useExample"
+            @view="openVersion"
+            @panel="openPanel"
+            @latest="latest"
+          />
+          <button
+            v-if="previewOpen"
+            class="preview-scrim"
+            aria-label="关闭作品预览"
+            @click="previewOpen = false"
+          />
+          <PreviewPanel
+            ref="preview"
+            :layout-enabled="isDesktop"
+            :timeline-height="isDesktop ? timelineDisplayHeight : undefined"
+            @timeline-height="setTimelineHeight"
+            @panel-drag-start="startDrag"
+            @panel-drag-end="endDrag"
+            @panel-move="movePanel"
+            :project-id="projectId"
+            :draft="current?.draft ?? null"
+            :revision="current?.project.draft_revision ?? 1"
+            :dirty="current?.project.draft_dirty ?? false"
+            :version="selectedVersion"
+            :versions="versions"
+            :latest-version-id="current?.project.latest_video_version_id ?? null"
+            :assets="assets"
+            :caps="caps"
+            :job="activeJob"
+            :busy="busy"
+            :pending="pending"
+            :open="previewOpen"
+            :on-save="studio.save"
+            @select="studio.selectVersion"
+            @download="studio.download"
+            @export="openExport"
+            @update="updateVideo"
+            @close="previewOpen = false"
+            @latest="latest"
+            @playing="playing = $event"
+            @prompt="prompt"
+            @notify="studio.notify($event, 'info')"
+          />
         </div>
-        <Conversation
-          v-else
-          ref="conversation"
-          :layout-enabled="isDesktop"
-          :send-shortcut="general.sendShortcut"
-          @panel-drag-start="startDrag"
-          @panel-drag-end="endDrag"
-          @panel-move="movePanel"
-          :messages="messages"
-          :jobs="jobs"
-          :draft="current?.draft ?? null"
-          :versions="versions"
-          :input="input"
-          :settings="settings"
-          :intent="intent"
-          :caps="caps"
-          :assets="assets"
-          :selected-assets="selectedAssets"
-          :busy="busy"
-          :pending="pending"
-          :uploading="uploading"
-          :historical="historical"
-          @update:input="input = $event"
-          @update:intent="intent = $event"
-          @update:settings="Object.assign(settings, $event)"
-          @send="studio.send()"
-          @upload="studio.upload"
-          @remove-asset="selectedAssets = selectedAssets.filter((id) => id !== $event)"
-          @stop="activeJob && studio.jobAction('cancel', activeJob.id)"
-          @retry="studio.jobAction('retry', $event)"
-          @answer="(jobId, value) => studio.jobAction('answer', jobId, value)"
-          @example="studio.useExample"
-          @view="openVersion"
-          @panel="openPanel"
-          @latest="latest"
-        />
-        <button
-          v-if="previewOpen"
-          class="preview-scrim"
-          aria-label="关闭作品预览"
-          @click="previewOpen = false"
-        />
-        <PreviewPanel
-          ref="preview"
-          :layout-enabled="isDesktop"
-          :timeline-height="isDesktop ? timelineDisplayHeight : undefined"
-          @timeline-height="setTimelineHeight"
-          @panel-drag-start="startDrag"
-          @panel-drag-end="endDrag"
-          @panel-move="movePanel"
-          :project-id="projectId"
-          :draft="current?.draft ?? null"
-          :revision="current?.project.draft_revision ?? 1"
-          :dirty="current?.project.draft_dirty ?? false"
-          :version="selectedVersion"
-          :versions="versions"
-          :latest-version-id="current?.project.latest_video_version_id ?? null"
-          :assets="assets"
-          :caps="caps"
-          :job="activeJob"
-          :busy="busy"
-          :pending="pending"
-          :open="previewOpen"
-          :on-save="studio.save"
-          @select="studio.selectVersion"
-          @download="studio.download"
-          @export="openExport"
-          @upload="conversation?.attach()"
-          @update="updateVideo"
-          @close="previewOpen = false"
-          @latest="latest"
-          @playing="playing = $event"
-          @prompt="prompt"
-          @notify="studio.notify($event, 'info')"
-        />
       </div>
-    </div>
+    </template>
+    <!-- 素材库模块：保留 rail，中央换成素材管理页，不显示 Copilot 与时间轴。 -->
+    <AssetLibrary
+      v-else
+      :assets="assets"
+      :busy="busy || pending"
+      :project-title="title"
+      :music-asset-id="
+        current?.draft.audio.music_mode === 'upload' ? current.draft.audio.music_asset_id : null
+      "
+      @upload="studio.upload"
+      @music="setMusicAsset"
+    />
     <Transition name="toast">
       <div
         v-if="toast"
@@ -651,6 +779,23 @@ function closeModal() {
     >
       <div class="template-grid">
         <button
+          class="template-card vibe-card"
+          @click="modal = 'vibe'"
+        >
+          <div class="vibe-thumb">
+            <span>固定 BGM · 无配音 · 代码画面</span>
+          </div>
+          <strong>{{ vibeAwards.title }}</strong>
+          <p>{{ vibeAwards.subtitle }}</p>
+          <span class="text-button">
+            查看固定流程
+            <Icon
+              name="arrowRight"
+              :size="14"
+            />
+          </span>
+        </button>
+        <button
           v-for="(theme, key) in themes"
           :key="key"
           class="template-card"
@@ -674,6 +819,185 @@ function closeModal() {
           </span>
         </button>
       </div>
+      <div class="template-vibe-callout">
+        <Icon
+          name="sparkles"
+          :size="15"
+        />
+        <span>想复刻抖音 Vibe 知识大赏？先看固定的 BGM、无配音和卡点流程。</span>
+        <button
+          class="text-button"
+          @click="modal = 'vibe'"
+        >
+          打开教程
+        </button>
+      </div>
+    </Modal>
+    <Modal
+      :open="modal === 'vibe'"
+      title="Vibe 知识大赏 · 固定流程"
+      subtitle="照着流程走，一支视频只讲一个知识点。"
+      wide
+      @close="closeModal"
+    >
+      <div class="vibe-tutorial">
+        <section class="vibe-choices">
+          <h3>先选视频风格方向</h3>
+          <div
+            class="vibe-option-grid"
+            role="radiogroup"
+            aria-label="视频风格方向"
+          >
+            <button
+              v-for="style in vibeAwards.styles"
+              :key="style.id"
+              type="button"
+              class="vibe-option"
+              :class="{ active: vibeStyle === style.id }"
+              role="radio"
+              :aria-checked="vibeStyle === style.id"
+              @click="vibeStyle = style.id"
+            >
+              <strong>{{ style.name }}</strong>
+              <span>{{ style.detail }}</span>
+            </button>
+          </div>
+        </section>
+        <section class="vibe-choices">
+          <h3>画面比例</h3>
+          <div
+            class="vibe-option-grid compact"
+            role="radiogroup"
+            aria-label="画面比例"
+          >
+            <button
+              v-for="ratio in vibeRatios"
+              :key="ratio.id"
+              type="button"
+              class="vibe-option"
+              :class="{ active: vibeRatio === ratio.id }"
+              role="radio"
+              :aria-checked="vibeRatio === ratio.id"
+              @click="vibeRatio = ratio.id"
+            >
+              <strong>{{ ratio.name }}</strong>
+            </button>
+          </div>
+        </section>
+        <section class="vibe-choices">
+          <h3>配音与 BGM</h3>
+          <div class="vibe-switch-row">
+            <div class="switch-field">
+              <span>
+                <strong>配音</strong>
+                <small>
+                  {{
+                    vibeVoice === 'tts' ? '字幕 + 旁白，两句都要过得下' : '不用配音，字幕承担讲解'
+                  }}
+                </small>
+              </span>
+              <button
+                type="button"
+                class="switch"
+                :class="{ on: vibeVoice === 'tts' }"
+                role="switch"
+                :aria-checked="vibeVoice === 'tts'"
+                aria-label="使用配音"
+                @click="vibeVoice = vibeVoice === 'tts' ? 'none' : 'tts'"
+              >
+                <span />
+              </button>
+            </div>
+            <div class="switch-field">
+              <span>
+                <strong>固定 BGM</strong>
+                <small>
+                  {{ vibeBgm === 'fixed' ? vibeAwards.bgm.name : '不用 BGM，只做画面与字幕' }}
+                </small>
+              </span>
+              <button
+                type="button"
+                class="switch"
+                :class="{ on: vibeBgm === 'fixed' }"
+                role="switch"
+                :aria-checked="vibeBgm === 'fixed'"
+                aria-label="使用固定 BGM"
+                @click="vibeBgm = vibeBgm === 'fixed' ? 'none' : 'fixed'"
+              >
+                <span />
+              </button>
+            </div>
+          </div>
+          <p class="vibe-mode-note">当前：{{ vibeMode }}</p>
+        </section>
+        <section
+          v-if="vibeBgm === 'fixed'"
+          class="vibe-bgm"
+        >
+          <div class="vibe-bgm-label">
+            <Icon
+              name="music"
+              :size="15"
+            />
+            <span>固定 BGM · 可在这步换成自己的音频</span>
+          </div>
+          <strong>{{ vibeAwards.bgm.name }}</strong>
+          <p>{{ vibeAwards.bgm.artist }}</p>
+          <audio
+            controls
+            preload="none"
+            :src="vibeAwards.bgm.url"
+          />
+        </section>
+        <div class="vibe-rules">
+          <h3>默认约定（可改）</h3>
+          <ul>
+            <li
+              v-for="rule in vibeAwards.rules"
+              :key="rule"
+            >
+              <Icon
+                name="check"
+                :size="13"
+              />
+              <span>{{ rule }}</span>
+            </li>
+          </ul>
+        </div>
+        <div class="guide-steps vibe-steps">
+          <div
+            v-for="(step, index) in vibeAwards.steps"
+            :key="step.title"
+          >
+            <span>0{{ index + 1 }}</span>
+            <section>
+              <h3>{{ step.title }}</h3>
+              <p>{{ step.detail }}</p>
+            </section>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <span class="settings-footer-note">
+          会按选择导入 BGM 与配音设置；补上知识点后由你发送，每一步仍由你确认
+        </span>
+        <button
+          class="button secondary"
+          @click="modal = null"
+        >
+          先看看
+        </button>
+        <button
+          class="button primary"
+          @click="startVibeAwards"
+        >
+          按这个流程开始
+          <Icon
+            name="arrowRight"
+            :size="15"
+          />
+        </button>
+      </template>
     </Modal>
     <Modal
       :open="modal === 'guide'"

@@ -275,8 +275,9 @@ export function useStudio() {
    * 首次发送或上传时才创建项目，返回可以调用接口的项目 ID。
    * 切路由会初始化页面，因此先暂存输入、模式和设置，再在新项目载入后恢复。
    */
-  async function ensureProject() {
-    if (projectId.value) return projectId.value;
+  async function ensureProject(fresh = false) {
+    // fresh：在已有成片的项目里选择「新做一个」时另建项目，新视频从空白草稿开始。
+    if (!fresh && projectId.value) return projectId.value;
     const text = input.value,
       nextSettings = copy(settings),
       mode = intent.value;
@@ -310,7 +311,8 @@ export function useStudio() {
     nextSettings.target_duration_seconds =
       requestedDurationSeconds(text) ?? nextSettings.target_duration_seconds;
     try {
-      const id = await ensureProject();
+      // 「新做一个」必须落在新项目里；否则会沿用当前项目的草稿和成片上下文。
+      const id = await ensureProject(mode === 'generate' && !!current.value?.latest_video);
       const state = await api.getSnapshot(id);
       // 参数保存会递增草稿版本，所以发送消息前必须再次取最新快照。
       if (JSON.stringify(state.draft.settings) !== JSON.stringify(nextSettings) && mode !== 'chat')
@@ -319,8 +321,8 @@ export function useStudio() {
       await api.sendMessage(
         id,
         {
-          // 仅讨论显式优先；有旧成片时走 revise，否则走首次 generate。
-          intent: mode === 'chat' ? 'chat' : latest.latest_video ? 'revise' : 'generate',
+          // 仅讨论显式优先；修改沿用成片，其余按首次生成处理（新项目里没有成片）。
+          intent: mode === 'chat' ? 'chat' : mode === 'revise' ? 'revise' : 'generate',
           text,
           asset_ids: chosen,
           expected_draft_revision: latest.project.draft_revision,

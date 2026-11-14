@@ -3,5 +3,10 @@ members = ["src-tauri"]
 default-members = ["src-tauri"]
 resolver = "2"
 
+[patch.crates-io]
+# Windows/MSVC 下 ffmpeg-sys-next 9.1.1 的构建修复（AMX 内建类型屏蔽、bindgen 大栈线程），
+# 见 vendor/ffmpeg-sys-next。
+ffmpeg-sys-next = { path = "vendor/ffmpeg-sys-next" }
+
 [profile.dev.package."*"]
 opt-level = 1

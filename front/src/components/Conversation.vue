@@ -42,6 +42,7 @@ const emit = defineEmits<{
   'update:intent': [mode: Intent];
   'update:settings': [settings: Settings];
   send: [];
+  new: [];
   upload: [files: FileList | File[]];
   removeAsset: [id: string];
   stop: [];
@@ -246,6 +247,18 @@ defineExpose({
       />
       当前项目上下文
       <span>{{ versions.length ? `v${versions.length}` : '新创作' }}</span>
+      <button
+        v-if="versions.length"
+        class="context-new"
+        title="另开一个项目制作新视频，不和当前作品混在一起"
+        @click="emit('new')"
+      >
+        <Icon
+          name="plus"
+          :size="11"
+        />
+        新做一个
+      </button>
     </div>
     <!-- 对话区独立滚动，角色决定气泡样式，blocks 决定业务卡片。 -->
     <div
@@ -664,6 +677,18 @@ defineExpose({
               :size="14"
             />
             视频创作
+          </button>
+          <button
+            v-if="versions.length"
+            :disabled="busy || pending || historical"
+            title="另开一个项目制作新视频"
+            @click="emit('new')"
+          >
+            <Icon
+              name="plus"
+              :size="14"
+            />
+            新做一个
           </button>
           <button
             :class="{ selected: intent === 'chat' }"

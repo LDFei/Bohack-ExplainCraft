@@ -29,6 +29,8 @@ export interface AudioSettings {
   voice_id: string;
   /** 语速倍率，1 表示正常速度。 */
   speech_rate: number;
+  /** 是否生成配音；关闭后字幕承担全部讲解，成片只保留背景音乐。 */
+  narration_enabled: boolean;
   /** auto 自动匹配，none 无音乐，library 曲库，upload 用户附件。 */
   music_mode: 'auto' | 'none' | 'library' | 'upload';
   /** 仅 library 模式使用的曲库条目 ID，其余模式为 null。 */

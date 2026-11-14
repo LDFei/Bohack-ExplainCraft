@@ -6,6 +6,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 mod api;
+mod breeze_model;
 mod catalog;
 mod commands;
 mod config;
@@ -152,8 +153,8 @@ fn build_state(config: Config) -> anyhow::Result<AppState> {
 const WINDOW_TITLE: &str = "灵镜 · AI 视频创作空间";
 
 /// 注册前端可调用的全部 commands；生产应用与 IPC 集成测试共用同一份清单。
-fn command_handler<R: tauri::Runtime>(
-) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+/// 桌面端固定使用 Wry 运行时，具体类型才能接受 `AppHandle` 参数。
+fn command_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         commands::capabilities,
         commands::list_projects,
@@ -179,6 +180,9 @@ fn command_handler<R: tauri::Runtime>(
         commands::update_model_settings,
         commands::list_models,
         commands::list_voices,
+        commands::breeze_model_status,
+        commands::download_breeze_model,
+        commands::cancel_breeze_download,
     ]
 }
 
@@ -208,11 +212,31 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// 重复启动时把已有主窗口提到前台，而不是再开一个进程。
+///
+/// 单实例锁按用户会话生效：同一台电脑上重复双击只会唤起已运行的窗口。
+fn focus_existing_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 /// 桌面端入口（`main.rs` 调用）。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // 单实例插件要求排在其它插件之前注册。
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            tracing::info!(target: "startup", "检测到重复启动，已唤起运行中的窗口");
+            focus_existing_window(app);
+        }));
+    }
+    let app = builder
         .register_asynchronous_uri_scheme_protocol("explaincraft", |ctx, request, responder| {
             let state = ctx.app_handle().state::<AppState>().inner().clone();
             tauri::async_runtime::spawn(async move {

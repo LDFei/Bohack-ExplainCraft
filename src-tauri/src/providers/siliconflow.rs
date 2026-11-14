@@ -27,7 +27,7 @@ use crate::models::{Brief, Draft, Script, StageKey};
 pub struct SiliconFlow {
     /// HTTP 客户端（直连，不走系统代理）。
     http: reqwest::Client,
-    /// 接口地址，如 `https://api.siliconflow.cn/v1`。
+    /// llm1 的接口地址，如 `https://api.siliconflow.cn/v1`。
     base: String,
 }
 
@@ -49,6 +49,18 @@ impl SiliconFlow {
             anyhow::bail!("自定义供应商需要设置 LLM1_BASE_URL");
         }
         Ok(Self { http, base })
+    }
+
+    /// 画面模型单独指向其他 OpenAI 兼容服务时，复制 HTTP 客户端并替换接口地址。
+    pub fn with_base(&self, base: &str) -> anyhow::Result<Self> {
+        let trimmed = base.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            anyhow::bail!("画面模型缺少可用的 base URL");
+        }
+        Ok(Self {
+            http: self.http.clone(),
+            base: trimmed.to_string(),
+        })
     }
 
     /// POST JSON 并解析 JSON 响应；HTTP 错误转为可重试的供应商错误。
@@ -322,6 +334,11 @@ impl GlmScript {
             client,
             access: config.llm1.clone(),
         }
+    }
+
+    /// 画面环节单独配置模型时使用；密钥与模型由调用方给出。
+    pub fn with_access(client: Arc<SiliconFlow>, access: ModelAccess) -> Self {
+        Self { client, access }
     }
 }
 
