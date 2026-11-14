@@ -18,13 +18,156 @@ struct Scene {
     labels: Vec<String>,
     /// 图形的解释或示意声明。
     note: String,
+    /// v3 受约束图解指令；缺省时继续使用上面的五类固定布局。
+    visual: Option<Visual>,
+}
+
+/// 受约束的图解指令：模型只描述对象、状态变化、推理步骤与结论。
+///
+/// 坐标、时序、字体和运动全部由本文件计算；这里不保存也不执行任何模型生成的代码，
+/// 因此非法规格只会回落到固定布局，不会让画面脚本访问本机资源。
+#[derive(Default, Deserialize, Clone)]
+#[serde(default)]
+struct Visual {
+    /// `search`：真实算法轨迹；`states`：对象状态演变。
+    #[serde(rename = "type")]
+    kind: String,
+    /// 搜索空间，如 `{"from":1,"to":100}`。区间与目标必须由模型给出真实值。
+    domain: Option<Domain>,
+    /// 搜索目标值。
+    target: Option<i64>,
+    /// 状态演变：每个状态是一步知识推理。
+    states: Vec<VisualState>,
+    /// 动画最终要呈现的结论。
+    conclusion: String,
+}
+
+/// 搜索空间取值区间。
+#[derive(Default, Deserialize, Clone)]
+#[serde(default)]
+struct Domain {
+    from: i64,
+    to: i64,
+}
+
+/// 一个可审阅的知识状态：这一步有哪些对象、对应哪条推理。
+#[derive(Default, Deserialize, Clone)]
+#[serde(default)]
+struct VisualState {
+    /// 该状态对应的知识推理步骤，显示为画面说明。
+    caption: String,
+    /// 该状态中的对象。
+    objects: Vec<VisualObject>,
+}
+
+/// 状态中的一个对象；只有文字与强调级别，没有坐标。
+#[derive(Default, Deserialize, Clone, PartialEq)]
+#[serde(default)]
+struct VisualObject {
+    /// 对象文字。
+    text: String,
+    /// `accent` / `plain` / `dim`。
+    emphasis: String,
 }
 
 /// 把结构化视觉规范转换为审阅用的人类描述。
 pub fn describe(raw: &str) -> String {
     serde_json::from_str::<Scene>(raw)
-        .map(|s| format!("{} · {}", s.title, s.labels.join(" → ")))
+        .map(|s| {
+            // v3 指令：审阅时展示真实推理链，而不是对象的原始 JSON。
+            if let Some(trace) = s.visual.as_ref().and_then(|v| v.search_trace()) {
+                let steps = trace
+                    .steps
+                    .iter()
+                    .map(|step| step.caption.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" → ");
+                return format!("{} · {}", s.title, steps);
+            }
+            format!("{} · {}", s.title, s.labels.join(" → "))
+        })
         .unwrap_or_else(|_| raw.into())
+}
+
+impl Visual {
+    /// 用本地算法真实计算搜索轨迹；参数非法时返回 `None`，让画面回到固定模板。
+    fn search_trace(&self) -> Option<Trace> {
+        if self.kind != "search" {
+            return None;
+        }
+        let domain = self.domain.as_ref()?;
+        let target = self.target?;
+        let size = domain.to - domain.from + 1;
+        if size < 2 || size > MAX_SEARCH_CELLS || target < domain.from || target > domain.to {
+            return None;
+        }
+        let mut lo = 0;
+        let mut hi = size - 1;
+        let mut steps = Vec::new();
+        // 每一步都由真实中点和真实比较结果生成，不采用模型写出的过程。
+        while lo <= hi {
+            let mid = (lo + hi) / 2;
+            let Some(value) = self.domain.as_ref().map(|d| d.from + mid) else {
+                return None;
+            };
+            let comparison = value.cmp(&target);
+            steps.push(TraceStep {
+                lo,
+                hi,
+                mid,
+                value,
+                caption: format!(
+                    "取中点 {}，{} {} {}",
+                    value,
+                    value,
+                    if comparison == std::cmp::Ordering::Equal {
+                        "="
+                    } else if comparison == std::cmp::Ordering::Less {
+                        "<"
+                    } else {
+                        ">"
+                    },
+                    target
+                ),
+                verdict: comparison,
+            });
+            if steps.len() > 32 {
+                return None;
+            }
+            match comparison {
+                std::cmp::Ordering::Equal => break,
+                std::cmp::Ordering::Less => lo = mid + 1,
+                std::cmp::Ordering::Greater => hi = mid - 1,
+            }
+        }
+        Some(Trace {
+            from: domain.from,
+            size,
+            target,
+            steps,
+        })
+    }
+}
+
+/// 单个搜索空间的格子上限，避免模型给出超大范围拖慢逐帧渲染。
+const MAX_SEARCH_CELLS: i64 = 200;
+
+/// 真实执行出的搜索轨迹。
+struct Trace {
+    from: i64,
+    size: i64,
+    target: i64,
+    steps: Vec<TraceStep>,
+}
+
+/// 一步真实比较。
+struct TraceStep {
+    lo: i64,
+    hi: i64,
+    mid: i64,
+    value: i64,
+    caption: String,
+    verdict: std::cmp::Ordering,
 }
 
 /// 所有普通主题默认使用 Vibe；Shotcraft 模板显式保留自己的风格。
@@ -193,6 +336,12 @@ pub fn scene_svg(
             .min(shot.duration_ms.saturating_sub(600))
             .max(0)
     };
+    // v3：模型提供了受约束图解规格时，按数据生成画面；规格非法才回落到固定布局。
+    if let Some(visual) = scene.visual.as_ref() {
+        if let Some(svg) = data_svg(&scene, visual, shot, accent, subtitles, &beats) {
+            return svg;
+        }
+    }
     let mut svg=format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"720\" height=\"1280\" viewBox=\"0 0 720 1280\"><rect width=\"720\" height=\"1280\" fill=\"#0B1120\"/><g font-family=\"PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif\">");
     for x in (0..720).step_by(60) {
         svg.push_str(&format!(
@@ -336,6 +485,510 @@ pub fn scene_svg(
     svg
 }
 
+// ---------- v3：数据驱动的动态图解 ----------
+
+/// 把时间点换算成 0～1 的关键帧位置，并保证严格递增。
+fn key_times(times: &[i64], total: i64) -> String {
+    let mut previous = -1.0;
+    times
+        .iter()
+        .map(|time| {
+            let value = (*time as f64 / total.max(1) as f64).clamp(0.0, 0.999);
+            let value = value.max(previous + 0.001).min(0.999);
+            previous = value;
+            format!("{value:.6}")
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// 深色画布与标题；新布局不使用页眉、页码和装饰网格。
+fn open_canvas(title: &str, accent: &str) -> String {
+    let mut svg = String::from(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"720\" height=\"1280\" viewBox=\"0 0 720 1280\">\
+         <rect width=\"720\" height=\"1280\" fill=\"#0B1120\"/>\
+         <g font-family=\"PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif\">",
+    );
+    let heading = lines(title, 12);
+    let size = if heading.len() > 1 { 44. } else { 52. };
+    svg.push_str("<g opacity=\"0\">");
+    svg.push_str(&format!(
+        "<animate attributeName=\"opacity\" values=\"0;1\" keyTimes=\"0;1\" begin=\"0ms\" dur=\"420ms\" fill=\"freeze\"/>"
+    ));
+    for (i, line) in heading.iter().take(2).enumerate() {
+        svg.push_str(&text(
+            44.,
+            96. + i as f64 * 54.,
+            size,
+            "#F4F7FF",
+            line,
+            "start",
+        ));
+    }
+    svg.push_str("</g>");
+    let rule_y = 96. + (heading.len().min(2) as f64 - 1.) * 54. + 34.;
+    svg.push_str(&format!(
+        "<rect x=\"44\" y=\"{rule_y}\" width=\"72\" height=\"5\" rx=\"2\" fill=\"{accent}\"/>"
+    ));
+    svg
+}
+
+/// 新布局共用字幕：底部两行分页，不叠加页脚与进度条。
+fn subtitle_block(shot: &Shot, subtitles: bool, top: f64, size: f64) -> String {
+    if !subtitles {
+        return String::new();
+    }
+    let pages = lines(&shot.narration, 22);
+    let count = (pages.len() + 1) / 2;
+    let page_ms = shot.duration_ms / count.max(1) as i64;
+    let mut out = String::new();
+    for (page, pair) in pages.chunks(2).enumerate() {
+        let start = page as i64 * page_ms;
+        let dur = if page + 1 == count {
+            shot.duration_ms - start
+        } else {
+            page_ms
+        };
+        out.push_str("<g opacity=\"0\">");
+        out.push_str(&format!(
+            "<animate attributeName=\"opacity\" values=\"0;1;1;0\" keyTimes=\"0;0.02;0.98;1\" begin=\"{start}ms\" dur=\"{dur}ms\" fill=\"freeze\"/>"
+        ));
+        for (i, line) in pair.iter().enumerate() {
+            out.push_str(&text(
+                360.,
+                top + i as f64 * (size + 12.),
+                size,
+                "#C9D3E6",
+                line,
+                "middle",
+            ));
+        }
+        out.push_str("</g>");
+    }
+    out
+}
+
+/// 受约束的数据驱动画面；规格非法时返回 `None`，回落到五类固定布局。
+fn data_svg(
+    scene: &Scene,
+    visual: &Visual,
+    shot: &Shot,
+    accent: &str,
+    subtitles: bool,
+    beats: &[i64],
+) -> Option<String> {
+    match visual.kind.as_str() {
+        "search" => search_svg(scene, visual, shot, accent, subtitles, beats),
+        "states" => states_svg(scene, visual, shot, accent, subtitles),
+        _ => None,
+    }
+}
+
+/// 有序搜索空间：真实计算每一步的中点、排除区间与命中位置。
+fn search_svg(
+    scene: &Scene,
+    visual: &Visual,
+    shot: &Shot,
+    accent: &str,
+    subtitles: bool,
+    beats: &[i64],
+) -> Option<String> {
+    let trace = visual.search_trace()?;
+    let total = shot.duration_ms.max(1200);
+    let step_count = trace.steps.len() as i64;
+    let intro = (total / 8).clamp(220, 620);
+    let outro = (total / 5).clamp(320, 1400);
+    let step_len = ((total - intro - outro).max(step_count * 280) / step_count).max(280);
+    let step_start = |index: usize| intro + index as i64 * step_len;
+    let starts: Vec<i64> = (0..trace.steps.len()).map(step_start).collect();
+
+    // 10×10 网格呈现完整搜索空间；更大范围自动加列，但不超过 200 个格子。
+    let size = trace.size as usize;
+    let columns = if size <= 100 {
+        10
+    } else {
+        20
+    };
+    let rows = (size + columns - 1) / columns;
+    let grid_x = 40.;
+    let cell_w = 640. / columns as f64;
+    let cell_h = (460. / rows as f64).min(46.);
+    let grid_y = 206.;
+    let cell_x = |index: usize| grid_x + (index % columns) as f64 * cell_w;
+    let cell_y = |index: usize| grid_y + (index / columns) as f64 * cell_h;
+    let font = if columns >= 20 { 16. } else if columns >= 16 { 19. } else { 25. };
+
+    let mut svg = open_canvas(&scene.title, accent);
+    svg.push_str(&format!(
+        "<text x=\"676\" y=\"96\" font-size=\"17\" font-weight=\"600\" fill=\"#8594B2\" text-anchor=\"end\">{}–{} 找 {}</text>",
+        trace.from, trace.from + trace.size - 1, trace.target
+    ));
+
+    // 整个搜索空间一次性入场；后续只有被排除的格子单独变化。
+    svg.push_str("<g opacity=\"0\">");
+    svg.push_str(&format!(
+        "<animate attributeName=\"opacity\" values=\"0;1\" keyTimes=\"0;1\" begin=\"0ms\" dur=\"520ms\" fill=\"freeze\"/>"
+    ));
+    for index in 0..size {
+        let value = trace.from + index as i64;
+        let left = cell_x(index);
+        let top = cell_y(index);
+        let baseline = top + cell_h * 0.68;
+        svg.push_str(&format!(
+            "<g opacity=\"1\"><text x=\"{:.2}\" y=\"{:.2}\" font-size=\"{font}\" font-weight=\"600\" fill=\"#DDE6F5\" text-anchor=\"middle\">{value}</text>",
+            left + cell_w / 2.,
+            baseline
+        ));
+        // 第一次落在区间外的那一刻：淡出并轻微下沉，表示这一半已被排除。
+        if let Some(step) = trace
+            .steps
+            .iter()
+            .position(|step| (index as i64) < step.lo || (index as i64) > step.hi)
+        {
+            let at = step_start(step);
+            svg.push_str(&format!(
+                "<animate attributeName=\"opacity\" values=\"1;0.12\" keyTimes=\"0;1\" begin=\"{at}ms\" dur=\"300ms\" fill=\"freeze\"/>\
+                 <animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;0 12\" keyTimes=\"0;1\" begin=\"{at}ms\" dur=\"300ms\" fill=\"freeze\"/>"
+            ));
+        }
+        svg.push_str("</g>");
+    }
+    svg.push_str("</g>");
+
+    // 中点游标在真实中点之间移动，保持连续运动而不是逐个闪现。
+    let first = trace.steps.first()?;
+    let ring_left = cell_x(first.mid as usize) + 3.;
+    let ring_top = cell_y(first.mid as usize) + 3.;
+    let ring_w = (cell_w - 6.).max(10.);
+    let ring_h = (cell_h - 8.).max(10.);
+    let moves: Vec<String> = trace
+        .steps
+        .iter()
+        .map(|step| {
+            format!(
+                "{} {}",
+                cell_x(step.mid as usize) - cell_x(first.mid as usize),
+                cell_y(step.mid as usize) - cell_y(first.mid as usize)
+            )
+        })
+        .collect();
+    svg.push_str(&format!(
+        "<rect x=\"{ring_left:.2}\" y=\"{ring_top:.2}\" width=\"{ring_w:.2}\" height=\"{ring_h:.2}\" rx=\"8\" fill=\"#12283A\" stroke=\"{accent}\" stroke-width=\"3\" opacity=\"0\">\
+         <animateTransform attributeName=\"transform\" type=\"translate\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+         <animate attributeName=\"opacity\" values=\"0;1\" keyTimes=\"0;1\" begin=\"{intro}ms\" dur=\"180ms\" fill=\"freeze\"/>",
+        moves.join(";"),
+        key_times(&starts, total)
+    ));
+    // 命中后强调：环体加粗并跟随真实拍点脉冲。
+    if trace
+        .steps
+        .last()
+        .is_some_and(|step| step.verdict == std::cmp::Ordering::Equal)
+    {
+        let found = step_start(trace.steps.len() - 1);
+        let pulse_values = if beats.is_empty() {
+            "3;7;3".to_string()
+        } else {
+            let mut points = vec![("0".to_string(), 3.)];
+            for beat in beats.iter().filter(|b| **b >= found) {
+                points.push(((beat - found).to_string(), 7.));
+                points.push(((beat - found + 140).to_string(), 3.));
+            }
+            points.push(((total - found).to_string(), 3.));
+            points.sort_by_key(|p| p.0.parse::<i64>().unwrap_or(0));
+            let values = points
+                .iter()
+                .map(|p| p.1.to_string())
+                .collect::<Vec<_>>()
+                .join(";");
+            values
+        };
+        svg.push_str(&format!(
+            "<animate attributeName=\"stroke-width\" values=\"{pulse_values}\" begin=\"{found}ms\" dur=\"{total}ms\" fill=\"freeze\"/>"
+        ));
+    }
+    svg.push_str("</rect>");
+
+    // 每一步的比较说明与剩余个数，全部来自真实轨迹。
+    for (index, step) in trace.steps.iter().enumerate() {
+        let verdict = match step.verdict {
+            std::cmp::Ordering::Equal => format!("中点 {} 就是目标", step.value),
+            std::cmp::Ordering::Less => format!("{} > {}，排除左半段", trace.target, step.value),
+            std::cmp::Ordering::Greater => format!("{} < {}，排除右半段", trace.target, step.value),
+        };
+        let start = step_start(index);
+        let remaining = step.hi - step.lo + 1;
+        svg.push_str(&format!(
+            "<g opacity=\"0\"><animate attributeName=\"opacity\" values=\"0;1;1;0\" keyTimes=\"0;0.06;0.9;1\" begin=\"{start}ms\" dur=\"{step_len}ms\" fill=\"freeze\"/>"
+        ));
+        svg.push_str(&text(44., 744., 23., accent, &verdict, "start"));
+        svg.push_str(&text(
+            676.,
+            744.,
+            18.,
+            "#8594B2",
+            &format!("剩 {remaining} 个"),
+            "end",
+        ));
+        svg.push_str("</g>");
+    }
+
+    // 缩小区间条：真实区间在 1–100 的线性刻度上收缩。
+    let bar_x = 40.;
+    let bar_w = 640.;
+    let bar_y = 668.;
+    let segment = |step: &TraceStep| {
+        (
+            bar_x + bar_w * step.lo as f64 / size as f64,
+            bar_w * (step.hi - step.lo + 1) as f64 / size as f64,
+        )
+    };
+    let (fx, fw) = segment(first);
+    let xs = trace
+        .steps
+        .iter()
+        .map(|step| format!("{:.2}", segment(step).0))
+        .collect::<Vec<_>>()
+        .join(";");
+    let ws = trace
+        .steps
+        .iter()
+        .map(|step| format!("{:.2}", segment(step).1))
+        .collect::<Vec<_>>()
+        .join(";");
+    svg.push_str(&format!(
+        "<rect x=\"{bar_x}\" y=\"{bar_y}\" width=\"{bar_w}\" height=\"10\" rx=\"5\" fill=\"#1B2941\"/>\
+         <rect x=\"{fx:.2}\" y=\"{bar_y}\" width=\"{fw:.2}\" height=\"10\" rx=\"5\" fill=\"{accent}\">\
+         <animate attributeName=\"x\" values=\"{xs}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+         <animate attributeName=\"width\" values=\"{ws}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+         </rect>",
+        key_times(&starts, total),
+        key_times(&starts, total)
+    ));
+    svg.push_str(&text(
+        40.,
+        740.,
+        16.,
+        "#8594B2",
+        &trace.from.to_string(),
+        "start",
+    ));
+    svg.push_str(&text(
+        680.,
+        740.,
+        16.,
+        "#8594B2",
+        &(trace.from + trace.size - 1).to_string(),
+        "end",
+    ));
+
+    // O(log n) 总结：用两种搜索的最坏比较次数做长度对比。
+    let summary_at = (total - outro).max(intro);
+    let chart_x = 252.;
+    let chart_w = 424.;
+    let linear_h = 20.;
+    let binary_w = (chart_w * trace.steps.len() as f64 / size as f64).max(18.);
+    svg.push_str(&text(
+        44.,
+        880.,
+        18.,
+        "#8594B2",
+        &format!("线性扫描 · 最多 {size} 次"),
+        "start",
+    ));
+    svg.push_str(&text(
+        44.,
+        928.,
+        18.,
+        accent,
+        &format!("二分查找 · {} 次", trace.steps.len()),
+        "start",
+    ));
+    for (y, width, color) in [
+        (868., chart_w, "#2A3A55"),
+        (916., binary_w, accent),
+    ] {
+        svg.push_str(&format!(
+            "<rect x=\"{chart_x}\" y=\"{y}\" width=\"0\" height=\"{linear_h}\" rx=\"6\" fill=\"{color}\">\
+             <animate attributeName=\"width\" values=\"0;{width:.2}\" keyTimes=\"0;1\" begin=\"{summary_at}ms\" dur=\"700ms\" fill=\"freeze\"/>\
+             </rect>"
+        ));
+    }
+
+    let conclusion = if scene.visual.as_ref().is_some_and(|v| !v.conclusion.trim().is_empty()) {
+        scene
+            .visual
+            .as_ref()
+            .map(|v| v.conclusion.trim().chars().take(26).collect::<String>())
+            .unwrap_or_default()
+    } else if trace.steps.last().is_some_and(|s| s.verdict == std::cmp::Ordering::Equal) {
+        format!(
+            "{} 次比较命中 {} · 复杂度 O(log n)",
+            trace.steps.len(),
+            trace.target
+        )
+    } else {
+        format!("{} 次比较未命中 · 复杂度 O(log n)", trace.steps.len())
+    };
+    svg.push_str(&text(360., 1000., 27., accent, &conclusion, "middle"));
+    svg.push_str(&subtitle_block(shot, subtitles, 1108., 26.));
+    svg.push_str("</g></svg>");
+    Some(svg)
+}
+
+/// 状态演变：同一对象在推理步骤之间移动、出现或离开；每步都有对应说明。
+fn states_svg(
+    scene: &Scene,
+    visual: &Visual,
+    shot: &Shot,
+    accent: &str,
+    subtitles: bool,
+) -> Option<String> {
+    if visual.states.is_empty() || visual.states.len() > 6 {
+        return None;
+    }
+    let mut distinct: Vec<String> = Vec::new();
+    for state in &visual.states {
+        if state.objects.is_empty() || state.objects.len() > 5 {
+            return None;
+        }
+        for object in &state.objects {
+            let value = object.text.trim();
+            if value.is_empty() || value.chars().count() > 24 {
+                return None;
+            }
+            if !distinct.iter().any(|item| item == value) {
+                distinct.push(value.into());
+            }
+        }
+    }
+    if distinct.len() > 8 {
+        return None;
+    }
+    let total = shot.duration_ms.max(1200);
+    let intro = (total / 10).clamp(180, 420);
+    let state_len = ((total - intro) / visual.states.len() as i64).max(320);
+    let starts: Vec<i64> = (0..visual.states.len())
+        .map(|index| intro + index as i64 * state_len)
+        .collect();
+    let slot_y = |slot: usize| 424. + slot as f64 * 96.;
+    let mut svg = open_canvas(&scene.title, accent);
+
+    // 当前推理步骤说明，按状态窗口切换。
+    for (index, state) in visual.states.iter().enumerate() {
+        if state.caption.trim().is_empty() {
+            continue;
+        }
+        let start = starts[index];
+        let dur = if index + 1 == visual.states.len() {
+            total - start
+        } else {
+            state_len
+        };
+        svg.push_str(&format!(
+            "<g opacity=\"0\"><animate attributeName=\"opacity\" values=\"0;1;1;0\" keyTimes=\"0;0.06;0.9;1\" begin=\"{start}ms\" dur=\"{dur}ms\" fill=\"freeze\"/>"
+        ));
+        for (line, part) in lines(state.caption.trim(), 18).iter().take(2).enumerate() {
+            svg.push_str(&text(
+                360.,
+                306. + line as f64 * 38.,
+                25.,
+                accent,
+                part,
+                "middle",
+            ));
+        }
+        svg.push_str("</g>");
+    }
+
+    // 同一对象在相邻状态之间平移；新对象淡入，离场对象淡出。
+    for name in &distinct {
+        let locations: Vec<Option<usize>> = visual
+            .states
+            .iter()
+            .map(|state| {
+                state
+                    .objects
+                    .iter()
+                    .position(|object| object.text.trim() == name)
+            })
+            .collect();
+        let first_state = locations.iter().position(|slot| slot.is_some())?;
+        let first_slot = locations[first_state]?;
+        let width = (name.chars().count() as f64 * 26. + 64.).clamp(260., 600.);
+        let emphasis = visual.states[first_state]
+            .objects
+            .get(first_slot)
+            .map(|object| object.emphasis.as_str())
+            .unwrap_or("plain");
+        let (stroke, fill, text_color) = match emphasis {
+            "accent" => (accent, "#12283A", "#F4F7FF"),
+            "dim" => ("#2A3A55", "#101B2C", "#8594B2"),
+            _ => ("#34435A", "#101B2C", "#E6EDF9"),
+        };
+        let deltas: Vec<String> = {
+            let mut slot = first_slot;
+            locations
+                .iter()
+                .map(|location| {
+                    if let Some(current) = location {
+                        slot = *current;
+                    }
+                    format!("0 {:.2}", slot_y(slot) - slot_y(first_slot))
+                })
+                .collect()
+        };
+        let opacities: Vec<&str> = locations
+            .iter()
+            .map(|location| if location.is_some() { "1" } else { "0" })
+            .collect();
+        svg.push_str(&format!(
+            "<g opacity=\"{}\">\
+             <animate attributeName=\"opacity\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             <animateTransform attributeName=\"transform\" type=\"translate\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             <rect x=\"{:.2}\" y=\"{:.2}\" width=\"{width:.2}\" height=\"76\" rx=\"16\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"2\"/>",
+            opacities[0],
+            opacities.join(";"),
+            key_times(&starts, total),
+            deltas.join(";"),
+            key_times(&starts, total),
+            360. - width / 2.,
+            slot_y(first_slot)
+        ));
+        svg.push_str(&text(
+            360.,
+            slot_y(first_slot) + 49.,
+            27.,
+            text_color,
+            name,
+            "middle",
+        ));
+        svg.push_str("</g>");
+    }
+
+    let conclusion = visual.conclusion.trim();
+    if !conclusion.is_empty() {
+        let start = starts[visual.states.len() - 1];
+        svg.push_str(&format!(
+            "<g opacity=\"0\"><animate attributeName=\"opacity\" values=\"0;1\" keyTimes=\"0;1\" begin=\"{start}ms\" dur=\"420ms\" fill=\"freeze\"/>"
+        ));
+        for (line, part) in lines(conclusion, 18).iter().take(2).enumerate() {
+            svg.push_str(&text(
+                360.,
+                976. + line as f64 * 38.,
+                29.,
+                accent,
+                part,
+                "middle",
+            ));
+        }
+        svg.push_str("</g>");
+    }
+    svg.push_str(&subtitle_block(shot, subtitles, 1108., 26.));
+    svg.push_str("</g></svg>");
+    Some(svg)
+}
+
 /// 使用固定视觉系统输出真实镜头；SVG 与 HTML 选择保持一致的内容和风格。
 pub async fn render(
     shot: &Shot,
@@ -389,5 +1042,135 @@ mod tests {
         assert!(a.contains("font-size=\"58\""));
         assert!(!a.contains("<script>"));
         assert!(a.contains("&lt;script&gt;"));
+    }
+
+    /// 搜索轨迹必须由本地算法真实计算，不能采用模型写出的步骤。
+    #[test]
+    fn binary_search_trace_is_computed_locally() {
+        let visual: Visual = serde_json::from_value(serde_json::json!({
+            "type": "search",
+            "domain": { "from": 1, "to": 100 },
+            "target": 74
+        }))
+        .unwrap();
+        let trace = visual.search_trace().expect("合法区间应得到真实轨迹");
+        let mids: Vec<i64> = trace.steps.iter().map(|step| step.value).collect();
+        assert_eq!(mids, vec![50, 75, 62, 68, 71, 73, 74]);
+        assert_eq!(trace.steps.last().unwrap().verdict, std::cmp::Ordering::Equal);
+        // 区间每一步都真实收缩，最后只剩命中的那个数字。
+        assert_eq!(
+            (trace.steps.last().unwrap().lo, trace.steps.last().unwrap().hi),
+            (73, 73)
+        );
+        // 模型编造的步骤字段不会被读取：即使额外给出 steps 也不影响结果。
+        let fabricated: Visual = serde_json::from_value(serde_json::json!({
+            "type": "search",
+            "domain": { "from": 1, "to": 100 },
+            "target": 74,
+            "steps": [{"mid": 1, "value": 74}]
+        }))
+        .unwrap();
+        assert_eq!(
+            fabricated
+                .search_trace()
+                .unwrap()
+                .steps
+                .iter()
+                .map(|step| step.value)
+                .collect::<Vec<_>>(),
+            mids
+        );
+    }
+
+    /// 搜索画面必须来自真实数据：中点、排除说明与命中结论都要出现，且不使用旧页眉。
+    #[test]
+    fn search_scene_draws_real_midpoints_and_states() {
+        let shot: Shot = serde_json::from_value(serde_json::json!({
+            "id": "s",
+            "duration_ms": 9000,
+            "narration": "在 1 到 100 中找 74。",
+            "visual_prompt": r#"{"kind":"mechanism","title":"在 100 个数中找 74","labels":[],"note":"","visual":{"type":"search","domain":{"from":1,"to":100},"target":74}}"#,
+        }))
+        .unwrap();
+        let svg = scene_svg(&shot, 0, 1, None, 0, "minimal", false);
+        assert_eq!(svg, scene_svg(&shot, 0, 1, None, 0, "minimal", false));
+        assert!(svg.contains(">50<"), "应画出第一个真实中点");
+        assert!(svg.contains(">74<"), "应包含目标数字");
+        assert!(svg.contains("排除左半段"));
+        assert!(svg.contains("7 次比较命中 74"));
+        assert!(svg.contains("线性扫描 · 最多 100 次"));
+        assert!(!svg.contains("VIBE · 知识图解"), "新布局不使用重复页眉");
+        assert!(!svg.contains("stroke=\"#172236\""), "新布局不使用装饰网格");
+        // 区间与中点都用关键帧连续运动，而不是逐帧替换。
+        assert!(svg.contains("<animateTransform"));
+        assert!(svg.contains("attributeName=\"x\""));
+    }
+
+    /// 状态演变：同一对象连续移动，状态说明与结论都要出现在画面中。
+    #[test]
+    fn states_scene_moves_shared_objects() {
+        let shot: Shot = serde_json::from_value(serde_json::json!({
+            "id": "s",
+            "duration_ms": 8000,
+            "narration": "利率上升会压低估值。",
+                        "visual_prompt": r#"{"kind":"mechanism","title":"利率与估值","visual":{"type":"states","states":[{"caption":"资金成本上升","objects":[{"text":"利率","emphasis":"accent"},{"text":"估值","emphasis":"plain"}]},{"caption":"折现率提高","objects":[{"text":"折现率","emphasis":"accent"},{"text":"利率","emphasis":"plain"},{"text":"估值","emphasis":"dim"}]}],"conclusion":"利率上升，估值承压"}}"#,
+        }))
+        .unwrap();
+        let svg = scene_svg(&shot, 0, 1, None, 0, "minimal", false);
+        assert!(svg.contains("资金成本上升"));
+        assert!(svg.contains("折现率提高"));
+        assert!(svg.contains("利率上升，估值承压"));
+        // 共享对象"利率"与"估值"有位移关键帧，说明是连续状态变化。
+        assert_eq!(svg.matches("<animateTransform").count(), 3);
+    }
+
+    /// 非法规格不能生成任意内容，必须回落到固定布局。
+    #[test]
+    fn invalid_visual_falls_back_to_fixed_layout() {
+        let shot: Shot = serde_json::from_value(serde_json::json!({
+            "id": "s",
+            "duration_ms": 6000,
+            "narration": "一段解说。",
+            "visual_prompt": "{\"title\":\"兜底\",\"visual\":{\"type\":\"search\",\"domain\":{\"from\":1,\"to\":100000},\"target\":74}}"
+        }))
+        .unwrap();
+        let svg = scene_svg(&shot, 0, 3, None, 0, "minimal", true);
+        assert!(svg.contains("VIBE · 知识图解"), "超出上限的搜索空间应回落");
+    }
+
+    /// 真实渲染 9 秒 MP4；设置 EXPLAINCRAFT_ARTIFACT_DIR 时把成片和 SVG 写到该目录。
+    #[tokio::test]
+    #[ignore = "渲染真实 9 秒 MP4，需要 FFmpeg"]
+    async fn binary_search_shot_renders_a_real_mp4() {
+        use crate::providers::MediaData;
+        let shot: Shot = serde_json::from_value(serde_json::json!({
+            "id": "search",
+            "duration_ms": 9000,
+            "narration": "在 1 到 100 的有序整数中，二分查找只需七次比较就能找到 74。",
+            "visual_prompt": r#"{"kind":"mechanism","title":"在 100 个数中找 74","visual":{"type":"search","domain":{"from":1,"to":100},"target":74}}"#,
+        }))
+        .unwrap();
+        let settings = crate::models::Settings {
+            target_duration_seconds: 15,
+            aspect_ratio: "9:16".into(),
+            language: "zh-CN".into(),
+            style_id: "minimal".into(),
+            visual_format: "svg".into(),
+            render_profile: "vibe".into(),
+            output_resolution: "1080p".into(),
+        };
+        let svg = scene_svg(&shot, 0, 1, None, 0, "minimal", true);
+        let media = render(&shot, 0, 1, &settings, None, 0, true)
+            .await
+            .expect("搜索镜头应渲染为真实 MP4");
+        let MediaData::Bytes(bytes) = media.data else {
+            panic!("必须返回可入库的视频字节");
+        };
+        assert!(bytes.len() > 50_000, "成片字节过少：{}", bytes.len());
+        if let Ok(dir) = std::env::var("EXPLAINCRAFT_ARTIFACT_DIR") {
+            std::fs::create_dir_all(&dir).ok();
+            std::fs::write(format!("{dir}/binary-search-1080p.mp4"), &bytes).ok();
+            std::fs::write(format!("{dir}/binary-search-scene.svg"), svg).ok();
+        }
     }
 }

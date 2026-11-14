@@ -588,9 +588,21 @@ impl ScriptModel for GlmScript {
         let user = format!(
             "主题：{}\n风格：{}\n画面比例：{}\n总时长：{} 秒\n解说词（每句对应一个镜头）：\n{}\n\
              请为每句解说词设计一个镜头，输出 JSON：{{\"shots\": [{{\"narration\": 原句, \
-             \"visual_prompt\": 用于文生图的详细中文画面描述（主体、环境、光线、色调、构图，不要出现文字和人物对白）, \
+             \"visual_prompt\": 受控图解 JSON 字符串（格式见下）, \
              \"shot_size\": 景别（远景/全景/中景/近景/特写）, \"camera_motion\": 运镜（推/拉/摇/移/固定）, \
-             \"duration_ms\": 该镜头毫秒数}}]}}，镜头数与解说词句数相同，时长总和约等于总时长。",
+             \"duration_ms\": 该镜头毫秒数}}]}}，镜头数与解说词句数相同，时长总和约等于总时长。\n\
+             visual_prompt 是受约束的图解规格，不是自由画面描述：\n\
+             {{\"kind\":\"hook|comparison|mechanism|cycle|conclusion\",\"title\":\"不超过22字的准确标题\",\
+             \"labels\":[\"节点1\",\"节点2\"],\"note\":\"示意或来源\",\"visual\":{{...}}}}\n\
+             visual.type 只能取两种：\n\
+             1) \"search\"：在有序空间里查找某个值（二分/折半）时使用。\
+             {{\"type\":\"search\",\"domain\":{{\"from\":起始整数,\"to\":结束整数}},\"target\":目标整数,\"conclusion\":\"结论\"}}；\
+             只提供真实区间与目标，宿主会本地计算每一步中点与排除区间，禁止自己编造比较过程。\n\
+             2) \"states\"：一般知识机制。每个状态对应一条真实推理。\
+             {{\"type\":\"states\",\"states\":[{{\"caption\":\"这一步的推理\",\
+             \"objects\":[{{\"text\":\"对象\",\"emphasis\":\"accent|plain|dim\"}}]}}],\"conclusion\":\"最终结论\"}}；\
+             用 2～5 个状态展示对象如何出现、移动、合并或消失，不要把整段解说拆成矩形文字框。\n\
+             没有合适的图解时省略 visual 字段。",
             request.brief.subject,
             request.brief.style,
             settings.aspect_ratio,
