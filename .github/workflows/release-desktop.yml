@@ -127,6 +127,8 @@ jobs:
           test -n "$(find installers -name '*.deb' -print -quit)"
           test "$(find installers -name '*.dmg' | wc -l)" -eq 2
           (cd installers && sha256sum * > SHA256SUMS.txt)
-          gh release create v0.1.1 --draft --target "$GITHUB_SHA" --title 'ExplainCraft v0.1.1 · 首个跨平台桌面版' --notes-file front/docs/RELEASE-0.1.1.md
-          gh release upload v0.1.1 installers/*
+          if ! gh release view v0.1.1 >/dev/null 2>&1; then
+            gh release create v0.1.1 --draft --target "$GITHUB_SHA" --title 'ExplainCraft v0.1.1 · 首个跨平台桌面版' --notes-file front/docs/RELEASE-0.1.1.md
+          fi
+          gh release upload v0.1.1 installers/* --clobber
           gh release edit v0.1.1 --draft=false --latest
