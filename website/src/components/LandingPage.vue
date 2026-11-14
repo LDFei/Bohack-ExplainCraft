@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
           <div class="hero-copy">
             <span class="hero-eyebrow">
               <span />
-              用骰子讲概率，用一束光讲相对论
+              用生日悖论讲概率，用一束光讲相对论
             </span>
             <h1 id="hero-title">
               再难的概念，
@@ -179,18 +179,18 @@ onBeforeUnmount(() => {
               </div>
               <div class="product-stage">
                 <div class="product-stage-heading">
-                  <span>一束光，讲清楚相对论</span>
-                  <span>16:9 · 70s</span>
+                  <span>23 人，就有一半概率</span>
+                  <span>9:16 · 34s</span>
                 </div>
                 <button
                   class="product-video-button"
-                  aria-label="预览相对论示例视频"
+                  aria-label="预览生日悖论示例视频"
                   @click="openPreview"
                 >
                   <video
                     ref="heroVideo"
-                    :src="mediaUrl('relativity-card.mp4')"
-                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :src="mediaUrl('bday-vertical.mp4')"
+                    :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -207,9 +207,9 @@ onBeforeUnmount(() => {
                   <Icon name="play" :size="10" />
                   <span>
                     00:{{ String(Math.floor(heroTime)).padStart(2, "0") }}
-                    <small>/ 00:30</small>
+                    <small>/ 00:34</small>
                   </span>
-                  <i><b :style="{ width: `${(heroTime / 30) * 100}%` }" /></i>
+                  <i><b :style="{ width: `${(heroTime / 34) * 100}%` }" /></i>
                   <Icon name="fullscreen" :size="11" />
                 </div>
                 <div class="product-timeline">
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
                   <div class="script-left">
                     <div class="script-prompt">
                       <Icon name="sparkles" :size="14" />
-                      用一束光，讲清楚相对论。
+                      为什么 23 个人里，就有一半概率撞生日？
                       <span>↵</span>
                     </div>
                     <div class="script-meta">
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
                         <Icon name="check" :size="11" />
                         已生成 4 个镜头
                       </span>
-                      <span>70 秒</span>
+                      <span>34 秒</span>
                       <span>已同步到时间线</span>
                     </div>
                     <div class="script-hints">
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
                     <span>
                       <Icon name="file" :size="14" />
                       分镜脚本
-                      <small>4 个镜头 · 70 秒</small>
+                      <small>4 个镜头 · 34 秒</small>
                     </span>
                     <div class="script-timeline" aria-hidden="true">
                       <i
@@ -501,8 +501,8 @@ onBeforeUnmount(() => {
                 <div class="feature-motion">
                   <video
                     ref="motionVideo"
-                    :src="mediaUrl('relativity-card.mp4')"
-                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :src="mediaUrl('bday-vertical.mp4')"
+                    :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -514,7 +514,7 @@ onBeforeUnmount(() => {
                     <Icon name="video" :size="12" />
                     本地动态示例
                   </span>
-                  <small>一束光，讲清楚相对论</small>
+                  <small>23 人，就有一半概率</small>
                 </div>
               </template>
               <template #icon>
@@ -537,12 +537,12 @@ onBeforeUnmount(() => {
                   <div class="preview-example">
                     <img
                       :src="mediaUrl('relativity-spacetime.jpg')"
-                      alt="相对论示例画面"
+                      alt="生日悖论示例画面"
                     />
                     <button aria-label="播放预览示例" @click="openPreview">
                       <Icon name="play" :size="18" />
                     </button>
-                    <span>一束光，讲清楚相对论</span>
+                    <span>23 人，就有一半概率</span>
                   </div>
                   <div class="feature-export">
                     <span>
@@ -593,8 +593,8 @@ onBeforeUnmount(() => {
     </footer>
     <Modal
       :open="previewOpen"
-      title="一束光，讲清楚相对论"
-      subtitle="内置示例成片 · 70 秒 · 1080p MP4"
+      title="23 人，就有一半概率"
+      subtitle="内置示例成片 · 34 秒 · 1080p MP4"
       wide
       @close="closePreview"
     >
