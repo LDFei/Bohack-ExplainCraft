@@ -1562,9 +1562,7 @@
   color: #fff;
 }
 .workflow-panel ol.vibe-steps {
-  grid-template-columns: repeat(2, 1fr);
-  max-width: 880px;
-  margin-inline: auto;
+  grid-template-columns: repeat(3, 1fr);
   row-gap: 4px;
 }
 .step-plus {
@@ -1665,12 +1663,13 @@
 /* 流程分支移到功能区标题下：作为独立小块，不再占页尾整节。 */
 .landing-workflow-inline {
   border-top: 0;
-  padding: 4px 0 42px;
-  text-align: center;
+  padding: 6px 0 44px;
+  text-align: left;
 }
 .workflow-inline-title {
-  font-size: 15px;
-  letter-spacing: 1px;
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
   font-weight: 550;
   color: var(--secondary);
 }
@@ -1679,30 +1678,7 @@
   margin-bottom: 0;
 }
 .landing-workflow-inline .workflow-tabs {
-  margin-top: 18px;
-}
-.landing-workflow-inline .workflow-panel ol {
-  margin: 22px 0 20px;
-}
-
-/* 流程分支移到功能区标题下：作为独立小块，不再占页尾整节。 */
-.landing-workflow-inline {
-  border-top: 0;
-  padding: 4px 0 42px;
-  text-align: center;
-}
-.workflow-inline-title {
-  font-size: 15px;
-  letter-spacing: 1px;
-  font-weight: 550;
-  color: var(--secondary);
-}
-.landing-workflow-inline .workflow-lead {
-  margin-top: 6px;
-  margin-bottom: 0;
-}
-.landing-workflow-inline .workflow-tabs {
-  margin-top: 18px;
+  margin: 14px 0 0;
 }
 .landing-workflow-inline .workflow-panel ol {
   margin: 22px 0 20px;
