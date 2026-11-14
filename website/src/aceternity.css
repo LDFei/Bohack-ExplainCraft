@@ -1877,3 +1877,18 @@
   gap: 10px;
   min-width: 0;
 }
+
+/* 首页示例：竖屏 9:16 预览，贴合产品默认比例 */
+.hero-product-content .product-video-button {
+  width: min(100%, 208px);
+  aspect-ratio: 9 / 16;
+  margin: 0 auto;
+  border-radius: 8px;
+  box-shadow: 0 18px 44px rgba(12, 24, 40, 0.28);
+}
+.hero-product-content .product-video-button > video {
+  object-fit: cover;
+}
+.hero-product-content .product-stage {
+  background: linear-gradient(180deg, #0d1425 0%, #0b1120 100%);
+}
