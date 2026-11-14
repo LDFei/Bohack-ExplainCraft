@@ -48,7 +48,7 @@ cargo test --workspace
 cargo check --workspace --all-targets
 ```
 
-视觉模型输出受约束的 SVG/SMIL 动画，本地逐帧渲染后由 Quercus 剪辑和导出。
+视觉模型输出受约束的 SVG/SMIL 动画（每个镜头都会被检测是否真的有运动，静止图会重画或自动补推镜），本地逐帧渲染后由 Quercus 剪辑和导出。
 多段旁白与烧录字幕会进入最终成片；导出时可选包含全部素材和 OVE / OTIO / FCPXML 的 ZIP 工程包。
 OpenAI、阿里云百炼、DeepSeek、MiniMax、硅基流动与 GLM 的 base URL 已预置；
 音乐支持 MiniMax、Stable Audio 和硅基流动，配音支持 Qwen-TTS、本地 IndexTTS 与 breezeTTS2。
