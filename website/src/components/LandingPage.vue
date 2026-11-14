@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
           <div class="hero-copy">
             <span class="hero-eyebrow">
               <span />
-              用生日悖论讲概率，用一束光讲相对论
+              用骰子讲概率，用一束光讲相对论
             </span>
             <h1 id="hero-title">
               再难的概念，
@@ -179,7 +179,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="product-stage">
                 <div class="product-stage-heading">
-                  <span>23 人，就有一半概率</span>
+                  <span>运气是什么形状</span>
                   <span>16:9 · 34s</span>
                 </div>
                 <button
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
                   <div class="script-left">
                     <div class="script-prompt">
                       <Icon name="sparkles" :size="14" />
-                      为什么 23 个人里，就有一半概率撞生日？
+                      一次看运气，一万次看规律。
                       <span>↵</span>
                     </div>
                     <div class="script-meta">
@@ -514,7 +514,7 @@ onBeforeUnmount(() => {
                     <Icon name="video" :size="12" />
                     本地动态示例
                   </span>
-                  <small>23 人，就有一半概率</small>
+                  <small>运气是什么形状</small>
                 </div>
               </template>
               <template #icon>
@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
                     <button aria-label="播放预览示例" @click="openPreview">
                       <Icon name="play" :size="18" />
                     </button>
-                    <span>23 人，就有一半概率</span>
+                    <span>运气是什么形状</span>
                   </div>
                   <div class="feature-export">
                     <span>
@@ -593,7 +593,7 @@ onBeforeUnmount(() => {
     </footer>
     <Modal
       :open="previewOpen"
-      title="23 人，就有一半概率"
+      title="运气是什么形状"
       subtitle="内置示例成片 · 34 秒 · 1080p MP4"
       wide
       @close="closePreview"
