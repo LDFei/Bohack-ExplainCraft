@@ -14,7 +14,7 @@ const activePath = ref<"generic" | "vibe">("generic");
 const vibeShots = [
   { label: "选 Vibe 模板", dur: "新建", img: "vibe-step-1.jpg" },
   { label: "AI 生成提示词", dur: "自动", img: "vibe-step-2.jpg" },
-  { label: "成品", dur: "30s", img: "vibe-step-3.jpg" },
+  { label: "成品", dur: "70s", img: "vibe-step-3.jpg" },
 ];
 const previewOpen = ref(false),
   musicPlaying = ref(false),
@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
               <div class="product-stage">
                 <div class="product-stage-heading">
                   <span>一束光，讲清楚相对论</span>
-                  <span>16:9 · 30s</span>
+                  <span>16:9 · 70s</span>
                 </div>
                 <button
                   class="product-video-button"
@@ -515,7 +515,7 @@ onBeforeUnmount(() => {
                     <strong>每个细节，都值得确认。</strong>
                     <div>
                       <span>MP4</span>
-                      <span>720p</span>
+                      <span>1080p</span>
                       <span>30 fps</span>
                     </div>
                     <a :href="DOWNLOAD_URL">
@@ -557,7 +557,7 @@ onBeforeUnmount(() => {
     <Modal
       :open="previewOpen"
       title="一束光，讲清楚相对论"
-      subtitle="内置示例成片 · 30 秒 · 720p MP4"
+      subtitle="内置示例成片 · 70 秒 · 1080p MP4"
       wide
       @close="closePreview"
     >
