@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       channel:
-        description: 'preview 允许部分平台；stable 要求四个平台全部通过'
+        description: 'preview 允许部分平台；stable 要求 Windows 和两种 Mac 全部通过'
         type: choice
         options: [preview, stable]
         default: preview
@@ -30,7 +30,21 @@ jobs:
       actions: read
       checks: read
     steps:
+      # 固定到所选构建的源码；其他开发提交到 main 后，仍可发布本次已验证版本。
+      - name: Resolve trusted build commit
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+          build=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")
+          jq -e '.head_branch == "main" and .name == "Desktop release" and .path == ".github/workflows/release-desktop.yml"' <<< "$build" > /dev/null
+          commit=$(jq -er '.head_sha | select(test("^[a-f0-9]{40}$"))' <<< "$build")
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source.outputs.commit }}
       - uses: actions/setup-node@v7
         with:
           node-version: '24'

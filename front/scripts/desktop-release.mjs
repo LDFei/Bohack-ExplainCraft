@@ -15,6 +15,9 @@ export const platforms = {
   'macos-x64': { suffix: 'macos_x86_64.dmg', os: 'macos', arch: 'x86_64' },
 };
 
+// 本次正式发行覆盖 Windows 和两种 Mac；Linux 可作为额外验证产物发布。
+export const releasePlatforms = ['windows-x64', 'macos-arm64', 'macos-x64'];
+
 /** 执行原生命令并保留失败输出；不通过 shell 拼接文件名或用户输入。 */
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, {
@@ -40,6 +43,7 @@ export function metadata(base = root) {
   const pkg = json('front/package.json');
   const lock = json('front/package-lock.json');
   const cargo = fs.readFileSync(path.join(base, 'src-tauri/Cargo.toml'), 'utf8');
+  const cargoLock = fs.readFileSync(path.join(base, 'Cargo.lock'), 'utf8');
   const version = config.version;
   assert.match(version, /^\d+\.\d+\.\d+$/);
   for (const other of [
@@ -47,6 +51,7 @@ export function metadata(base = root) {
     lock.version,
     lock.packages[''].version,
     cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1],
+    cargoLock.match(/name = "lingjing-desktop"\nversion = "([^"]+)"/)?.[1],
   ]) {
     assert.equal(other, version, '前后端版本不一致');
   }
@@ -83,10 +88,36 @@ function installer(platform, meta) {
   return candidates[0];
 }
 
+/** 自检只保留系统搜索路径，防止 CI 的 FFmpeg SDK 或 Homebrew 掩盖漏打包的依赖。 */
+export function packageEnvironment(platform, executable, base = process.env) {
+  const env = { ...base };
+  const excluded = new Set([
+    'path',
+    'ffmpeg_path',
+    'ffprobe_path',
+    'dyld_library_path',
+    'dyld_fallback_library_path',
+    'ld_library_path',
+  ]);
+  for (const key of Object.keys(env)) if (excluded.has(key.toLowerCase())) delete env[key];
+  if (platform === 'windows-x64') {
+    const system = base.SystemRoot ?? base.SYSTEMROOT ?? 'C:\\Windows';
+    env.PATH = [path.win32.dirname(executable), path.win32.join(system, 'System32'), system].join(
+      ';',
+    );
+  } else {
+    env.PATH = '/usr/bin:/bin';
+  }
+  return env;
+}
+
 /** 安装或挂载真实安装包，再运行包内程序，验证动态链接、资源和真实媒体编码。 */
 function verifyPackage(platform, meta) {
   const file = installer(platform, meta);
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'explaincraft-install-check-'));
+  // macOS 的 /var 是符号链接；Tauri 拒绝从此类启动路径加载资源，挂载点必须先规范化。
+  const scratch = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'explaincraft-install-check-')),
+  );
   const report = path.join(scratch, 'self-check.json');
   let mounted = false;
   try {
@@ -107,6 +138,10 @@ function verifyPackage(platform, meta) {
         run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', plist]),
         meta.version,
       );
+      assert.equal(
+        run('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', plist]),
+        '15.0',
+      );
       executable = path.join(app, 'Contents/MacOS/lingjing');
       assert.equal(
         run('lipo', ['-archs', executable]),
@@ -124,15 +159,7 @@ function verifyPackage(platform, meta) {
       executable = path.join(destination, 'lingjing.exe');
       assert.ok(fs.existsSync(executable), 'NSIS 安装后没有主程序');
     }
-    const env = { ...process.env };
-    for (const key of [
-      'FFMPEG_PATH',
-      'FFPROBE_PATH',
-      'DYLD_LIBRARY_PATH',
-      'DYLD_FALLBACK_LIBRARY_PATH',
-      'LD_LIBRARY_PATH',
-    ])
-      delete env[key];
+    const env = packageEnvironment(platform, executable);
     run(executable, ['--self-check', report], { env });
     const result = JSON.parse(fs.readFileSync(report, 'utf8'));
     for (const key of ['version', 'identifier', 'productName'])
@@ -258,10 +285,9 @@ export function validateArtifacts({ artifactsDir, outputDir, meta, commit, runId
     copies.set(path.basename(sums), sums);
   }
   if (channel === 'stable')
-    assert.deepEqual(
-      [...selected].sort(),
-      Object.keys(platforms).sort(),
-      '正式版必须具备四个平台的验证产物',
+    assert.ok(
+      releasePlatforms.every((platform) => selected.has(platform)),
+      '正式版必须具备 Windows、Apple Silicon Mac 和 Intel Mac 的验证产物',
     );
   assert.ok(
     !fs.existsSync(outputDir) || fs.readdirSync(outputDir).length === 0,

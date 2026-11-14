@@ -4,7 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { digest, metadata, platforms, validateArtifacts } from './desktop-release.mjs';
+import { fileURLToPath } from 'node:url';
+import {
+  digest,
+  metadata,
+  packageEnvironment,
+  platforms,
+  releasePlatforms,
+  validateArtifacts,
+} from './desktop-release.mjs';
 
 /** 构造隔离产物，测试只用字节替身，不上传、不连接 GitHub。 */
 function fixture(t) {
@@ -65,18 +73,58 @@ function fixture(t) {
 test('partial verified artifacts can be previewed but cannot become stable', (t) => {
   const f = fixture(t);
   f.add('windows-x64');
-  assert.throws(() => validateArtifacts({ ...f, channel: 'stable' }), /四个平台/);
+  assert.throws(
+    () => validateArtifacts({ ...f, channel: 'stable' }),
+    /Windows、Apple Silicon Mac 和 Intel Mac/,
+  );
   assert.ok(!fs.existsSync(f.outputDir));
   assert.deepEqual(validateArtifacts({ ...f, channel: 'preview' }), ['windows-x64']);
 });
 
-test('stable release requires all four platform packages and writes complete checksums', (t) => {
+test('stable release requires Windows and both Mac packages and writes complete checksums', (t) => {
   const f = fixture(t);
-  for (const p of Object.keys(platforms)) f.add(p);
-  assert.equal(validateArtifacts({ ...f, channel: 'stable' }).length, 4);
+  for (const p of releasePlatforms) f.add(p);
+  assert.equal(validateArtifacts({ ...f, channel: 'stable' }).length, 3);
   const sums = fs.readFileSync(path.join(f.outputDir, 'SHA256SUMS.txt'), 'utf8');
-  for (const p of Object.keys(platforms))
+  for (const p of releasePlatforms)
     assert.ok(sums.includes(`ExplainCraft_${f.meta.version}_${platforms[p].suffix}`));
+});
+
+test('stable release rejects every missing required native platform', (t) => {
+  for (const missing of releasePlatforms) {
+    const f = fixture(t);
+    for (const platform of releasePlatforms) if (platform !== missing) f.add(platform);
+    assert.throws(() => validateArtifacts({ ...f, channel: 'stable' }), /正式版必须具备/);
+    assert.ok(!fs.existsSync(f.outputDir));
+  }
+});
+
+test('metadata rejects a Rust lockfile with a different application version', (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'explaincraft-metadata-test-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  for (const name of [
+    'front/package.json',
+    'front/package-lock.json',
+    'src-tauri/tauri.conf.json',
+    'src-tauri/Cargo.toml',
+    'Cargo.lock',
+  ]) {
+    const destination = path.join(base, name);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(source, name), destination);
+  }
+  const lockfile = path.join(base, 'Cargo.lock');
+  fs.writeFileSync(
+    lockfile,
+    fs
+      .readFileSync(lockfile, 'utf8')
+      .replace(
+        /name = "lingjing-desktop"\nversion = "[^"]+"/,
+        'name = "lingjing-desktop"\nversion = "9.9.9"',
+      ),
+  );
+  assert.throws(() => metadata(base), /前后端版本不一致/);
 });
 
 test('tampered installer is rejected before copying any files', (t) => {
@@ -103,4 +151,21 @@ test('existing output is preserved instead of overwritten', (t) => {
   fs.writeFileSync(path.join(f.outputDir, 'keep.txt'), 'preserve');
   assert.throws(() => validateArtifacts({ ...f, channel: 'preview' }), /禁止覆盖/);
   assert.equal(fs.readFileSync(path.join(f.outputDir, 'keep.txt'), 'utf8'), 'preserve');
+});
+
+test('installed package cannot borrow FFmpeg DLLs or executables from the build SDK', () => {
+  const base = {
+    Path: 'C:\\sdk\\bin',
+    PATH: 'C:\\another-sdk',
+    SystemRoot: 'C:\\Windows',
+    FFMPEG_PATH: 'C:\\sdk\\ffmpeg.exe',
+    DYLD_LIBRARY_PATH: '/opt/homebrew/lib',
+  };
+  const windows = packageEnvironment('windows-x64', 'C:\\installed\\lingjing.exe', base);
+  assert.equal(windows.PATH, 'C:\\installed;C:\\Windows\\System32;C:\\Windows');
+  assert.equal(windows.Path, undefined);
+  assert.equal(windows.FFMPEG_PATH, undefined);
+  assert.equal(windows.DYLD_LIBRARY_PATH, undefined);
+  assert.equal(packageEnvironment('macos-arm64', '/app/lingjing', base).PATH, '/usr/bin:/bin');
+  assert.equal(base.Path, 'C:\\sdk\\bin');
 });

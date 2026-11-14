@@ -124,8 +124,7 @@ fn subtitle_png(text: &str, width: u32, height: u32, path: &Path) -> ProviderRes
             width / 2, top + font_size * 1.05 + index as f64 * line_height, xml(line))
     }).collect::<String>();
     let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\"><rect x=\"{}\" y=\"{top}\" width=\"{}\" height=\"{box_height}\" rx=\"8\" fill=\"black\" opacity=\"0.68\"/>{labels}</svg>", width as f64 * 0.04, width as f64 * 0.92);
-    let mut options = usvg::Options::default();
-    options.fontdb_mut().load_system_fonts();
+    let options = crate::svg_animation::svg_options();
     let tree = usvg::Tree::from_str(&svg, &options).map_err(|error| failed("绘制字幕", error))?;
     let mut pixmap =
         tiny_skia::Pixmap::new(width, height).ok_or_else(|| failed("字幕画布", "尺寸无效"))?;

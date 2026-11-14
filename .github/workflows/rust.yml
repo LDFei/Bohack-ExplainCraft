@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-${{ github.workflow }}-${{ github.ref }}
+  group: rust-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -60,10 +60,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/explaincraft-ffmpeg-8
-          key: linux-ffmpeg-8.0.1-x264-v2
+          key: linux-ffmpeg-8.0.1-x264-zlib-v3
       - name: Install native libraries and FFmpeg 8 SDK
         run: bash src-tauri/scripts/setup-linux-ci.sh
       - name: Check Rust formatting
         run: cargo fmt --all --check
       - name: Test Cargo workspace
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --release

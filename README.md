@@ -3,10 +3,11 @@
 ExplainCraft 是一个 AI 视频创作桌面应用。Vue 工作台、Rust 制作后端和 Tauri 桌面壳在同一个
 仓库中开发，`website/` 则是拥有独立依赖与构建配置的静态官网，发布到 GitHub Pages。
 
-桌面发行说明见 [v0.1.2](front/docs/RELEASE-0.1.2.md)。应用名称为 Lingjing（灵镜），
+桌面发行说明见 [v0.1.0](front/docs/RELEASE-0.1.0.md)。应用名称为 Lingjing（灵镜），
 标识固定为 `com.explaincraft.lingjing`；所有安装包使用 `ExplainCraft_版本_平台` 文件名。
 桌面构建会执行前端、Rust 和安装后自检。GitHub Actions 的 `Publish desktop release`
-单独接收已验证的构建编号：`preview` 允许部分平台，`stable` 要求四个平台全部通过。
+单独接收已验证的构建编号：`preview` 允许部分平台，`stable` 要求 Windows x64、Apple Silicon
+Mac 和 Intel Mac 全部通过。
 发布流程拒绝替换已有正式 Release、移动已有标签或覆盖不同内容的同名安装包。
 
 ```text
@@ -111,7 +112,8 @@ npm run test:e2e
 - [前后端接口约定](front/docs/API.md)
 - [页面设计](front/docs/FRONTEND_DESIGN.md)
 
-原始第一版仍由 `v0.1.0` 标签保存；不要重写该标签或已有远端历史。
+`v0.1.0` 标签对应首个正式桌面发行版；源码、应用版本和安装包保持一致。版本约定见
+[版本说明](front/docs/VERSIONING.md)。
 
 `src-tauri/src/oak/` 的 Quercus 工具层来源于 OakVideoEditorCommunity/example-mcp，
 采用 GPL-3.0-or-later，许可证和上游说明随源码一并保留。

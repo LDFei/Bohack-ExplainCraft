@@ -365,6 +365,10 @@ pub(crate) fn svg_options() -> usvg::Options<'static> {
         ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),
         ("C:\\Windows\\Fonts\\simhei.ttf", "SimHei"),
         (
+            "C:\\Windows\\Fonts\\NotoSansCJKsc-Regular.otf",
+            "Noto Sans CJK SC",
+        ),
+        (
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "Noto Sans CJK SC",
         ),

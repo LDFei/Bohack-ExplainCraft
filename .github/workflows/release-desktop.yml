@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   build:
@@ -22,8 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            platform: linux-x64
           - os: windows-2022
             platform: windows-x64
           - os: macos-15
@@ -55,7 +53,7 @@ jobs:
         if: runner.os == 'Linux'
         with:
           path: ~/.cache/explaincraft-ffmpeg-8
-          key: linux-ffmpeg-8.0.1-x264-v2
+          key: linux-ffmpeg-8.0.1-x264-zlib-v3
       - name: Install Linux libraries and FFmpeg 8 SDK
         if: runner.os == 'Linux'
         run: bash src-tauri/scripts/setup-linux-ci.sh
@@ -84,6 +82,14 @@ jobs:
           "$sdk/bin" >> $env:GITHUB_PATH
           New-Item src-tauri/runtime -ItemType Directory -Force | Out-Null
           Copy-Item "$sdk/bin/*" src-tauri/runtime/
+          & "$sdk/bin/ffmpeg.exe" -version
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg SDK cannot run on this Windows runner' }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER=node front/scripts/windows-test-runner.mjs" >> $env:GITHUB_ENV
+          # 英文 Windows Server 构建机可能没有中文字体，补足字幕测试的系统依赖。
+          $font = "$env:WINDIR/Fonts/NotoSansCJKsc-Regular.otf"
+          if (-not (Test-Path "$env:WINDIR/Fonts/msyh.ttc") -and -not (Test-Path "$env:WINDIR/Fonts/simhei.ttf")) {
+            Invoke-WebRequest 'https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf' -OutFile $font
+          }
           @{ bundle = @{ resources = @{ 'runtime/' = './' }; windows = @{ nsis = @{ installMode = 'currentUser' } } } } | ConvertTo-Json -Depth 8 | Set-Content src-tauri/tauri.release.json
       - name: Configure Linux package dependencies
         if: runner.os == 'Linux'
@@ -102,7 +108,7 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all --check
       - name: Test Cargo workspace on native platform
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --release
       - name: Build Windows installer
         if: runner.os == 'Windows'
         working-directory: front
