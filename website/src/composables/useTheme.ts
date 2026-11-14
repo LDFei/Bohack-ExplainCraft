@@ -32,6 +32,12 @@ export const themeOptions = [
     subtitle: "沉静的墨绿，让内容显得可信",
     tag: "沉静学术",
   },
+  {
+    id: "glass",
+    name: "玻璃蓝工作台",
+    subtitle: "通透的冷白，让内容更开阔",
+    tag: "通透大气",
+  },
 ] as const;
 export type ThemeId = (typeof themeOptions)[number]["id"];
 export const DEFAULT_THEME: ThemeId = "silver";

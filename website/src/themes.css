@@ -101,6 +101,26 @@
   --success: #4a7a5c;
   --danger: #a8444c;
 }
+[data-theme="glass"] {
+  --bg: #f7f9fc;
+  --surface: #fdfeff;
+  --surface-raised: #ffffff;
+  --surface-hover: #edf3fa;
+  --surface-input: #ffffff;
+  --canvas-bg: #e8eff7;
+  --rail-bg: #f1f6fb;
+  --text: #17232e;
+  --secondary: #4e6070;
+  --muted: #66788a;
+  --line: #e0e8f1;
+  --line-subtle: #edf2f8;
+  --accent: #4a86b8;
+  --accent-hover: #3a719f;
+  --accent-soft: #e8f2fa;
+  --accent-secondary: #7e8fa6;
+  --success: #3f7a63;
+  --danger: #a8444c;
+}
 /* 派生色在每个主题作用域内计算，弹窗和主题小样都能获得一致的分层与对比。 */
 :root,
 [data-theme] {

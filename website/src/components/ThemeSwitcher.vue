@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 外观选择只修改全局设计变量，五套小样直接复用各自的主题 Tokens。 */
+/** 外观选择只修改全局设计变量，六套小样直接复用各自的主题 Tokens。 */
 import { ref } from "vue";
 import {
   DEFAULT_THEME,
