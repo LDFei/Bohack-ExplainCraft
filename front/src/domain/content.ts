@@ -147,6 +147,59 @@ export const themes = {
 } as const;
 
 /**
+ * Vibe 知识大赏固定流程：BGM 固定、没有配音、按拍点切镜、只讲一个知识点、
+ * 画面全部由 SVG / HTML 代码生成。页面教程与 `.claude/skills/vibe-knowledge-awards`
+ * 共用这份定义，修改时两边同步。
+ */
+export const vibeAwards = {
+  title: 'Vibe 知识大赏',
+  subtitle: '用代码讲清一个知识点，每一步都由你决定。',
+  /** 视频风格方向；选择后写进提示词，后续视觉步骤沿用。 */
+  styles: [
+    { id: 'card', name: '信息卡片', detail: '深色底、大数字、图表生长，适合数据与反常识' },
+    { id: 'paper', name: '编辑部手记', detail: '纸色底、墨黑大字、擦除转场，适合概念解释' },
+    { id: 'doodle', name: '白板涂鸦', detail: '浅色底、线条逐笔画出，适合机制拆解' },
+    { id: 'black', name: '黑金极简', detail: '纯黑底、单一强调色，适合一句结论' },
+  ] as const,
+  /** 画面比例候选，与 capabilities.aspect_ratios 保持一致。 */
+  ratios: [
+    { id: '9:16', name: '9:16 竖屏' },
+    { id: '16:9', name: '16:9 横屏' },
+    { id: '1:1', name: '1:1 方形' },
+  ] as const,
+  /** 固定背景音乐；文件已随仓库放在共享媒体目录。 */
+  bgm: {
+    name: 'We Never（若如初见）',
+    artist: 'La Mer / LongTran Final / DJ山茶花',
+    url: 'media/vibe-knowledge-awards/we-never.mp3',
+  },
+  rules: [
+    '默认 BGM 使用《We Never（若如初见）》，也可以在这一步换成自己的音频。',
+    '默认没有配音，观众只读字幕；也可以选择保留配音。',
+    '按 BGM 的拍点卡点：默认每 8 拍换镜，保证字幕读得完。',
+    '一支视频只讲清一个知识点，不贪多、不铺陈背景。',
+    '画面全部用 SVG / HTML 代码生成，不拍实拍、不堆素材拼贴。',
+    '每一步都会先给你方向选择，确认后才继续。',
+  ],
+  steps: [
+    { title: '确认制作方式', detail: '先选比例、是否配音、用哪首 BGM，再开始动手。' },
+    { title: '选一个知识点', detail: '给 3 个候选方向，你选一个；写一句能被验证的结论。' },
+    { title: '拆成 6～12 句字幕', detail: '你选结构与语气，每句不超过 18 字。' },
+    { title: '对 BGM 找拍点', detail: '你定时长与切镜密度，确认镜头表后再写画面。' },
+    { title: '用代码画每一镜', detail: '先做 2 个代表镜头给你看，确认风格后再批量。' },
+    { title: '决定要不要剪辑', detail: '转场、调色、字幕烧录都先问你；不做就只按镜头表拼接。' },
+    { title: '渲染与验收', detail: '你决定接受成片，或回到某一步返工。' },
+  ],
+  /** 填进输入框的固定流程说明；不自动发送，让用户先改知识点。 */
+  prompt:
+    '用 Vibe 知识大赏流程做一支知识视频：只讲清一个知识点。' +
+    '制作前先确认比例、配音和 BGM；默认使用固定 BGM《We Never（若如初见）》，默认不配音。' +
+    '每一步先给我方向选择，确认后再继续：主题方向、文案结构与语气、时长与切镜密度、视觉系统。' +
+    '按 BGM 的拍点卡点切镜；画面全部用 SVG / HTML 代码生成，字幕承担讲解。' +
+    '知识点是：',
+} as const;
+
+/**
  * 将本地示例图片名转换成静态资源 URL；返回的是浏览器路径，不是磁盘路径。
  */
 export const imagePath = (name: string) => `media/${name}.jpg`;
@@ -198,6 +251,7 @@ export function emptyDraft(): Draft {
     audio: {
       voice_id: 'voice_warm',
       speech_rate: 1,
+      narration_enabled: true,
       music_mode: 'auto',
       music_id: null,
       music_asset_id: null,

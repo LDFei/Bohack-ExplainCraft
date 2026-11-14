@@ -9,6 +9,13 @@ import Modal from "./Modal.vue";
 import { mediaUrl } from "../domain/assets.ts";
 import { DOWNLOAD_URL } from "../domain/links.ts";
 import ThemeSwitcher from "./ThemeSwitcher.vue";
+const activePath = ref<"generic" | "vibe">("generic");
+/** 模板示例分镜：用现有成片静帧，说明这一系列的镜头结构。 */
+const vibeShots = [
+  { label: "选 Vibe 模板", dur: "新建", img: "vibe-step-1.jpg" },
+  { label: "AI 生成提示词", dur: "自动", img: "vibe-step-2.jpg" },
+  { label: "成品", dur: "30s", img: "vibe-step-3.jpg" },
+];
 const previewOpen = ref(false),
   musicPlaying = ref(false),
   mediaError = ref("");
@@ -258,213 +265,281 @@ onBeforeUnmount(() => {
             再让画面跟上。
           </p>
         </div>
-        <BentoGrid>
-          <BentoGridItem
-            title="讲清知识点"
-            description="说出知识点，生成分镜脚本；文案和镜头都能改。"
-            wide
+        <div
+          id="workflow"
+          class="landing-workflow landing-workflow-inline"
+          aria-labelledby="workflow-title"
+        >
+          <h3 id="workflow-title" class="workflow-inline-title">制作流程</h3>
+          <p class="workflow-lead">
+            通用流程自己写；Vibe 大赏模板，照着那一系列的手感来。
+          </p>
+          <div class="workflow-tabs" role="tablist" aria-label="制作流程分支">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="activePath === 'generic'"
+              :class="{ active: activePath === 'generic' }"
+              @click="activePath = 'generic'"
+            >
+              通用流程图
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="activePath === 'vibe'"
+              :class="{ active: activePath === 'vibe' }"
+              @click="activePath = 'vibe'"
+            >
+              Vibe 知识大赏流程图
+            </button>
+          </div>
+          <div
+            v-show="activePath === 'generic'"
+            class="workflow-panel"
+            role="tabpanel"
           >
-            <template #header>
-              <div class="feature-script">
-                <div class="script-prompt">
-                  <Icon name="sparkles" :size="14" />
-                  用一束光，讲清楚相对论。
-                  <span>↵</span>
+            <ol>
+              <li>
+                <span>01</span>
+                <div>
+                  <h3>说清知识点</h3>
+                  <p>一句话，或一份资料。</p>
                 </div>
-                <div class="script-result">
-                  <span>
-                    <Icon name="file" :size="14" />
-                    分镜脚本
-                    <small>4 个镜头</small>
-                  </span>
-                  <div
-                    v-for="(line, index) in [
-                      '光速对谁都不变。',
-                      '运动越快，时间走得越慢。',
-                      '引力，是时空的弯曲。',
-                    ]"
-                    :key="line"
-                  >
-                    <i>{{ String(index + 1).padStart(2, "0") }}</i>
-                    <p>{{ line }}</p>
-                    <small>{{ index ? "08" : "07" }}s</small>
+              </li>
+              <li>
+                <span>02</span>
+                <div>
+                  <h3>边看边改</h3>
+                  <p>脚本、分镜，用对话调整。</p>
+                </div>
+              </li>
+              <li>
+                <span>03</span>
+                <div>
+                  <h3>预览后导出</h3>
+                  <p>满意了，导出 MP4。</p>
+                </div>
+              </li>
+            </ol>
+          </div>
+          <div
+            v-show="activePath === 'vibe'"
+            class="workflow-panel"
+            role="tabpanel"
+          >
+            <ol class="vibe-steps">
+              <li>
+                <span>01</span>
+                <div>
+                  <h3>选「Vibe 知识大赏」模板</h3>
+                  <p>新建时选它，分镜、配色、字幕节奏都按这一系列。</p>
+                </div>
+              </li>
+              <li>
+                <span>02</span>
+                <div>
+                  <h3>
+                    BGM 自动锁定
+                    <em class="step-plus">+</em>
+                    AI 生成风格提示词
+                  </h3>
+                  <p>BGM 不可更换；AI 按这一系列的语气与结构写提示词。</p>
+                </div>
+              </li>
+              <li>
+                <span>03</span>
+                <div>
+                  <h3>提交素材，生成成片</h3>
+                  <p>文字、图片、片段按提示词归位。</p>
+                </div>
+              </li>
+            </ol>
+            <div class="vibe-board">
+              <figure v-for="(shot, i) in vibeShots" :key="shot.label">
+                <img :src="mediaUrl(shot.img)" alt="" />
+                <figcaption>
+                  <b>{{ String(i + 1).padStart(2, "0") }}</b>
+                  {{ shot.label }}
+                  <span>{{ shot.dur }}</span>
+                </figcaption>
+              </figure>
+            </div>
+            <p class="workflow-lock">
+              <Icon name="lock" :size="13" />
+              背景音乐已锁定 · 这一系列每期都是同一首
+            </p>
+          </div>
+        </div>
+        <div v-show="activePath === 'generic'" class="features-cards">
+          <BentoGrid>
+            <BentoGridItem
+              title="讲清知识点"
+              description="说出知识点，生成分镜脚本；文案和镜头都能改。"
+              wide
+            >
+              <template #header>
+                <div class="feature-script">
+                  <div class="script-prompt">
+                    <Icon name="sparkles" :size="14" />
+                    用一束光，讲清楚相对论。
+                    <span>↵</span>
+                  </div>
+                  <div class="script-result">
+                    <span>
+                      <Icon name="file" :size="14" />
+                      分镜脚本
+                      <small>4 个镜头</small>
+                    </span>
+                    <div
+                      v-for="(line, index) in [
+                        '光速对谁都不变。',
+                        '运动越快，时间走得越慢。',
+                        '引力，是时空的弯曲。',
+                      ]"
+                      :key="line"
+                    >
+                      <i>{{ String(index + 1).padStart(2, "0") }}</i>
+                      <p>{{ line }}</p>
+                      <small>{{ index ? "08" : "07" }}s</small>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="file" :size="18" />
-            </template>
-            <template #action>
-              <a :href="DOWNLOAD_URL" class="bento-action">
-                立即下载
-                <Icon name="arrowRight" :size="13" />
-              </a>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="配好声音"
-            description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
-          >
-            <template #header>
-              <div class="feature-audio" :class="{ playing: musicPlaying }">
-                <div class="audio-avatar">
-                  <Icon name="mic" :size="23" />
-                </div>
-                <span>为讲解，配上合适的声音。</span>
-                <div class="feature-wave">
-                  <i
-                    v-for="bar in 42"
-                    :key="bar"
-                    :style="{
-                      height: `${8 + ((bar * 13) % 32)}px`,
-                      animationDelay: `${-bar / 9}s`,
-                    }"
-                  />
-                </div>
-                <small>示例配乐 · 非 TTS 音色</small>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="mic" :size="18" />
-            </template>
-            <template #action>
-              <button
-                class="bento-action"
-                :aria-pressed="musicPlaying"
-                @click="toggleMusic"
-              >
-                <Icon
-                  :name="musicPlaying ? 'pause' : 'headphones'"
-                  :size="13"
-                />
-                {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
-              </button>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="生成画面"
-            description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
-          >
-            <template #header>
-              <div class="feature-motion">
-                <video
-                  ref="motionVideo"
-                  :src="mediaUrl('relativity-card.mp4')"
-                  :poster="mediaUrl('relativity-spacetime.jpg')"
-                  :autoplay="!reducedMotion"
-                  muted
-                  loop
-                  playsinline
-                  preload="metadata"
-                  aria-hidden="true"
-                />
-                <span>
-                  <Icon name="video" :size="12" />
-                  本地动态示例
-                </span>
-                <small>一束光，讲清楚相对论</small>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="video" :size="18" />
-            </template>
-            <template #action>
-              <a :href="DOWNLOAD_URL" class="bento-action">
-                立即下载
-                <Icon name="arrowRight" :size="13" />
-              </a>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="预览导出"
-            description="按镜头预览、切换版本，满意后导出 MP4。"
-            wide
-          >
-            <template #header>
-              <div class="feature-preview">
-                <div class="preview-example">
-                  <img
-                    :src="mediaUrl('relativity-spacetime.jpg')"
-                    alt="相对论示例画面"
-                  />
-                  <button aria-label="播放预览示例" @click="openPreview">
-                    <Icon name="play" :size="18" />
-                  </button>
-                  <span>一束光，讲清楚相对论</span>
-                </div>
-                <div class="feature-export">
-                  <span>
-                    <i />
-                    作品已就绪
-                  </span>
-                  <strong>每个细节，都值得确认。</strong>
-                  <div>
-                    <span>MP4</span>
-                    <span>720p</span>
-                    <span>30 fps</span>
+              </template>
+              <template #icon>
+                <Icon name="file" :size="18" />
+              </template>
+              <template #action>
+                <a :href="DOWNLOAD_URL" class="bento-action">
+                  立即下载
+                  <Icon name="arrowRight" :size="13" />
+                </a>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="配好声音"
+              description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
+            >
+              <template #header>
+                <div class="feature-audio" :class="{ playing: musicPlaying }">
+                  <div class="audio-avatar">
+                    <Icon name="mic" :size="23" />
                   </div>
-                  <a :href="DOWNLOAD_URL">
-                    立即下载
-                    <Icon name="export" :size="14" />
-                  </a>
+                  <span>为讲解，配上合适的声音。</span>
+                  <div class="feature-wave">
+                    <i
+                      v-for="bar in 42"
+                      :key="bar"
+                      :style="{
+                        height: `${8 + ((bar * 13) % 32)}px`,
+                        animationDelay: `${-bar / 9}s`,
+                      }"
+                    />
+                  </div>
+                  <small>示例配乐 · 非 TTS 音色</small>
                 </div>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="play" :size="18" />
-            </template>
-            <template #action>
-              <button class="bento-action" @click="openPreview">
-                看看示例成片
-                <Icon name="arrowRight" :size="13" />
-              </button>
-            </template>
-          </BentoGridItem>
-        </BentoGrid>
+              </template>
+              <template #icon>
+                <Icon name="mic" :size="18" />
+              </template>
+              <template #action>
+                <button
+                  class="bento-action"
+                  :aria-pressed="musicPlaying"
+                  @click="toggleMusic"
+                >
+                  <Icon
+                    :name="musicPlaying ? 'pause' : 'headphones'"
+                    :size="13"
+                  />
+                  {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
+                </button>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="生成画面"
+              description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
+            >
+              <template #header>
+                <div class="feature-motion">
+                  <video
+                    ref="motionVideo"
+                    :src="mediaUrl('relativity-card.mp4')"
+                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :autoplay="!reducedMotion"
+                    muted
+                    loop
+                    playsinline
+                    preload="metadata"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <Icon name="video" :size="12" />
+                    本地动态示例
+                  </span>
+                  <small>一束光，讲清楚相对论</small>
+                </div>
+              </template>
+              <template #icon>
+                <Icon name="video" :size="18" />
+              </template>
+              <template #action>
+                <a :href="DOWNLOAD_URL" class="bento-action">
+                  立即下载
+                  <Icon name="arrowRight" :size="13" />
+                </a>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="预览导出"
+              description="按镜头预览、切换版本，满意后导出 MP4。"
+              wide
+            >
+              <template #header>
+                <div class="feature-preview">
+                  <div class="preview-example">
+                    <img
+                      :src="mediaUrl('relativity-spacetime.jpg')"
+                      alt="相对论示例画面"
+                    />
+                    <button aria-label="播放预览示例" @click="openPreview">
+                      <Icon name="play" :size="18" />
+                    </button>
+                    <span>一束光，讲清楚相对论</span>
+                  </div>
+                  <div class="feature-export">
+                    <span>
+                      <i />
+                      作品已就绪
+                    </span>
+                    <strong>每个细节，都值得确认。</strong>
+                    <div>
+                      <span>MP4</span>
+                      <span>720p</span>
+                      <span>30 fps</span>
+                    </div>
+                    <a :href="DOWNLOAD_URL">
+                      立即下载
+                      <Icon name="export" :size="14" />
+                    </a>
+                  </div>
+                </div>
+              </template>
+              <template #icon>
+                <Icon name="play" :size="18" />
+              </template>
+              <template #action>
+                <button class="bento-action" @click="openPreview">
+                  看看示例成片
+                  <Icon name="arrowRight" :size="13" />
+                </button>
+              </template>
+            </BentoGridItem>
+          </BentoGrid>
+        </div>
         <p v-if="mediaError" class="landing-media-error" role="status">
           {{ mediaError }}
         </p>
-      </section>
-      <section
-        id="workflow"
-        class="landing-workflow"
-        aria-labelledby="workflow-title"
-      >
-        <div>
-          <span class="section-kicker">FROM KNOWLEDGE TO VIDEO</span>
-          <h2 id="workflow-title">
-            <span>三个动作，</span>
-            <span>把知识变成视频。</span>
-          </h2>
-        </div>
-        <ol>
-          <li>
-            <span>01</span>
-            <div>
-              <h3>说清知识点</h3>
-              <p>一句话，或一份资料。</p>
-            </div>
-          </li>
-          <li>
-            <span>02</span>
-            <div>
-              <h3>边看边改</h3>
-              <p>脚本、分镜，用对话调整。</p>
-            </div>
-          </li>
-          <li>
-            <span>03</span>
-            <div>
-              <h3>预览后导出</h3>
-              <p>满意了，导出 MP4。</p>
-            </div>
-          </li>
-        </ol>
-        <a :href="DOWNLOAD_URL" class="button primary">
-          立即下载
-          <Icon name="arrowRight" :size="15" />
-        </a>
       </section>
     </main>
     <footer class="landing-footer">

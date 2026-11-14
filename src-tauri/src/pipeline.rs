@@ -104,7 +104,66 @@ fn duration_exceeds_limit(text: &str) -> bool {
 
 #[cfg(test)]
 mod duration_tests {
-    use super::{duration_exceeds_limit, requested_duration_seconds};
+    use super::{duration_exceeds_limit, fit_draft_narration, requested_duration_seconds};
+    use crate::models::{Draft, Script};
+
+    /// 模拟已有五个镜头的用户草稿，避免依赖模型接口或实际渲染。
+    fn existing_storyboard(narration_enabled: bool) -> Draft {
+        let mut draft = crate::catalog::empty_draft();
+        draft.settings.target_duration_seconds = 15;
+        draft.audio.narration_enabled = narration_enabled;
+        draft.audio.speech_rate = 0.5;
+        let narration = "这是一段由用户写好的较长讲解文本，需要保留完整字幕并按照镜头展示。";
+        draft.shots = (0..5)
+            .map(|index| {
+                serde_json::from_value(serde_json::json!({
+                    "id": format!("shot-{index}"),
+                    "duration_ms": 3000,
+                    "narration": narration,
+                    "visual_prompt": format!("用户画面 {index}"),
+                }))
+                .unwrap()
+            })
+            .collect();
+        draft.script = Some(Script {
+            title: "讲解".into(),
+            text: std::iter::repeat_n(narration, 5)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        });
+        draft
+    }
+
+    /// 纯字幕模板不受上次配音语速影响，也不会被静默删掉镜头。
+    #[test]
+    fn silent_storyboard_keeps_all_shots_and_subtitles() {
+        let mut draft = existing_storyboard(false);
+        let original = draft.clone();
+        fit_draft_narration(&mut draft);
+        assert_eq!(draft.shots, original.shots);
+        assert_eq!(draft.script, original.script);
+    }
+
+    /// 慢速配音仍遵循十五秒预算，并同步完整脚本与分镜旁白。
+    #[test]
+    fn voiced_storyboard_respects_slow_speech_budget() {
+        let mut draft = existing_storyboard(true);
+        fit_draft_narration(&mut draft);
+        assert_eq!(draft.shots.len(), 3);
+        assert!(draft
+            .shots
+            .iter()
+            .all(|shot| shot.narration.chars().count() <= 10));
+        assert_eq!(
+            draft.script.unwrap().text,
+            draft
+                .shots
+                .iter()
+                .map(|shot| shot.narration.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
 
     #[test]
     fn honors_explicit_duration_and_rejects_overlong_requests() {
@@ -136,6 +195,43 @@ fn narration_key(shot: &Shot, audio: &AudioSettings, language: &str) -> String {
         shot.narration, audio.voice_id, audio.speech_rate, language, shot.duration_ms
     ));
     hex::encode(&hasher.finalize()[..12])
+}
+
+/// 有配音时执行时长预算；无配音模板保留用户编排的全部镜头和字幕。
+fn fit_draft_narration(draft: &mut Draft) {
+    if !draft.audio.narration_enabled {
+        return;
+    }
+    // 所有旁白入口（首次生成、历史草稿、手动编辑）统一执行目标时长预算。
+    let (target_shot_count, max_narration_chars) = crate::providers::siliconflow::narration_budget(
+        draft.settings.target_duration_seconds,
+        draft.audio.speech_rate,
+    );
+    let mut narration_changed = false;
+    if draft.shots.len() > target_shot_count {
+        draft.shots.truncate(target_shot_count);
+        narration_changed = true;
+    }
+    for shot in &mut draft.shots {
+        let fitted = crate::providers::siliconflow::clip_narration_line(
+            &shot.narration,
+            max_narration_chars,
+        );
+        if fitted != shot.narration {
+            shot.narration = fitted;
+            narration_changed = true;
+        }
+    }
+    if narration_changed {
+        if let Some(script) = &mut draft.script {
+            script.text = draft
+                .shots
+                .iter()
+                .map(|shot| shot.narration.clone())
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+    }
 }
 
 /// 由当前草稿和任务输入组装供应商使用的制作上下文。
@@ -616,37 +712,7 @@ impl Runner {
             self.apply_attachments(&mut draft, &mut input)?;
         }
 
-        // 所有旁白入口（首次生成、历史草稿、手动编辑）统一执行目标时长预算。
-        let (target_shot_count, max_narration_chars) =
-            crate::providers::siliconflow::narration_budget(
-                draft.settings.target_duration_seconds,
-                draft.audio.speech_rate,
-            );
-        let mut narration_changed = false;
-        if draft.shots.len() > target_shot_count {
-            draft.shots.truncate(target_shot_count);
-            narration_changed = true;
-        }
-        for shot in &mut draft.shots {
-            let fitted = crate::providers::siliconflow::clip_narration_line(
-                &shot.narration,
-                max_narration_chars,
-            );
-            if fitted != shot.narration {
-                shot.narration = fitted;
-                narration_changed = true;
-            }
-        }
-        if narration_changed {
-            if let Some(script) = &mut draft.script {
-                script.text = draft
-                    .shots
-                    .iter()
-                    .map(|shot| shot.narration.clone())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-            }
-        }
+        fit_draft_narration(&mut draft);
 
         self.state.db.write(|conn| {
             conn.execute("UPDATE generation_runs SET config = json_set(config, '$.settings', json(?1), '$.shot_count', ?2) WHERE job_id = ?3",
@@ -660,11 +726,14 @@ impl Runner {
         let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
             || draft.shots.iter().any(|s| s.asset_ids.is_empty());
         // 有失效标记、任一镜头的配音指纹变化、或需要音乐但还没解析出来，才需要准备音频。
-        let need_audio = draft.invalidated_stages.contains(&StageKey::Audio)
-            || draft.shots.iter().any(|s| {
+        // 关闭配音时不再检查台词指纹，避免每次都判定音频失效。
+        let narration_changed = draft.audio.narration_enabled
+            && draft.shots.iter().any(|s| {
                 artifacts.narration.get(&s.id).map(|n| n.key.as_str())
                     != Some(narration_key(s, &draft.audio, &draft.settings.language).as_str())
-            })
+            });
+        let need_audio = draft.invalidated_stages.contains(&StageKey::Audio)
+            || narration_changed
             || (draft.audio.music_mode != "none" && draft.audio.resolved_music_asset_id.is_none());
         let mut running = vec![];
         if need_visuals {
@@ -777,11 +846,16 @@ impl Runner {
 
         // 6. 剪辑方案（llm1）
         self.set_stage(&[StageKey::Edit], "running", None)?;
-        let narration_map: HashMap<String, (String, i64)> = artifacts
-            .narration
-            .iter()
-            .map(|(shot, n)| (shot.clone(), (n.asset_id.clone(), n.duration_ms)))
-            .collect();
+        // 关闭配音时忽略历史配音产物，避免旧版本的声音混进新成片。
+        let narration_map: HashMap<String, (String, i64)> = if draft.audio.narration_enabled {
+            artifacts
+                .narration
+                .iter()
+                .map(|(shot, n)| (shot.clone(), (n.asset_id.clone(), n.duration_ms)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
         // 背景音乐自身时长：比成片短时剪辑指令需要循环铺满。
         let music_duration_ms = match &draft.audio.resolved_music_asset_id {
             Some(id) => self
@@ -1020,10 +1094,23 @@ impl Runner {
         draft: &Draft,
         artifacts: &Artifacts,
     ) -> Step<(Vec<(String, String, AssetRow)>, Option<MusicChoice>, bool)> {
+        // 上传模式必须有音频素材；缺失时直接失败，避免静默生成一条没有声音的成片。
+        if draft.audio.music_mode == "upload" && draft.audio.music_asset_id.is_none() {
+            return Err(Stop::Failed(JobError {
+                code: "VALIDATION_ERROR".into(),
+                message: "背景音乐来源选的是上传，但项目里还没有音频素材，请先上传 BGM。".into(),
+                retryable: false,
+                failed_stage: Some(StageKey::Audio),
+            }));
+        }
         // 配音（llm4，逐句）与背景音乐（llm3，异步生成）互不依赖，同时进行：
         // 本地 TTS 每句数十秒、云端音乐需排队，串行会白白多等几分钟。
         let narration = async {
             let mut narrations = vec![];
+            // 关闭配音时字幕承担全部讲解，成片只保留背景音乐。
+            if !draft.audio.narration_enabled {
+                return Ok::<_, Stop>(narrations);
+            }
             for shot in &draft.shots {
                 let key = narration_key(shot, &draft.audio, &draft.settings.language);
                 if artifacts.narration.get(&shot.id).map(|n| &n.key) == Some(&key)

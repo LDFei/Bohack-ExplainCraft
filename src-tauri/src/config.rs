@@ -49,6 +49,14 @@ pub struct Config {
     pub llm1: ModelAccess,
     /// llm1 的 OpenAI 兼容 base URL。
     pub llm1_base: String,
+    /// llm1 中「SVG 画面」环节是否单独配置；为 `false` 时直接复用 llm1。
+    pub visual_overrides: bool,
+    /// SVG 画面的密钥与模型（默认 `deepseek-ai/DeepSeek-V4.1-Flash`）。
+    pub visual: ModelAccess,
+    /// SVG 画面单独配置时使用的供应商名称。
+    pub provider_visual: String,
+    /// SVG 画面的 base URL。
+    pub visual_base: String,
     /// llm3（背景音乐）的密钥与模型。
     pub llm3: ModelAccess,
     /// llm3 的 base URL。
@@ -77,6 +85,8 @@ pub struct Config {
     pub settings_file: PathBuf,
     /// 本地 ComfyUI 地址（breezeTTS2 配音）。
     pub comfyui_url: String,
+    /// 本地 ComfyUI 安装目录；模型下载到这里，空表示自动探测。
+    pub comfyui_dir: String,
     /// breezeTTS2 加载的检查点（ComfyUI 节点下拉框中的名称）。
     pub breeze_model: String,
     /// 男声参考音（音色克隆用），同名 `.json` / `.txt` 为转写文本。
@@ -115,6 +125,9 @@ pub enum AuthMode {
     Strict,
 }
 
+/// 默认视觉/文案/剪辑模型：硅基流动托管的 DeepSeek-V4.1-Flash。
+pub const DEFAULT_VISION_MODEL: &str = "deepseek-ai/DeepSeek-V4.1-Flash";
+
 /// 读取字符串变量；未设置或只有空白时使用默认值。
 fn var(name: &str, default: &str) -> String {
     env::var(name)
@@ -132,6 +145,27 @@ fn number<T: std::str::FromStr>(name: &str, default: T) -> T {
 }
 
 impl Config {
+    /// SVG 画面实际使用的模型访问信息：未单独配置时回收 llm1。
+    pub fn visual_access(&self) -> (&ModelAccess, &str) {
+        if self.visual_overrides {
+            let base: &str = if self.visual_base.is_empty() {
+                self.provider_base_for(&self.provider_visual)
+            } else {
+                &self.visual_base
+            };
+            (&self.visual, base)
+        } else {
+            (&self.llm1, &self.llm1_base)
+        }
+    }
+
+    /// 供应商对应的 base URL；显式配置优先。
+    fn provider_base_for(&self, provider: &str) -> &str {
+        match provider {
+            "siliconflow" => &self.siliconflow_base,
+            _ => provider_base(provider),
+        }
+    }
     /// 当前供应商的默认声线。
     pub fn default_voice(&self) -> String {
         match self.provider_llm4.as_str() {
@@ -186,9 +220,19 @@ impl Config {
                 .to_string(),
             llm1: ModelAccess {
                 api_key: var("LLM1_API_KEY", ""),
-                model: var("LLM1_MODEL", "zai-org/GLM-5.3"),
+                model: var("LLM1_MODEL", DEFAULT_VISION_MODEL),
             },
             llm1_base: var("LLM1_BASE_URL", "").trim_end_matches('/').to_string(),
+            // 视觉模型可用独立的 OpenAI 兼容供应商；未设置 VISUAL_MODEL 时复用 llm1，
+            // 默认预设整条流程都走 DeepSeek-V4.1-Flash。
+            visual_overrides: env::var("VISUAL_MODEL")
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false),            visual: ModelAccess {
+                api_key: var("VISUAL_API_KEY", &var("LLM1_API_KEY", "")),
+                model: var("VISUAL_MODEL", &var("LLM1_MODEL", DEFAULT_VISION_MODEL)),
+            },
+            provider_visual: var("PROVIDER_VISUAL", &var("PROVIDER_LLM1", "siliconflow")),
+            visual_base: var("VISUAL_BASE_URL", "").trim_end_matches('/').to_string(),
             llm3: ModelAccess {
                 api_key: var("LLM3_API_KEY", ""),
                 model: var("LLM3_MODEL", "MiniMaxAI/MiniMax-H3"),
@@ -227,6 +271,7 @@ impl Config {
             comfyui_url: var("COMFYUI_URL", "http://127.0.0.1:8188")
                 .trim_end_matches('/')
                 .to_string(),
+            comfyui_dir: var("COMFYUI_DIR", ""),
             breeze_model: var("BREEZE_MODEL", "int8 hybrid (recommended)"),
             breeze_voice_male: var("BREEZE_VOICE_MALE", ""),
             breeze_voice_female: var("BREEZE_VOICE_FEMALE", ""),
@@ -242,16 +287,21 @@ pub struct ProviderSetting {
     /// 供应商 ID。
     pub provider: String,
     /// OpenAI 兼容或服务 base URL。
+    #[serde(alias = "base_url")]
     pub base_url: String,
     /// 模型名。
     pub model: String,
     /// 新密钥；`None` 表示保留现有密钥。
+    #[serde(alias = "api_key")]
     pub api_key: Option<String>,
     /// 是否已有密钥，供 UI 显示而不泄露内容。
     pub has_api_key: bool,
     /// 默认声线；每次创作仍可在作品设置中重新选择。
     #[serde(default)]
     pub voice_id: String,
+    /// 是否单独指定该流程的模型；`None` 时沿用统一模型，忽略其余覆盖字段。
+    #[serde(default)]
+    pub overridden: Option<bool>,
 }
 
 impl ProviderSetting {
@@ -260,14 +310,28 @@ impl ProviderSetting {
         self.voice_id = voice_id;
         self
     }
+
+    /// 声明该流程是否单独指定模型。
+    pub(crate) fn overridden(mut self, overridden: bool) -> Self {
+        self.overridden = Some(overridden);
+        self
+    }
+
+    /// 是否启用独立配置：未显式声明时继承统一模型。
+    pub fn is_overridden(&self) -> bool {
+        self.overridden.unwrap_or(false)
+    }
 }
 
-/// 创作、音乐与配音三组配置。
+/// 创作、画面、音乐与配音四组配置。
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSettings {
     /// 文案、对话、分镜和 SVG 共用的 llm1。
     pub script: ProviderSetting,
+    /// 仅 SVG 画面使用的模型；未覆盖时与 `script` 相同。
+    #[serde(default)]
+    pub visual: ProviderSetting,
     /// 背景音乐。
     pub music: ProviderSetting,
     /// 配音。

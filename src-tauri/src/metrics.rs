@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn response_usage_is_kept_when_business_json_is_invalid() {
+    async fn visual_provider_usage_is_kept_when_business_json_is_invalid() {
         use axum::{routing::post, Json, Router};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -552,7 +552,15 @@ mod tests {
         config.llm1_base = format!("http://{address}");
         config.llm1.api_key = "test-only".into();
         let client = Arc::new(crate::providers::siliconflow::SiliconFlow::new(&config).unwrap());
-        let script = crate::providers::siliconflow::GlmScript::new(client, &config);
+        let visual_client = Arc::new(
+            client
+                .with_base(&format!("http://{address}"), "visual-provider")
+                .unwrap(),
+        );
+        let script = crate::providers::siliconflow::GlmScript::with_access(
+            visual_client,
+            config.llm1.clone(),
+        );
         CURRENT
             .scope(fixture.context("project-a"), async {
                 use crate::providers::ScriptModel;
@@ -576,6 +584,7 @@ mod tests {
             })
             .await;
         assert_eq!(fixture.calls()[0]["usage"]["total_tokens"], 16);
+        assert_eq!(fixture.calls()[0]["provider"], "visual-provider");
         server.abort();
     }
 

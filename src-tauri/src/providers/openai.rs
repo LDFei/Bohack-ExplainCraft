@@ -323,7 +323,13 @@ impl VoiceModel for OpenAiSpeech {
             request.voice_id.trim().into()
         };
         let voice = if self.siliconflow {
-            format!("{}:{voice}", self.model)
+            // 旧草稿里可能已保存完整 `model:voice`，避免再拼一次前缀。
+            let prefix = format!("{}:", self.model);
+            if voice.starts_with(&prefix) {
+                voice
+            } else {
+                format!("{prefix}{voice}")
+            }
         } else {
             voice
         };

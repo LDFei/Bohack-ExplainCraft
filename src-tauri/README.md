@@ -32,6 +32,19 @@ npm run desktop:dev
 Tauri 会初始化进程内后端并打开工作台，所有业务操作都通过 `#[tauri::command]` 完成。
 真实模型缺少密钥或本地服务未启动时会返回明确错误，不会用演示结果代替成功。
 
+### Windows 构建依赖
+
+- FFmpeg 8 开发包：把 BtbN 的 `ffmpeg-n8.1-*-win64-gpl-shared` 解压为与仓库同级的
+  `ffmpeg-btbn-8.1`（含 `include/`、`lib/*.lib`、`bin/*.dll`）。`tauri.ps1` / `cargo.ps1`
+  未设置 `FFMPEG_DIR` 时优先使用它，否则回退到旧的 `ffmpeg-msvc`。
+- libclang：`LIBCLANG_PATH` 指向 MSYS2 的 `ucrt64\bin`；脚本同时把该目录放到 `PATH` 最前。
+  否则 Git 自带的 MinGW DLL 会先被加载，`libclang.dll` 以 `LoadLibraryExW failed` 失败。
+- `vendor/ffmpeg-sys-next`：由根目录 `[patch.crates-io]` 引用，包含两项 Windows 修复：
+  屏蔽 clang `amxintrin.h` 的 `__tile1024i` 类型（E0587），以及让 bindgen 在 256 MB 栈的
+  线程中运行（release 下 `STATUS_STACK_OVERFLOW`）。
+- 运行时需要 `ffmpeg-btbn-8.1\bin`（或 MSYS2 `ucrt64\bin`）在 `PATH` 中，供 FFmpeg
+  命令行与 Quercus 链接的 DLL 使用。
+
 ## 使用真实模型
 
 1. **配置**：复制 `.env.example` 为 `.env`，填写硅基流动密钥和配音参考音。`.env` 已加入 `.gitignore`，
@@ -184,6 +197,8 @@ npm run desktop:build:windows
 | `LLM3_API_KEY` / `LLM3_MODEL`   | 空 / `MiniMaxAI/MiniMax-H3`     | llm3 密钥与模型                                            |
 | `SILICONFLOW_BASE_URL`          | `https://api.siliconflow.cn/v1` | 硅基流动接口地址                                           |
 | `COMFYUI_URL`                   | `http://127.0.0.1:8188`         | 本地 ComfyUI（breezeTTS2）                                 |
+| `COMFYUI_DIR`                   | 空（自动探测）                  | ComfyUI 安装目录；模型下载到其 `models/breezetts2/`         |
+| `BREEZE_MODEL_ENDPOINT`         | `https://huggingface.co`        | 模型下载端点，可改用镜像地址                               |
 | `BREEZE_MODEL`                  | `int8 hybrid (recommended)`     | breezeTTS2 检查点                                          |
 | `BREEZE_VOICE_MALE` / `_FEMALE` | 空                              | 参考音路径；“沉稳男声”用男声，其余用女声                   |
 

@@ -191,6 +191,7 @@ pub fn empty_draft() -> Draft {
         audio: AudioSettings {
             voice_id: "voice_warm".into(),
             speech_rate: 1.0,
+            narration_enabled: true,
             music_mode: "auto".into(),
             music_id: None,
             music_asset_id: None,

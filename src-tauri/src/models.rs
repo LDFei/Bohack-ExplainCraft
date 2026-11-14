@@ -174,6 +174,11 @@ pub struct Settings {
     pub style_id: String,
 }
 
+/// 配音开关的默认值：历史草稿没有这个字段时按“需要配音”处理。
+fn default_narration_enabled() -> bool {
+    true
+}
+
 /// 草稿中的音频设置。
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AudioSettings {
@@ -181,6 +186,9 @@ pub struct AudioSettings {
     pub voice_id: String,
     /// 语速，0.5～2.0。
     pub speech_rate: f64,
+    /// 是否生成配音；关闭后字幕承担全部讲解，成片只保留背景音乐。
+    #[serde(default = "default_narration_enabled")]
+    pub narration_enabled: bool,
     /// 音乐来源：`auto` 自动匹配、`none` 不配乐、`library` 曲库、`upload` 用户上传。
     pub music_mode: String,
     /// `library` 模式下的曲库 ID，其他模式为 `null`。

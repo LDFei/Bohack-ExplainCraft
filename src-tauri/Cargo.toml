@@ -13,6 +13,10 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# quercus 现在始终编译；保留同名空 feature，兼容仍传 `--features quercus` 的脚本和文档。
+quercus = []
+
 [dependencies]
 anyhow = "1"
 arc-swap = "1"
@@ -50,3 +54,6 @@ rmcp = { version = "3.8", default-features = false }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"

@@ -41,6 +41,12 @@ const remoteVoices = ref<string[]>([]);
 const voiceChoices = computed(() =>
   remoteVoices.value.length ? remoteVoices.value : props.caps.voices.map((voice) => voice.id),
 );
+/** 背景音乐候选只列已就绪的上传音频，避免选中处理中或失败的素材。 */
+const audioAssets = computed(() =>
+  props.assets.filter(
+    (asset) => asset.kind === 'audio' && asset.source === 'upload' && asset.status === 'ready',
+  ),
+);
 
 /** 优先使用供应商返回的声线，接口不可用时保留 capabilities 中的配置候选。 */
 onMounted(async () => {
@@ -62,7 +68,6 @@ const emit = defineEmits<{
   select: [id: string];
   download: [id: string];
   export: [];
-  upload: [];
   update: [];
   close: [];
   latest: [];
@@ -99,8 +104,7 @@ const displayedDraft = computed(() =>
 );
 const tabs = [
   { id: 'script', name: '脚本', icon: 'file' },
-  { id: 'assets', name: '素材', icon: 'image' },
-  { id: 'audio', name: '音频', icon: 'music' },
+  { id: 'audio', name: '声音', icon: 'music' },
   { id: 'settings', name: '设置', icon: 'sliders' },
 ];
 // 制作进行中或尚未创建项目时，不允许表单与后台任务同时修改草稿。
@@ -834,206 +838,175 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
               想改某个镜头？直接在对话中告诉我
             </p>
           </template>
-          <template v-if="tab === 'assets'">
-            <div class="editor-subheading">
-              <strong>
-                我的素材
-                <span>{{ assets.length }} 个文件</span>
-              </strong>
+          <template v-if="tab === 'audio'">
+            <div class="sound-card">
+              <div class="sound-card-head">
+                <Icon
+                  name="mic"
+                  :size="15"
+                />
+                <strong>配音</strong>
+                <span>
+                  {{
+                    form.audio.narration_enabled
+                      ? '由生成流程按文案逐句合成'
+                      : '已关闭，字幕承担全部讲解'
+                  }}
+                </span>
+              </div>
+              <fieldset
+                class="editor-form"
+                :disabled="disableForm"
+              >
+                <div class="switch-field">
+                  <span>
+                    <strong>启用配音</strong>
+                    <small>关闭后成片只保留背景音乐，字幕承担全部讲解。</small>
+                  </span>
+                  <button
+                    type="button"
+                    class="switch"
+                    :class="{ on: form.audio.narration_enabled }"
+                    role="switch"
+                    :aria-checked="form.audio.narration_enabled"
+                    aria-label="启用配音"
+                    @click="
+                      form.audio.narration_enabled = !form.audio.narration_enabled;
+                      formDirty = true;
+                    "
+                  >
+                    <span />
+                  </button>
+                </div>
+                <template v-if="form.audio.narration_enabled">
+                  <label class="field-label">
+                    <span>音色</span>
+                    <input
+                      v-model="form.audio.voice_id"
+                      list="voice-options"
+                      aria-label="配音音色"
+                      @change="formDirty = true"
+                    />
+                    <datalist id="voice-options">
+                      <option
+                        v-for="voice in voiceChoices"
+                        :key="voice"
+                        :value="voice"
+                      />
+                    </datalist>
+                  </label>
+                  <label class="range-field">
+                    <span>
+                      语速
+                      <strong>{{ form.audio.speech_rate.toFixed(1) }}×</strong>
+                    </span>
+                    <input
+                      v-model.number="form.audio.speech_rate"
+                      type="range"
+                      min="0.5"
+                      max="2"
+                      step="0.1"
+                      @input="formDirty = true"
+                    />
+                    <small>
+                      <span>舒缓</span>
+                      <span>轻快</span>
+                    </small>
+                  </label>
+                  <label class="range-field">
+                    <span>
+                      旁白音量
+                      <strong>{{ Math.round(form.audio.narration_volume * 100) }}%</strong>
+                    </span>
+                    <input
+                      v-model.number="form.audio.narration_volume"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      @input="formDirty = true"
+                    />
+                  </label>
+                </template>
+              </fieldset>
+            </div>
+            <div class="sound-card">
+              <div class="sound-card-head">
+                <Icon
+                  name="music"
+                  :size="15"
+                />
+                <strong>背景音乐</strong>
+                <span>曲库或素材库里的音频</span>
+              </div>
+              <fieldset
+                class="editor-form"
+                :disabled="disableForm"
+              >
+                <label class="field-label">
+                  <span>来源</span>
+                  <select
+                    :value="musicValue"
+                    @change="musicMode"
+                  >
+                    <option value="auto">自动生成（默认）</option>
+                    <option value="none">不加背景音乐</option>
+                    <optgroup label="曲库">
+                      <option
+                        v-for="track in caps.music_tracks"
+                        :key="track.id"
+                        :value="track.id"
+                      >
+                        {{ track.name }}
+                      </option>
+                    </optgroup>
+                    <optgroup
+                      v-if="audioAssets.length"
+                      label="素材库"
+                    >
+                      <option
+                        v-for="asset in audioAssets"
+                        :key="asset.id"
+                        :value="`upload:${asset.id}`"
+                      >
+                        {{ asset.file_name }}
+                      </option>
+                    </optgroup>
+                  </select>
+                </label>
+                <label class="range-field">
+                  <span>
+                    音乐音量
+                    <strong>{{ Math.round(form.audio.music_volume * 100) }}%</strong>
+                  </span>
+                  <input
+                    v-model.number="form.audio.music_volume"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    @input="formDirty = true"
+                  />
+                </label>
+              </fieldset>
               <button
-                class="text-button"
-                :disabled="pending || busy"
-                @click="emit('upload')"
+                v-if="caps.music_tracks.some((track) => track.sample_url)"
+                class="audition-button"
+                @click="playMusic"
               >
                 <Icon
-                  name="plus"
-                  :size="14"
+                  :name="auditionPlaying ? 'pause' : 'headphones'"
+                  :size="15"
                 />
-                上传
+                {{ auditionPlaying ? '停止试听' : '试听示例背景音乐' }}
               </button>
-            </div>
-            <div
-              v-if="assets.length"
-              class="asset-grid"
-            >
-              <div
-                v-for="asset in assets"
-                :key="asset.id"
-                class="asset-card"
+              <p
+                v-if="!audioAssets.length"
+                class="editor-hint"
               >
-                <img
-                  v-if="asset.thumbnail_url"
-                  :src="asset.thumbnail_url"
-                  :alt="asset.file_name"
-                />
-                <span
-                  v-else
-                  class="asset-file-icon"
-                >
-                  <Icon
-                    :name="asset.kind === 'audio' ? 'music' : 'video'"
-                    :size="25"
-                  />
-                </span>
-                <strong :title="asset.file_name">{{ asset.file_name }}</strong>
-                <small :class="{ 'danger-text': asset.status === 'failed' }">
-                  {{
-                    asset.status === 'ready'
-                      ? `${(asset.size_bytes / 1024 / 1024).toFixed(1)} MB · 已就绪`
-                      : (asset.error?.message ?? '正在处理')
-                  }}
-                </small>
-              </div>
+                想用自己上传的音乐？先在左侧素材库添加音频，再回到这里选择。
+              </p>
             </div>
-            <button
-              v-else
-              class="upload-zone"
-              :disabled="pending || busy"
-              @click="emit('upload')"
-            >
-              <Icon
-                name="image"
-                :size="28"
-              />
-              <strong>给故事添一点自己的画面</strong>
-              <span>点击上传图片、视频或音频</span>
-              <small>图片 20MB · 视频 100MB · 音频 50MB</small>
-            </button>
-            <template v-if="displayedDraft.shots.length">
-              <div class="editor-subheading asset-heading">
-                <strong>作品画面</strong>
-                <span>演示素材</span>
-              </div>
-              <div class="generated-assets">
-                <img
-                  v-for="shot in displayedDraft.shots"
-                  :key="shot.id"
-                  :src="shot.thumbnail_url || imagePath('coffee-cup')"
-                  :alt="shot.visual_prompt"
-                />
-              </div>
-              <p class="editor-hint">上传文件会保存在应用数据目录。</p>
-            </template>
-          </template>
-          <template v-if="tab === 'audio'">
-            <fieldset
-              class="editor-form"
-              :disabled="disableForm"
-            >
-              <label class="field-label">
-                <span>
-                  <Icon
-                    name="mic"
-                    :size="15"
-                  />
-                  配音音色
-                </span>
-                <input
-                  v-model="form.audio.voice_id"
-                  list="voice-options"
-                  aria-label="配音音色"
-                  @change="formDirty = true"
-                />
-                <datalist id="voice-options">
-                  <option
-                    v-for="voice in voiceChoices"
-                    :key="voice"
-                    :value="voice"
-                  />
-                </datalist>
-              </label>
-              <label class="range-field">
-                <span>
-                  说话速度
-                  <strong>{{ form.audio.speech_rate.toFixed(1) }}×</strong>
-                </span>
-                <input
-                  v-model.number="form.audio.speech_rate"
-                  type="range"
-                  min="0.5"
-                  max="2"
-                  step="0.1"
-                  @input="formDirty = true"
-                />
-                <small>
-                  <span>舒缓</span>
-                  <span>轻快</span>
-                </small>
-              </label>
-              <div class="form-divider" />
-              <label class="field-label">
-                <span>
-                  <Icon
-                    name="music"
-                    :size="15"
-                  />
-                  背景音乐
-                </span>
-                <select
-                  :value="musicValue"
-                  @change="musicMode"
-                >
-                  <option value="auto">程序化合成背景音乐（默认）</option>
-                  <option value="none">不生成背景音乐</option>
-                  <option
-                    v-for="track in caps.music_tracks"
-                    :key="track.id"
-                    :value="track.id"
-                  >
-                    {{ track.name }}
-                  </option>
-                  <option
-                    v-for="asset in assets.filter(
-                      (item) => item.kind === 'audio' && item.status === 'ready',
-                    )"
-                    :key="asset.id"
-                    :value="`upload:${asset.id}`"
-                  >
-                    我的素材 · {{ asset.file_name }}
-                  </option>
-                </select>
-              </label>
-              <label class="range-field">
-                <span>
-                  旁白音量
-                  <strong>{{ Math.round(form.audio.narration_volume * 100) }}%</strong>
-                </span>
-                <input
-                  v-model.number="form.audio.narration_volume"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  @input="formDirty = true"
-                />
-              </label>
-              <label class="range-field">
-                <span>
-                  音乐音量
-                  <strong>{{ Math.round(form.audio.music_volume * 100) }}%</strong>
-                </span>
-                <input
-                  v-model.number="form.audio.music_volume"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  @input="formDirty = true"
-                />
-              </label>
-            </fieldset>
-            <button
-              v-if="caps.music_tracks.some((track) => track.sample_url)"
-              class="audition-button"
-              @click="playMusic"
-            >
-              <Icon
-                :name="auditionPlaying ? 'pause' : 'headphones'"
-                :size="15"
-              />
-              {{ auditionPlaying ? '停止试听' : '试听示例背景音乐' }}
-            </button>
-            <p class="editor-hint">演示视频使用内置音乐，配音设置会保存到草稿。</p>
           </template>
           <template v-if="tab === 'settings'">
             <fieldset

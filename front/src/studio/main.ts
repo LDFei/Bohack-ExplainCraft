@@ -9,6 +9,7 @@ import '../style.css';
 import '../aceternity.css';
 import '../themes.css';
 import '../workspace-layout.css';
+import '../asset-library.css';
 import { initializeTheme } from '../composables/useTheme.ts';
 
 // 外观先于项目与路由加载，读取偏好不触碰业务存储。
@@ -22,6 +23,7 @@ const router = createRouter({
     { path: '/workspace', component: { template: '<span />' } },
     { path: '/create', component: { template: '<span />' } },
     { path: '/projects/:projectId', component: { template: '<span />' } },
+    { path: '/projects/:projectId/library', component: { template: '<span />' } },
     { path: '/:pathMatch(.*)*', redirect: '/create' },
   ],
 });

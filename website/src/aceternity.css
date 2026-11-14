@@ -1526,3 +1526,208 @@
 [data-theme="glass"] #hero-title span {
   text-shadow: 0 0 28px rgba(120, 178, 226, 0.35);
 }
+
+/* 工作流分支：通用 / Vibe 大赏模板。 */
+.landing-workflow .workflow-lead {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 26px auto 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.workflow-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.workflow-tabs button:hover {
+  color: var(--secondary);
+}
+.workflow-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.workflow-panel ol.vibe-steps {
+  grid-template-columns: repeat(3, 1fr);
+  row-gap: 4px;
+}
+.step-plus {
+  margin-inline: 8px;
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 400;
+}
+.workflow-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 26px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.workflow-lock svg {
+  color: var(--accent);
+}
+/* 功能区的 Vibe 模板卡：整行铺满。 */
+.ac-bento-item.bento-full {
+  grid-column: 1 / -1;
+}
+.vibe-mini {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 100%;
+}
+.vibe-mini-strip {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+.vibe-mini-strip i {
+  flex: 1;
+  height: 64px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #0b131d, #1a2937 60%, #24405a);
+}
+.vibe-mini-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.vibe-mini-lock svg {
+  color: var(--accent);
+}
+@media (max-width: 767px) {
+  .workflow-panel ol.vibe-steps {
+    grid-template-columns: 1fr;
+  }
+  .vibe-mini-strip i {
+    height: 48px;
+  }
+}
+
+/* Vibe 模板卡：让缩略图更像一排分镜。 */
+.vibe-mini {
+  padding: 6px 0;
+}
+.vibe-mini-strip i {
+  position: relative;
+  height: 132px;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      60% 50% at 30% 20%,
+      rgba(120, 178, 226, 0.28),
+      transparent 70%
+    ),
+    linear-gradient(150deg, #0a1119, #16232f 55%, #20374c);
+}
+.vibe-mini-strip i::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 18px;
+  height: 1px;
+  background: rgba(190, 220, 245, 0.45);
+  box-shadow:
+    0 -10px 0 rgba(190, 220, 245, 0.22),
+    0 -20px 0 rgba(190, 220, 245, 0.14);
+}
+
+/* 流程分支移到功能区标题下：作为独立小块，不再占页尾整节。 */
+.landing-workflow-inline {
+  border-top: 0;
+  padding: 6px 0 44px;
+  text-align: left;
+}
+.workflow-inline-title {
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  font-weight: 550;
+  color: var(--secondary);
+}
+.landing-workflow-inline .workflow-lead {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+.landing-workflow-inline .workflow-tabs {
+  margin: 14px 0 0;
+}
+.landing-workflow-inline .workflow-panel ol {
+  margin: 22px 0 20px;
+}
+
+/* Vibe 分支：模板示例分镜，用真实画面而不是空框。 */
+.vibe-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+.vibe-board figure {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.vibe-board img {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  filter: saturate(0.9);
+}
+.vibe-board figcaption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.vibe-board figcaption b {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+  font-weight: 500;
+}
+.vibe-board figcaption span {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+@media (max-width: 767px) {
+  .vibe-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .vibe-board img {
+    height: 84px;
+  }
+}

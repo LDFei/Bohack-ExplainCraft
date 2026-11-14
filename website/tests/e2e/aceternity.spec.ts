@@ -13,7 +13,7 @@ test("home uses the actual official beam paths and animated gradients", async ({
   const paths = JSON.parse(`[${list.trim().replace(/,$/, "")}]`) as string[];
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "有声，有画",
+    "再难的概念，",
   );
   await expect(page.locator(".background-beams svg")).toHaveAttribute(
     "viewBox",
@@ -78,7 +78,7 @@ test("bento keeps its three-column spans, hover translation and complete illustr
     ),
   ).toBe(1);
   await expect(
-    page.getByRole("heading", { name: "AI 脚本生成" }),
+    page.getByRole("heading", { name: "讲清知识点", exact: true }),
   ).toBeVisible();
 });
 
@@ -111,7 +111,7 @@ test("home preview, music and workspace entry are operational", async ({
     name: "立即下载",
     exact: true,
   });
-  await expect(downloadLinks).toHaveCount(8);
+  await expect(downloadLinks).toHaveCount(6);
   for (const link of await downloadLinks.all()) {
     await expect(link).toHaveAttribute(
       "href",
@@ -134,6 +134,30 @@ test("home and animated mobile navigation fit all target viewports", async ({
         () => document.documentElement.scrollWidth > innerWidth,
       ),
     ).toBe(false);
+  }
+});
+
+// 最新 Vibe 分支切换后，三张流程截图必须加载完成，不能留下空白占位。
+test("vibe workflow displays three loaded step screenshots", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const tab = page.getByRole("tab", { name: "Vibe 知识大赏流程图" });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  const panel = page
+    .getByRole("tabpanel")
+    .filter({ has: page.locator(".vibe-board") });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".vibe-steps > li")).toHaveCount(3);
+  const images = panel.locator(".vibe-board img");
+  await expect(images).toHaveCount(3);
+  for (const image of await images.all()) {
+    await expect
+      .poll(() =>
+        image.evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBeGreaterThan(0);
   }
 });
 

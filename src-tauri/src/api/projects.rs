@@ -633,6 +633,7 @@ pub async fn patch_draft(
                 old.resolved_music_asset_id.clone()
             };
             if music_changed
+                || old.narration_enabled != audio.narration_enabled
                 || old.voice_id != audio.voice_id
                 || old.speech_rate != audio.speech_rate
             {
