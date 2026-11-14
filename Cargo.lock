@@ -3618,7 +3618,7 @@ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
 name = "lingjing-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5043,8 +5043,6 @@ dependencies = [
 [[package]]
 name = "quercus-ffmpeg-link"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3622e31ab1e255df8a42422c15ec3c801d2e77777e678fc5f56b17e738ac15cb"
 
 [[package]]
 name = "quercus-node"

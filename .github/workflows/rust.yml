@@ -1,22 +1,27 @@
 name: Rust workspace
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop]
     paths:
-      - "src-tauri/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "vendor/ffmpeg-sys-next/**"
-      - ".github/workflows/rust.yml"
+      - 'src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'vendor/ffmpeg-sys-next/**'
+      - 'vendor/quercus-ffmpeg-link/**'
+      - '.cargo/**'
+      - '.github/workflows/rust.yml'
   pull_request:
     branches: [main, develop]
     paths:
-      - "src-tauri/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "vendor/ffmpeg-sys-next/**"
-      - ".github/workflows/rust.yml"
+      - 'src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'vendor/ffmpeg-sys-next/**'
+      - 'vendor/quercus-ffmpeg-link/**'
+      - '.cargo/**'
+      - '.github/workflows/rust.yml'
 
 permissions:
   contents: read
@@ -28,27 +33,37 @@ concurrency:
 jobs:
   test:
     name: Cargo format and test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
-      HUSKY: "0"
-      FFMPEG_DIR: "/usr"
+      HUSKY: '0'
+      CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
           cache-dependency-path: front/package-lock.json
       - name: Build desktop frontend for Tauri codegen
+        working-directory: front
         run: |
-          npm --prefix front ci
-          npm --prefix front run build:studio
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libmpg123-dev libzstd-dev ffmpeg
+          npm ci
+          npm run build:studio
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: desktop-linux-x64
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/explaincraft-ffmpeg-8
+          key: linux-ffmpeg-8.0.1-x264-v2
+      - name: Install native libraries and FFmpeg 8 SDK
+        run: bash src-tauri/scripts/setup-linux-ci.sh
       - name: Check Rust formatting
         run: cargo fmt --all --check
       - name: Test Cargo workspace
-        run: cargo test --workspace
+        run: cargo test --workspace --locked

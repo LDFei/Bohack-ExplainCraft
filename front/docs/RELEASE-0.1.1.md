@@ -14,4 +14,5 @@ Windows/macOS 随包附带媒体工具；Ubuntu 使用系统 FFmpeg 依赖（用
 源代码及依赖：本仓库对应发布标签提供应用源码；Quercus/Oak 代码许可见源码内 LICENSE；FFmpeg 构建来自 BtbN（Windows）及 Homebrew（macOS），对应源代码与构建配方分别见
 https://github.com/BtbN/FFmpeg-Builds 和 https://github.com/Homebrew/homebrew-core。请遵守随附许可。
 
-四个平台构建均成功后才自动公开此 Release；构建成功不等于已完成所有系统上的人工功能测试。
+v0.1.1 使用四个平台构建完成后自动公开的旧发布流程。后续 [v0.1.2](RELEASE-0.1.2.md)
+将构建与发布拆开，允许先发布通过验证的平台预览，四个平台验证通过后再转为正式版。构建成功不等于已完成所有系统上的人工功能测试。

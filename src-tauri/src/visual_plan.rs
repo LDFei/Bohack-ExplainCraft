@@ -122,7 +122,9 @@ pub fn route(prompt: &str, duration_ms: i64, vibe: bool) -> VisualRoute {
         return VisualRoute::Generate;
     };
     match visual.kind.as_str() {
-        "search" if visual.target.is_some() && crate::vibe::valid_search(prompt) => VisualRoute::Search,
+        "search" if visual.target.is_some() && crate::vibe::valid_search(prompt) => {
+            VisualRoute::Search
+        }
         "states" if sufficient(prompt, duration_ms) => VisualRoute::States,
         _ => VisualRoute::Generate,
     }
@@ -286,7 +288,8 @@ pub async fn media_has_motion(path: &std::path::Path, duration_ms: i64) -> Optio
 
     // 局部运动：相邻关键帧之间再看一对 200ms 画面。
     for index in 0..(KEYFRAMES - 1) {
-        let offset = (duration * (2 * index + 1) / (2 * KEYFRAMES)).clamp(0, (duration - 200).max(0));
+        let offset =
+            (duration * (2 * index + 1) / (2 * KEYFRAMES)).clamp(0, (duration - 200).max(0));
         let (first, second) = tokio::join!(frame(offset), frame(offset + 200));
         let (first, second) = (first?, second?);
         if frame_changed(&first, &second) {

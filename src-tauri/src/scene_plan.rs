@@ -664,11 +664,31 @@ mod tests {
             .map(|e| e.entity_id.as_str())
             .collect();
         assert_eq!(messages, vec!["syn", "synack", "ack"]);
-        let arrival=|id:&str|{let e=tcp.events.iter().find(|e|e.entity_id==id&&e.action=="flow").unwrap();e.start_ms+e.duration_ms};
-        let reveal=|id:&str|tcp.events.iter().find(|e|e.entity_id==id&&e.action=="reveal").unwrap().start_ms;
-        assert_eq!(reveal("client_ready"),arrival("synack"),"RFC 9293: client establishes on SYN+ACK arrival");
-        assert_eq!(reveal("established"),arrival("ack"),"server establishes after final ACK");
-
+        let arrival = |id: &str| {
+            let e = tcp
+                .events
+                .iter()
+                .find(|e| e.entity_id == id && e.action == "flow")
+                .unwrap();
+            e.start_ms + e.duration_ms
+        };
+        let reveal = |id: &str| {
+            tcp.events
+                .iter()
+                .find(|e| e.entity_id == id && e.action == "reveal")
+                .unwrap()
+                .start_ms
+        };
+        assert_eq!(
+            reveal("client_ready"),
+            arrival("synack"),
+            "RFC 9293: client establishes on SYN+ACK arrival"
+        );
+        assert_eq!(
+            reveal("established"),
+            arrival("ack"),
+            "server establishes after final ACK"
+        );
     }
     /// 六个真实 MP4 加方形/1080p 样例，全部复用同一协议与编译器，不访问模型。
     #[tokio::test]

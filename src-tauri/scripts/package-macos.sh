@@ -42,4 +42,5 @@ for tool in ffmpeg ffprobe; do
 done
 mkdir -p dist-release
 arch=$(uname -m)
-hdiutil create -volname ExplainCraft -srcfolder "$app" -ov -format UDZO "dist-release/ExplainCraft_0.1.1_macos_${arch}.dmg"
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+hdiutil create -volname ExplainCraft -srcfolder "$app" -ov -format UDZO "dist-release/ExplainCraft_${version}_macos_${arch}.dmg"

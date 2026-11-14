@@ -72,7 +72,18 @@ struct VisualObject {
 
 /// 把结构化视觉规范转换为审阅用的人类描述。
 pub fn describe(raw: &str) -> String {
-    if let Some(plan)=crate::scene_plan::from_prompt(raw) {return format!("{} · {} · {}",plan.objective,plan.visual_concept,plan.events.iter().map(|e|e.reasoning.as_str()).collect::<Vec<_>>().join(" → "));}
+    if let Some(plan) = crate::scene_plan::from_prompt(raw) {
+        return format!(
+            "{} · {} · {}",
+            plan.objective,
+            plan.visual_concept,
+            plan.events
+                .iter()
+                .map(|e| e.reasoning.as_str())
+                .collect::<Vec<_>>()
+                .join(" → ")
+        );
+    }
     serde_json::from_str::<Scene>(raw)
         .map(|s| {
             // v3 指令：审阅时展示真实推理链，而不是对象的原始 JSON。
@@ -199,8 +210,12 @@ pub fn enabled(settings: &crate::models::Settings, topic: &str) -> bool {
 }
 
 /// 路由与渲染共享真实参数校验；有目标字段不代表搜索范围可计算。
-pub fn valid_search(raw:&str)->bool {
-    serde_json::from_str::<Scene>(raw).ok().and_then(|s|s.visual).and_then(|v|v.search_trace()).is_some()
+pub fn valid_search(raw: &str) -> bool {
+    serde_json::from_str::<Scene>(raw)
+        .ok()
+        .and_then(|s| s.visual)
+        .and_then(|v| v.search_trace())
+        .is_some()
 }
 
 /// 所有内容在进入 SVG 前转义，避免文字成为标签或脚本。
@@ -284,7 +299,6 @@ pub fn reference_svg(narration: &str, width: u32, height: u32) -> String {
     let h = height as f64;
     let size = w.min(h) * 0.06;
     format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><g font-family=\"Hiragino Sans GB,Microsoft YaHei,sans-serif\">{}<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#78F0D0\" stroke-width=\"2\"/></g></svg>", text(w*0.08,h*0.18,size,"#F4F7FF",&heading(narration),"start"),w*0.08,h*0.32,w*0.84,h*0.44)
-
 }
 
 /// 从语义规范生成确定性的 SVG；同一输入产生相同画面，不依赖模型绘图能力。
@@ -1022,13 +1036,19 @@ fn states_svg(
         let transition = (state_len / 5).clamp(140, 360);
         let color_of = |emphasis: &str| emphasis_colors(emphasis, accent);
         let (strokes, stroke_times) = state_keyframes(
-            &resolved.iter().map(|e| color_of(e).0.into()).collect::<Vec<_>>(),
+            &resolved
+                .iter()
+                .map(|e| color_of(e).0.into())
+                .collect::<Vec<_>>(),
             &starts,
             transition,
             total,
         );
         let (fills, fill_times) = state_keyframes(
-            &resolved.iter().map(|e| color_of(e).1.into()).collect::<Vec<_>>(),
+            &resolved
+                .iter()
+                .map(|e| color_of(e).1.into())
+                .collect::<Vec<_>>(),
             &starts,
             transition,
             total,
@@ -1043,7 +1063,10 @@ fn states_svg(
             total,
         );
         let (text_colors, text_times) = state_keyframes(
-            &resolved.iter().map(|e| color_of(e).2.into()).collect::<Vec<_>>(),
+            &resolved
+                .iter()
+                .map(|e| color_of(e).2.into())
+                .collect::<Vec<_>>(),
             &starts,
             transition,
             total,
@@ -1115,44 +1138,91 @@ fn states_svg(
 }
 
 /// 横屏和方形旧镜头也重新排版；不用缩放竖屏 viewBox 冒充原生构图。
-pub fn scene_svg_at(shot: &Shot, index: usize, count: usize, rhythm: Option<&Rhythm>, offset: i64, style: &str, subtitles: bool, w: u32, h: u32) -> String {
+pub fn scene_svg_at(
+    shot: &Shot,
+    index: usize,
+    count: usize,
+    rhythm: Option<&Rhythm>,
+    offset: i64,
+    style: &str,
+    subtitles: bool,
+    w: u32,
+    h: u32,
+) -> String {
     if w == 720 && h == 1280 {
-        return scene_svg(shot,index,count,rhythm,offset,style,subtitles);
+        return scene_svg(shot, index, count, rhythm, offset, style, subtitles);
     }
     let scene: Scene = serde_json::from_str(&shot.visual_prompt).unwrap_or_default();
-    let title = if scene.title.is_empty() { heading(&shot.narration) } else { scene.title.clone() };
-    let (wf,hf)=(w as f64,h as f64);
-    let accent=match style {"warm"|"scientific"=>"#D8B56E","cinematic"=>"#B9A6FF","energetic"=>"#FF8B94",_=>"#78F0D0"};
+    let title = if scene.title.is_empty() {
+        heading(&shot.narration)
+    } else {
+        scene.title.clone()
+    };
+    let (wf, hf) = (w as f64, h as f64);
+    let accent = match style {
+        "warm" | "scientific" => "#D8B56E",
+        "cinematic" => "#B9A6FF",
+        "energetic" => "#FF8B94",
+        _ => "#78F0D0",
+    };
     let mut svg=format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"><rect width=\"{w}\" height=\"{h}\" fill=\"#0B1120\"/><g font-family=\"Hiragino Sans GB,Microsoft YaHei,sans-serif\">{}",text(wf*0.06,hf*0.15,40.,"#F4F7FF",&title,"start"));
-    if let Some(trace)=scene.visual.as_ref().and_then(|v|v.search_trace()) {
-        let columns=if w>h {20usize} else {10};
-        let rows=(trace.size as usize+columns-1)/columns;
-        let cw=wf*0.88/columns as f64;
-        let ch=hf*0.48/rows as f64;
+    if let Some(trace) = scene.visual.as_ref().and_then(|v| v.search_trace()) {
+        let columns = if w > h { 20usize } else { 10 };
+        let rows = (trace.size as usize + columns - 1) / columns;
+        let cw = wf * 0.88 / columns as f64;
+        let ch = hf * 0.48 / rows as f64;
         for cell in 0..trace.size as usize {
             svg.push_str("<g opacity=\"1\">");
-            svg.push_str(&text(wf*0.06+(cell%columns)as f64*cw+cw/2.,hf*0.28+(cell/columns)as f64*ch,ch.min(cw)*0.53,"#E6EDF9",&(trace.from+cell as i64).to_string(),"middle"));
-            if let Some(step)=trace.steps.iter().position(|s|(cell as i64)<s.lo||(cell as i64)>s.hi) {
+            svg.push_str(&text(
+                wf * 0.06 + (cell % columns) as f64 * cw + cw / 2.,
+                hf * 0.28 + (cell / columns) as f64 * ch,
+                ch.min(cw) * 0.53,
+                "#E6EDF9",
+                &(trace.from + cell as i64).to_string(),
+                "middle",
+            ));
+            if let Some(step) = trace
+                .steps
+                .iter()
+                .position(|s| (cell as i64) < s.lo || (cell as i64) > s.hi)
+            {
                 svg.push_str(&format!("<animate attributeName=\"opacity\" values=\"1;0.12\" begin=\"{}ms\" dur=\"250ms\" fill=\"freeze\"/>",step as i64*shot.duration_ms/(trace.steps.len()as i64+1)));
             }
             svg.push_str("</g>");
         }
-        for (i,step) in trace.steps.iter().enumerate() {
-            let start=i as i64*shot.duration_ms/(trace.steps.len()as i64+1);
-            let dur=shot.duration_ms/(trace.steps.len()as i64+1);
+        for (i, step) in trace.steps.iter().enumerate() {
+            let start = i as i64 * shot.duration_ms / (trace.steps.len() as i64 + 1);
+            let dur = shot.duration_ms / (trace.steps.len() as i64 + 1);
             svg.push_str(&format!("<g opacity=\"0\"><animate attributeName=\"opacity\" values=\"1;1;0\" keyTimes=\"0;0.95;1\" begin=\"{start}ms\" dur=\"{dur}ms\" fill=\"freeze\"/>{}</g>",text(wf*0.5,hf*0.79,26.,accent,&step.caption,"middle")));
         }
     } else {
         // 仅用于不可用模型的明确降级；通用主题的正常路径由 scene_plan 和模型画面承接。
-        let labels=if scene.labels.is_empty(){vec![heading(&shot.narration)]}else{scene.labels};
-        let n=labels.len().min(4);
-        for (i,label) in labels.iter().take(n).enumerate(){
-            let x=wf*(0.12+(i as f64+0.5)*0.76/n as f64);
+        let labels = if scene.labels.is_empty() {
+            vec![heading(&shot.narration)]
+        } else {
+            scene.labels
+        };
+        let n = labels.len().min(4);
+        for (i, label) in labels.iter().take(n).enumerate() {
+            let x = wf * (0.12 + (i as f64 + 0.5) * 0.76 / n as f64);
             svg.push_str(&format!("<g opacity=\"0\">{}<circle cx=\"{x}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"{accent}\" stroke-width=\"3\"/>{}</g>",enter(i as i64*400),hf*0.44,(wf*0.24/n as f64).min(hf*0.15),text(x,hf*0.68,24.,"#F4F7FF",label,"middle")));
         }
     }
     if subtitles {
-        for (i,line) in lines(&shot.narration, (wf*0.84/25.)as usize).iter().take(2).enumerate(){svg.push_str(&text(wf*0.5,hf*0.89+i as f64*32.,25.,"#C9D3E6",line,"middle"));}
+        for (i, line) in lines(&shot.narration, (wf * 0.84 / 25.) as usize)
+            .iter()
+            .take(2)
+            .enumerate()
+        {
+            svg.push_str(&text(
+                wf * 0.5,
+                hf * 0.89 + i as f64 * 32.,
+                25.,
+                "#C9D3E6",
+                line,
+                "middle",
+            ));
+        }
     }
     svg.push_str("</g></svg>");
     svg
@@ -1168,11 +1238,24 @@ pub async fn render(
     offset: i64,
     subtitles: bool,
 ) -> ProviderResult<MediaOutput> {
-    let (cw,ch)=crate::util::dimensions(&settings.aspect_ratio);
+    let (cw, ch) = crate::util::dimensions(&settings.aspect_ratio);
     let svg = if let Some(plan) = crate::scene_plan::from_prompt(&shot.visual_prompt) {
-        plan.svg(shot.duration_ms,cw as u32,ch as u32)?
-    } else { scene_svg_at(shot,index,count,rhythm,offset,&settings.style_id,subtitles,cw as u32,ch as u32) };
-    let (w,h)=crate::util::output_dimensions(&settings.aspect_ratio,&settings.output_resolution);
+        plan.svg(shot.duration_ms, cw as u32, ch as u32)?
+    } else {
+        scene_svg_at(
+            shot,
+            index,
+            count,
+            rhythm,
+            offset,
+            &settings.style_id,
+            subtitles,
+            cw as u32,
+            ch as u32,
+        )
+    };
+    let (w, h) =
+        crate::util::output_dimensions(&settings.aspect_ratio, &settings.output_resolution);
     if settings.visual_format == "html" {
         crate::html_animation::render(
             &format!("<style>body{{background:#0B1120}}svg{{width:100%;height:100%}}</style>{svg}"),

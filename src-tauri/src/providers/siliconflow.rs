@@ -36,11 +36,13 @@ pub struct SiliconFlow {
 impl SiliconFlow {
     /// 显式批准后才运行的最小 Schema 探针；测试不会改变持久模型配置。
     #[cfg(test)]
-    pub async fn probe_scene_schema(&self, access:&ModelAccess)->ProviderResult<bool> {
+    pub async fn probe_scene_schema(&self, access: &ModelAccess) -> ProviderResult<bool> {
         let data=self.post(access,"/chat/completions",&json!({"model":access.model,"enable_thinking":false,"temperature":0.,"max_tokens":40,
             "response_format":{"type":"json_schema","json_schema":{"name":"scene_probe","strict":true,"schema":{"type":"object","additionalProperties":false,"required":["ok"],"properties":{"ok":{"type":"boolean","const":true}}}}},
             "messages":[{"role":"user","content":"Return JSON matching the schema: ok must be true."}]}),"JSON Schema 支持验证").await?;
-        Ok(content_text(&data["choices"][0]["message"]["content"]).and_then(|t|extract_json(&t)).is_some_and(|v|v==json!({"ok":true})))
+        Ok(content_text(&data["choices"][0]["message"]["content"])
+            .and_then(|t| extract_json(&t))
+            .is_some_and(|v| v == json!({"ok":true})))
     }
     /// 创建客户端。单次请求超时 5 分钟（文生图、长文本生成可能较慢）。
     pub fn new(config: &Config) -> anyhow::Result<Self> {
@@ -206,16 +208,25 @@ impl SiliconFlow {
     }
 
     /// 导演阶段使用低温 Schema 输出；当前硅基模型端点已实测，语义仍由本地校验。
-    async fn scene_json(&self, access:&ModelAccess, user:&str, duration_ms:i64) -> ProviderResult<Value> {
+    async fn scene_json(
+        &self,
+        access: &ModelAccess,
+        user: &str,
+        duration_ms: i64,
+    ) -> ProviderResult<Value> {
         let data=self.post(access,"/chat/completions",&json!({
             "model":access.model,"enable_thinking":false,"temperature":0.25,"max_tokens":6500,
             "response_format":{"type":"json_schema","json_schema":{"name":"scene_plan","strict":true,"schema":crate::scene_plan::json_schema(duration_ms)}},
             "messages":[{"role":"system","content":"你是科学动画导演。只输出符合给定协议的 JSON 对象；知识对象与数据共同构成动态叙事。不能编造事实或实验数字。"},{"role":"user","content":user}]
         }),"语义动画计划").await?;
-        if data["choices"][0]["finish_reason"]=="length" {return Err(ProviderError::invalid("导演计划被截断，请缩减当前镜头的对象和事件。"));}
-        let text=content_text(&data["choices"][0]["message"]["content"]).unwrap_or_default();
-        crate::metrics::visual_source("scene-plan","semantic-json",&text)?;
-        extract_json(&text).ok_or_else(||ProviderError::invalid("导演计划不是完整 JSON。"))
+        if data["choices"][0]["finish_reason"] == "length" {
+            return Err(ProviderError::invalid(
+                "导演计划被截断，请缩减当前镜头的对象和事件。",
+            ));
+        }
+        let text = content_text(&data["choices"][0]["message"]["content"]).unwrap_or_default();
+        crate::metrics::visual_source("scene-plan", "semantic-json", &text)?;
+        extract_json(&text).ok_or_else(|| ProviderError::invalid("导演计划不是完整 JSON。"))
     }
 
     /// 使用 OpenAI tool_calls 驱动 50 个 Quercus 工具，返回最终剪辑指令。
@@ -356,7 +367,9 @@ fn text_or(value: &Value, key: &str, default: &str) -> String {
 /// 风格 ID 对应的中文描述，写进提示词。
 fn style_text(style_id: &str) -> &'static str {
     match style_id {
-        "scientific" => "科学编辑式动态图形：深色、暖金与象牙白，精细矢量轮廓，图形与数据为主体，平滑的教学事件",
+        "scientific" => {
+            "科学编辑式动态图形：深色、暖金与象牙白，精细矢量轮廓，图形与数据为主体，平滑的教学事件"
+        }
         "custom" => "严格遵守 CreativeBrief 中用户原始风格要求，不用固定主题覆盖",
         "cinematic" => "电影质感，画面开阔，光影对比强",
         "minimal" => "简约高级，构图干净，留白克制",
@@ -1099,41 +1112,87 @@ fn validate_ops(ops: &[EditOp], plan: &EditPlan) -> Result<(), String> {
 
 #[async_trait]
 impl VisualModel for GlmScript {
-    async fn plan_scene(&self, request: VisualRequest) -> ProviderResult<Option<crate::scene_plan::ScenePlan>> {
-        let protocol=include_str!("../../skills/scene-plan.md");
+    async fn plan_scene(
+        &self,
+        request: VisualRequest,
+    ) -> ProviderResult<Option<crate::scene_plan::ScenePlan>> {
+        let protocol = include_str!("../../skills/scene-plan.md");
         let user=format!("{protocol}\n当前镜头时长：{}ms；比例：{}；风格：{}\n旁白：{}\n已有分镜：{}\n完整创作要求：{}",request.shot.duration_ms,request.ctx.settings.aspect_ratio,style_text(&request.ctx.settings.style_id),request.shot.narration,request.shot.visual_prompt,request.ctx.user_text);
-        let value=self.client.scene_json(&self.access,&user,request.shot.duration_ms).await?;
-        let mut plan:crate::scene_plan::ScenePlan=serde_json::from_value(value).map_err(|e|ProviderError::invalid(format!("导演计划字段不符合协议：{e}")))?;
-        plan.aspect_ratio=request.ctx.settings.aspect_ratio.clone();
-        if request.ctx.settings.style_id!="custom" {plan.style=request.ctx.settings.style_id.clone();}
+        let value = self
+            .client
+            .scene_json(&self.access, &user, request.shot.duration_ms)
+            .await?;
+        let mut plan: crate::scene_plan::ScenePlan = serde_json::from_value(value)
+            .map_err(|e| ProviderError::invalid(format!("导演计划字段不符合协议：{e}")))?;
+        plan.aspect_ratio = request.ctx.settings.aspect_ratio.clone();
+        if request.ctx.settings.style_id != "custom" {
+            plan.style = request.ctx.settings.style_id.clone();
+        }
         plan.validate(request.shot.duration_ms)?;
         Ok(Some(plan))
     }
 
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
-        if let Some(mut plan)=crate::scene_plan::from_prompt(&request.shot.visual_prompt) {
+        if let Some(mut plan) = crate::scene_plan::from_prompt(&request.shot.visual_prompt) {
             // 第二阶段只生成实体矢量代码；时间、真实数据和布局由宿主掌管，避免代码偏离导演计划。
             let design=self.client.chat_json(&self.access,
                 "你是离线SVG矢量设计师，只输出JSON。为path实体提供精细而准确的复合路径，保持知识对象的具体轮廓。",
                 &format!("导演计划：{}\n完整用户要求：{}\n输出 {{\"paths\":[{{\"id\":已有path实体ID,\"d\":SVG路径字符串，局部坐标0到100}}],\"palette\":{{\"background\":\"#RRGGBB\",\"foreground\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"muted\":\"#RRGGBB\"}}}}。只给已有path实体生成轮廓。不改坐标、数据、文字、事件。不能包含XML、外链、脚本；纯SVG path代码。风格遵从用户，科学编辑式默认深色暖金。",serde_json::to_string(&plan).unwrap_or_default(),request.ctx.user_text),2500).await?;
-            let paths=design["paths"].as_array().ok_or_else(||ProviderError::invalid("实体矢量代码缺少 paths 数组。"))?;
-            let mut changed=std::collections::HashSet::new();
+            let paths = design["paths"]
+                .as_array()
+                .ok_or_else(|| ProviderError::invalid("实体矢量代码缺少 paths 数组。"))?;
+            let mut changed = std::collections::HashSet::new();
             for shape in paths {
-                let id=shape["id"].as_str().unwrap_or("");
-                let e=plan.entities.iter_mut().find(|e|e.id==id&&e.kind=="path").ok_or_else(||ProviderError::invalid("矢量代码引用了未知实体。"))?;
-                if !changed.insert(id.to_string()) {return Err(ProviderError::invalid("实体矢量代码重复。"));}
-                e.path=shape["d"].as_str().unwrap_or("").to_string();
+                let id = shape["id"].as_str().unwrap_or("");
+                let e = plan
+                    .entities
+                    .iter_mut()
+                    .find(|e| e.id == id && e.kind == "path")
+                    .ok_or_else(|| ProviderError::invalid("矢量代码引用了未知实体。"))?;
+                if !changed.insert(id.to_string()) {
+                    return Err(ProviderError::invalid("实体矢量代码重复。"));
+                }
+                e.path = shape["d"].as_str().unwrap_or("").to_string();
             }
-            if let Ok(palette)=serde_json::from_value(design["palette"].clone()) {plan.palette=Some(palette);}
-            plan.aspect_ratio=request.ctx.settings.aspect_ratio.clone();
+            if let Ok(palette) = serde_json::from_value(design["palette"].clone()) {
+                plan.palette = Some(palette);
+            }
+            plan.aspect_ratio = request.ctx.settings.aspect_ratio.clone();
             plan.validate(request.shot.duration_ms)?;
-            let(w,h)=crate::util::output_dimensions(&request.ctx.settings.aspect_ratio,&request.ctx.settings.output_resolution);
-            let svg=plan.svg(request.shot.duration_ms,w as u32,h as u32)?;
-            crate::metrics::visual_source(&request.shot.id,"compiled-scene",&json!({"plan":plan,"svg":svg}).to_string())?;
-            return if request.ctx.settings.visual_format=="html" {crate::html_animation::render(&svg,request.shot.duration_ms,w as u32,h as u32,request.shot_index).await}
-                else {crate::svg_animation::render(&svg,request.shot.duration_ms,w as u32,h as u32,request.shot_index).await};
+            let (w, h) = crate::util::output_dimensions(
+                &request.ctx.settings.aspect_ratio,
+                &request.ctx.settings.output_resolution,
+            );
+            let svg = plan.svg(request.shot.duration_ms, w as u32, h as u32)?;
+            crate::metrics::visual_source(
+                &request.shot.id,
+                "compiled-scene",
+                &json!({"plan":plan,"svg":svg}).to_string(),
+            )?;
+            return if request.ctx.settings.visual_format == "html" {
+                crate::html_animation::render(
+                    &svg,
+                    request.shot.duration_ms,
+                    w as u32,
+                    h as u32,
+                    request.shot_index,
+                )
+                .await
+            } else {
+                crate::svg_animation::render(
+                    &svg,
+                    request.shot.duration_ms,
+                    w as u32,
+                    h as u32,
+                    request.shot_index,
+                )
+                .await
+            };
         }
-        let (width, height) = crate::util::output_dimensions(&request.ctx.settings.aspect_ratio,&request.ctx.settings.output_resolution);
+        let (width, height) = crate::util::output_dimensions(
+            &request.ctx.settings.aspect_ratio,
+            &request.ctx.settings.output_resolution,
+        );
         if request.ctx.settings.visual_format == "html" {
             let prompt = format!(
                 "为这一个镜头撰写离线 HTML/CSS 动画：{width}×{height}，{ms} 毫秒。\n\

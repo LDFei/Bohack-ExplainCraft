@@ -128,17 +128,94 @@ pub async fn inspect(
 }
 
 /// 视觉审计是辅助证据，保留冻结区间、主体覆盖和未核实事实，不宣称像素变化等于知识正确。
-pub async fn visual_audit(path:&Path, duration_ms:i64, plan:Option<&crate::scene_plan::ScenePlan>) -> Value {
-    let ffmpeg=std::env::var("FFMPEG_PATH").unwrap_or_else(|_|"ffmpeg".into());
-    let scan=tokio::time::timeout(Duration::from_secs(45),tokio::process::Command::new(&ffmpeg).args(["-v","info","-nostdin","-i"]).arg(path).args(["-vf","freezedetect=n=-45dB:d=2.5","-an","-f","null","-"]).kill_on_drop(true).output()).await;
-    let freeze_log=scan.ok().and_then(Result::ok).filter(|o|o.status.success()).map(|o|String::from_utf8_lossy(&o.stderr).lines().filter(|l|l.contains("freeze_")).map(str::to_string).collect::<Vec<_>>());
-    let frame=tokio::time::timeout(Duration::from_secs(20),tokio::process::Command::new(&ffmpeg).args(["-v","error","-ss"]).arg(format!("{:.3}",duration_ms as f64/2000.)).arg("-i").arg(path).args(["-vf","scale=160:160","-frames:v","1","-f","rawvideo","-pix_fmt","rgb24","pipe:1"]).kill_on_drop(true).output()).await;
-    let mut span=None;
-    let mut pillarbox=None;
-    if let Some(o)=frame.ok().and_then(Result::ok).filter(|o|o.status.success()&&o.stdout.len()==160*160*3){
-        let p=&o.stdout;let bg=&p[..3];let (mut lo,mut hi)=(160usize,0usize);let mut black=0;let mut edges=0;
-        for y in 30..120 {for x in 0..160 {let i=(y*160+x)*3;let delta=(0..3).map(|c|(p[i+c]as i32-bg[c]as i32).abs()).sum::<i32>();if delta>60 {lo=lo.min(x);hi=hi.max(x);}if !(8..152).contains(&x){edges+=1;if p[i..i+3].iter().all(|c|*c<4){black+=1;}}}}
-        span=Some(hi.saturating_sub(lo)as f64/160.);pillarbox=Some(black as f64/edges as f64>0.96);
+pub async fn visual_audit(
+    path: &Path,
+    duration_ms: i64,
+    plan: Option<&crate::scene_plan::ScenePlan>,
+) -> Value {
+    let ffmpeg = std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into());
+    let scan = tokio::time::timeout(
+        Duration::from_secs(45),
+        tokio::process::Command::new(&ffmpeg)
+            .args(["-v", "info", "-nostdin", "-i"])
+            .arg(path)
+            .args([
+                "-vf",
+                "freezedetect=n=-45dB:d=2.5",
+                "-an",
+                "-f",
+                "null",
+                "-",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let freeze_log = scan
+        .ok()
+        .and_then(Result::ok)
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stderr)
+                .lines()
+                .filter(|l| l.contains("freeze_"))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+    let frame = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-ss"])
+            .arg(format!("{:.3}", duration_ms as f64 / 2000.))
+            .arg("-i")
+            .arg(path)
+            .args([
+                "-vf",
+                "scale=160:160",
+                "-frames:v",
+                "1",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "pipe:1",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let mut span = None;
+    let mut pillarbox = None;
+    if let Some(o) = frame
+        .ok()
+        .and_then(Result::ok)
+        .filter(|o| o.status.success() && o.stdout.len() == 160 * 160 * 3)
+    {
+        let p = &o.stdout;
+        let bg = &p[..3];
+        let (mut lo, mut hi) = (160usize, 0usize);
+        let mut black = 0;
+        let mut edges = 0;
+        for y in 30..120 {
+            for x in 0..160 {
+                let i = (y * 160 + x) * 3;
+                let delta = (0..3)
+                    .map(|c| (p[i + c] as i32 - bg[c] as i32).abs())
+                    .sum::<i32>();
+                if delta > 60 {
+                    lo = lo.min(x);
+                    hi = hi.max(x);
+                }
+                if !(8..152).contains(&x) {
+                    edges += 1;
+                    if p[i..i + 3].iter().all(|c| *c < 4) {
+                        black += 1;
+                    }
+                }
+            }
+        }
+        span = Some(hi.saturating_sub(lo) as f64 / 160.);
+        pillarbox = Some(black as f64 / edges as f64 > 0.96);
     }
     json!({"freeze_scan_verified":freeze_log.is_some(),"freeze_intervals":freeze_log,"subject_span_fraction":span,"suspected_pillarbox":pillarbox,
         "planned_events":plan.map(|p|p.events.len()),"event_semantics":"requires human review of sampled frames and narration",

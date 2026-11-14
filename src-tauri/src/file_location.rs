@@ -398,8 +398,14 @@ mod tests {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .expect("只读打开应用数据库");
-        let location =
-            locate(&conn, &root.join("storage"), &project, &version, "local_user").unwrap();
+        let location = locate(
+            &conn,
+            &root.join("storage"),
+            &project,
+            &version,
+            "local_user",
+        )
+        .unwrap();
         assert!(location.exists);
         assert!(Path::new(&location.path).is_absolute());
         assert!(Path::new(&location.path).starts_with(root.join("storage").join(&project)));

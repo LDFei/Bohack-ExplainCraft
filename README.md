@@ -3,6 +3,12 @@
 ExplainCraft 是一个 AI 视频创作桌面应用。Vue 工作台、Rust 制作后端和 Tauri 桌面壳在同一个
 仓库中开发，`website/` 则是拥有独立依赖与构建配置的静态官网，发布到 GitHub Pages。
 
+桌面发行说明见 [v0.1.2](front/docs/RELEASE-0.1.2.md)。应用名称为 Lingjing（灵镜），
+标识固定为 `com.explaincraft.lingjing`；所有安装包使用 `ExplainCraft_版本_平台` 文件名。
+桌面构建会执行前端、Rust 和安装后自检。GitHub Actions 的 `Publish desktop release`
+单独接收已验证的构建编号：`preview` 允许部分平台，`stable` 要求四个平台全部通过。
+发布流程拒绝替换已有正式 Release、移动已有标签或覆盖不同内容的同名安装包。
+
 ```text
 Bohack-ExplainCraft/
 ├── Cargo.toml              Cargo workspace，统一组织 Rust 工程

@@ -1,0 +1,43 @@
+name: Publish desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '已验证的 Desktop release 构建编号'
+        type: string
+        required: true
+      channel:
+        description: 'preview 允许部分平台；stable 要求四个平台全部通过'
+        type: choice
+        options: [preview, stable]
+        default: preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-desktop
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate exact commit, checks, packages and publish
+        working-directory: front
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.run_id }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: node scripts/desktop-release.mjs publish "$RELEASE_RUN_ID" "$RELEASE_CHANNEL"

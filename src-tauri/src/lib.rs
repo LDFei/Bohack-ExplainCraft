@@ -20,6 +20,7 @@ mod models;
 mod html_animation;
 mod oak;
 mod ops;
+mod package_check;
 mod pipeline;
 mod preflight;
 mod providers;
@@ -45,6 +46,7 @@ use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::EnvFilter;
 
 pub use crate::config::{AuthMode, Config, ModelAccess};
+pub use crate::package_check::run as package_self_check;
 use crate::state::{AppState, WorkerHandle};
 
 /// 默认日志级别：业务与流程日志为 info；依赖库只输出警告，避免刷屏。
@@ -209,9 +211,19 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 发布包优先使用随应用分发的媒体工具；开发环境继续尊重显式配置。
     if let Ok(resources) = app.path().resource_dir() {
         for (variable, name) in [("FFMPEG_PATH", "ffmpeg"), ("FFPROBE_PATH", "ffprobe")] {
-            let executable = if cfg!(windows) {format!("{name}.exe")} else {name.into()};
-            for candidate in [resources.join("runtime").join(&executable),resources.join(&executable)] {
-                if std::env::var_os(variable).is_none() && candidate.is_file() {std::env::set_var(variable,candidate);break;}
+            let executable = if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.into()
+            };
+            for candidate in [
+                resources.join("runtime").join(&executable),
+                resources.join(&executable),
+            ] {
+                if std::env::var_os(variable).is_none() && candidate.is_file() {
+                    std::env::set_var(variable, candidate);
+                    break;
+                }
             }
         }
     }
@@ -251,6 +263,12 @@ fn focus_existing_window(app: &tauri::AppHandle) {
 }
 
 /// 桌面端入口（`main.rs` 调用）。
+/// 共用上下文只生成一次，避免 macOS 的内嵌 Info.plist 出现重复符号。
+fn app_context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
+/// 桌面端入口（`main.rs` 调用）。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -272,7 +290,7 @@ pub fn run() {
         })
         .invoke_handler(command_handler())
         .setup(setup)
-        .build(tauri::generate_context!())
+        .build(app_context())
         .expect("启动灵镜桌面应用失败");
     app.run(|_, _| {});
 }

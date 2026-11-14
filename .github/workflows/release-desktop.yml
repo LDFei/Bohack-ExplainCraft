@@ -1,12 +1,20 @@
 name: Desktop release
 on:
   push:
-    branches: [codex/release-desktop-0.1.1]
+    branches: [main]
+    paths:
+      - 'front/**'
+      - 'src-tauri/**'
+      - 'shared/public/media/**'
+      - 'vendor/**'
+      - '.cargo/**'
+      - 'Cargo.*'
+      - '.github/workflows/release-desktop.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: desktop-release-${{ github.ref }}-${{ github.sha }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
@@ -35,43 +43,22 @@ jobs:
           cache: npm
           cache-dependency-path: front/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
           shared-key: desktop-${{ matrix.platform }}
-      - name: Install Linux build libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake nasm libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libjack-jackd2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
       - uses: actions/cache@v4
         if: runner.os == 'Linux'
         with:
           path: ~/.cache/explaincraft-ffmpeg-8
-          key: linux-ffmpeg-8.0.1-static-v1
-      - name: Build Linux FFmpeg 8 SDK
+          key: linux-ffmpeg-8.0.1-x264-v2
+      - name: Install Linux libraries and FFmpeg 8 SDK
         if: runner.os == 'Linux'
-        run: |
-          sdk="$HOME/.cache/explaincraft-ffmpeg-8"
-          if ! test -f "$sdk/lib/pkgconfig/libavutil.pc"; then
-            curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$RUNNER_TEMP/ffmpeg.tar.xz"
-            tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
-            cd "$RUNNER_TEMP/ffmpeg-8.0.1"
-            ./configure \
-              --prefix="$sdk" \
-              --disable-shared \
-              --enable-static \
-              --disable-programs \
-              --disable-doc \
-              --disable-debug \
-              --disable-network \
-              --disable-autodetect
-            make -j"$CARGO_BUILD_JOBS"
-            make install
-          fi
-          echo "FFMPEG_DIR=$sdk" >> "$GITHUB_ENV"
+        run: bash src-tauri/scripts/setup-linux-ci.sh
       - name: Install macOS build libraries and tools
         if: runner.os == 'macOS'
         run: |
@@ -101,59 +88,48 @@ jobs:
       - name: Configure Linux package dependencies
         if: runner.os == 'Linux'
         run: |
-          echo '{"bundle":{"linux":{"deb":{"depends":["ffmpeg","libmpg123-0t64","libzstd1","fonts-noto-cjk"]}}}}' > src-tauri/tauri.release.json
+          echo '{"bundle":{"linux":{"deb":{"depends":["ffmpeg","libmpg123-0t64","libzstd1","fonts-noto-cjk","libasound2t64","libjack-jackd2-0","libpipewire-0.3-0t64","libx264-164"]}}}}' > src-tauri/tauri.release.json
       - name: Install frontend
         working-directory: front
         run: npm ci
+      - name: Verify release metadata and frontend
+        working-directory: front
+        run: |
+          node scripts/desktop-release.mjs metadata
+          node --test scripts/desktop-release.test.mjs
+          npm test
+          npm run build
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Test Cargo workspace on native platform
+        run: cargo test --workspace --locked
       - name: Build Windows installer
         if: runner.os == 'Windows'
         working-directory: front
-        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.release.json
+        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.release.json -- --locked
       - name: Build Linux installer
         if: runner.os == 'Linux'
         working-directory: front
-        run: npm run tauri -- build --bundles deb --config src-tauri/tauri.release.json
+        run: npm run tauri -- build --bundles deb --config src-tauri/tauri.release.json -- --locked
       - name: Build macOS application
         if: runner.os == 'macOS'
         working-directory: front
-        run: npm run tauri -- build --bundles app
+        run: npm run tauri -- build --bundles app -- --locked
       - name: Make self-contained macOS disk image
         if: runner.os == 'macOS'
         run: bash src-tauri/scripts/package-macos.sh
+      - name: Install and verify native package
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        working-directory: front
+        run: node scripts/desktop-release.mjs verify-package
       - name: Collect installers and licenses
-        shell: bash
-        run: |
-          mkdir -p dist-release
-          find target/release/bundle -type f \( -name '*-setup.exe' -o -name '*.deb' \) -exec cp {} dist-release/ \;
-          cp LICENSE dist-release/LICENSE-${{ matrix.platform }}.txt
-          test -n "$(find dist-release -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' \) -print -quit)"
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        working-directory: front
+        run: node scripts/desktop-release.mjs collect
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
           path: dist-release/*
           if-no-files-found: error
-  publish:
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
-        with:
-          path: installers
-          merge-multiple: true
-      - name: Verify platform coverage and publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test -n "$(find installers -name '*.exe' -print -quit)"
-          test -n "$(find installers -name '*.deb' -print -quit)"
-          test "$(find installers -name '*.dmg' | wc -l)" -eq 2
-          (cd installers && sha256sum * > SHA256SUMS.txt)
-          if ! gh release view v0.1.1 >/dev/null 2>&1; then
-            gh release create v0.1.1 --draft --target "$GITHUB_SHA" --title 'ExplainCraft v0.1.1 · 首个跨平台桌面版' --notes-file front/docs/RELEASE-0.1.1.md
-          fi
-          gh release upload v0.1.1 installers/* --clobber
-          gh release edit v0.1.1 --draft=false --latest

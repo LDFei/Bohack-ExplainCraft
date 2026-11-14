@@ -646,8 +646,12 @@ mod tests {
 }
 
 /// 保存当前模型调用的视觉源码证据，供失败镜头局部诊断；不执行、不展示密钥、不另建数据表。
-pub fn visual_source(shot_id:&str,format:&str,source:&str)->ProviderResult<()> {
-    if source.len()>600000 {return Err(ProviderError::invalid("镜头源代码超过本地安全上限。"));}
-    let Ok(ctx)=CURRENT.try_with(Clone::clone) else{return Ok(());};
+pub fn visual_source(shot_id: &str, format: &str, source: &str) -> ProviderResult<()> {
+    if source.len() > 600000 {
+        return Err(ProviderError::invalid("镜头源代码超过本地安全上限。"));
+    }
+    let Ok(ctx) = CURRENT.try_with(Clone::clone) else {
+        return Ok(());
+    };
     ctx.db.write(|c|{c.execute("UPDATE generation_model_calls SET data=json_set(data,'$.visual_source',json(?1)) WHERE id=(SELECT id FROM generation_model_calls WHERE job_id=?2 AND json_extract(data,'$.label')=?3 ORDER BY rowid DESC LIMIT 1)",rusqlite::params![json!({"shot_id":shot_id,"format":format,"source":source}).to_string(),ctx.job_id,ctx.label])?;Ok(())}).map_err(|_|ProviderError::unavailable("无法保存视觉生成证据。"))
 }

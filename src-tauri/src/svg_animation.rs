@@ -174,11 +174,27 @@ fn update_tag(tag: &str, attributes: &BTreeMap<String, String>) -> String {
 fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
     let document = roxmltree::Document::parse(source)
         .map_err(|_| ProviderError::invalid("SVG 格式不正确，请重新生成。"))?;
-    for node in document.descendants().filter(|n|n.is_element()) {
-        if ["script","foreignobject","animatemotion","image","feimage","iframe","object","embed"].contains(&node.tag_name().name().to_ascii_lowercase().as_str()) || node.attributes().any(|a| {
-            let name=a.name().to_ascii_lowercase();
-            name.starts_with("on") || (name=="href" && !a.value().trim().starts_with('#')) || a.value().to_ascii_lowercase().contains("url(file:")
-        }) {return Err(ProviderError::invalid("SVG 不能包含可执行内容或外部资源。"));}
+    for node in document.descendants().filter(|n| n.is_element()) {
+        if [
+            "script",
+            "foreignobject",
+            "animatemotion",
+            "image",
+            "feimage",
+            "iframe",
+            "object",
+            "embed",
+        ]
+        .contains(&node.tag_name().name().to_ascii_lowercase().as_str())
+            || node.attributes().any(|a| {
+                let name = a.name().to_ascii_lowercase();
+                name.starts_with("on")
+                    || (name == "href" && !a.value().trim().starts_with('#'))
+                    || a.value().to_ascii_lowercase().contains("url(file:")
+            })
+        {
+            return Err(ProviderError::invalid("SVG 不能包含可执行内容或外部资源。"));
+        }
     }
     if source.contains("<script")
         || source.contains("<foreignObject")
@@ -204,7 +220,9 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
             continue;
         };
         // 后续事件在开始前不能覆盖已经生效的事件；set 的 to 必须作为离散终值。
-        if time_ms < duration(node.attribute("begin").unwrap_or("0"), 0) { continue; }
+        if time_ms < duration(node.attribute("begin").unwrap_or("0"), 0) {
+            continue;
+        }
         let attribute = if node.tag_name().name() == "animateTransform" {
             "transform"
         } else {
@@ -212,17 +230,18 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
         };
         let values: Option<Vec<String>> = if node.tag_name().name() == "set" {
             node.attribute("to").map(|to| vec![to.into(), to.into()])
-        } else { node
-            .attribute("values")
-            .map(|values| values.split(';').map(|value| value.trim().into()).collect())
-            .or_else(|| {
-                Some(vec![
-                    node.attribute("from").unwrap_or("").into(),
-                    node.attribute("to").unwrap_or("").into(),
-                ])
-            })
-            .or_else(|| node.attribute("to").map(|to| vec![to.into(), to.into()]))
-            .filter(|values| !values.is_empty()) };
+        } else {
+            node.attribute("values")
+                .map(|values| values.split(';').map(|value| value.trim().into()).collect())
+                .or_else(|| {
+                    Some(vec![
+                        node.attribute("from").unwrap_or("").into(),
+                        node.attribute("to").unwrap_or("").into(),
+                    ])
+                })
+                .or_else(|| node.attribute("to").map(|to| vec![to.into(), to.into()]))
+                .filter(|values| !values.is_empty())
+        };
         let Some(values) = values else {
             continue;
         };
@@ -239,8 +258,15 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
                     .map(|index| index as f64 / values.len().saturating_sub(1).max(1) as f64)
                     .collect()
             });
-        if key_times.len()!=values.len() || key_times.iter().any(|v|!v.is_finite()||!(0.0..=1.0).contains(v)) || key_times.windows(2).any(|p|p[0]>p[1]) {
-            return Err(ProviderError::invalid("SVG 动画的关键帧数量或时间无效，请修复当前镜头。"));
+        if key_times.len() != values.len()
+            || key_times
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+            || key_times.windows(2).any(|p| p[0] > p[1])
+        {
+            return Err(ProviderError::invalid(
+                "SVG 动画的关键帧数量或时间无效，请修复当前镜头。",
+            ));
         }
         if key_times.len() != values.len() {
             continue;
@@ -258,9 +284,9 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
             key_times,
             begin_ms: duration(node.attribute("begin").unwrap_or("0"), 0),
             duration_ms: duration(node.attribute("dur").unwrap_or("1s"), 1000).max(1),
-            repeat: node
-                .attribute("repeatCount")
-                .is_some_and(|repeat| repeat == "indefinite" || repeat.parse::<f64>().is_ok_and(|n|n>1.)),
+            repeat: node.attribute("repeatCount").is_some_and(|repeat| {
+                repeat == "indefinite" || repeat.parse::<f64>().is_ok_and(|n| n > 1.)
+            }),
         };
         let range = parent.range();
         let tag_end = source[range.start..range.end]
@@ -285,14 +311,34 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
 }
 
 /// 原生画幅契约：输出与源画布同比例，width/height/viewBox 一致，拒绝事后填边掩盖错误。
-pub fn validate_canvas(source:&str,width:u32,height:u32)->ProviderResult<()> {
-    let doc=roxmltree::Document::parse(source).map_err(|_|ProviderError::invalid("SVG 格式错误。"))?;
-    let root=doc.root_element();
-    let n=|key:&str|root.attribute(key).and_then(|v|v.trim_end_matches("px").parse::<f64>().ok());
-    let (Some(w),Some(h))=(n("width"),n("height")) else {return Err(ProviderError::invalid("SVG 必须声明当前画布宽高。"));};
-    let vb:Vec<f64>=root.attribute("viewBox").unwrap_or("").split([',',' ']).filter(|s|!s.is_empty()).filter_map(|s|s.parse().ok()).collect();
-    if w<=0.||h<=0.||!w.is_finite()||!h.is_finite()||vb!=vec![0.,0.,w,h]||(w/h-width as f64/height as f64).abs()>0.002 {
-        return Err(ProviderError::invalid("SVG 画布、viewBox 与输出比例不一致，请为当前画幅重新构图。"));
+pub fn validate_canvas(source: &str, width: u32, height: u32) -> ProviderResult<()> {
+    let doc =
+        roxmltree::Document::parse(source).map_err(|_| ProviderError::invalid("SVG 格式错误。"))?;
+    let root = doc.root_element();
+    let n = |key: &str| {
+        root.attribute(key)
+            .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
+    };
+    let (Some(w), Some(h)) = (n("width"), n("height")) else {
+        return Err(ProviderError::invalid("SVG 必须声明当前画布宽高。"));
+    };
+    let vb: Vec<f64> = root
+        .attribute("viewBox")
+        .unwrap_or("")
+        .split([',', ' '])
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    if w <= 0.
+        || h <= 0.
+        || !w.is_finite()
+        || !h.is_finite()
+        || vb != vec![0., 0., w, h]
+        || (w / h - width as f64 / height as f64).abs() > 0.002
+    {
+        return Err(ProviderError::invalid(
+            "SVG 画布、viewBox 与输出比例不一致，请为当前画幅重新构图。",
+        ));
     }
     Ok(())
 }
@@ -301,8 +347,14 @@ pub fn validate_canvas(source:&str,width:u32,height:u32)->ProviderResult<()> {
 pub(crate) fn svg_options() -> usvg::Options<'static> {
     let mut options = usvg::Options::default();
     // 中文字体未必包含上标、希腊字母等科学符号；补充系统拉丁字体，不依赖在线字体。
-    for path in ["/System/Library/Fonts/Supplemental/Arial.ttf","C:\\Windows\\Fonts\\arial.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"] {
-        if Path::new(path).is_file() {let _=options.fontdb_mut().load_font_file(path);}
+    for path in [
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ] {
+        if Path::new(path).is_file() {
+            let _ = options.fontdb_mut().load_font_file(path);
+        }
     }
     for (path, family) in [
         (
@@ -523,7 +575,7 @@ pub async fn render(
     height: u32,
     shot_index: usize,
 ) -> ProviderResult<MediaOutput> {
-    validate_canvas(source,width,height)?;
+    validate_canvas(source, width, height)?;
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let permit = SLOTS
         .acquire()
@@ -586,11 +638,11 @@ mod tests {
     /// 后续关键帧不能提前夺走正在执行的动作；重复一次必须停在终值，文字状态能离散切换。
     #[test]
     fn sequential_events_sets_and_repeat_one_match_browser_timing() {
-        let svg=r#"<svg><rect x="0"><animate attributeName="x" from="0" to="10" begin="0ms" dur="1000ms" fill="freeze" repeatCount="1"/><animate attributeName="x" from="10" to="20" begin="2000ms" dur="1000ms" fill="freeze"/></rect><g opacity="0"><set attributeName="opacity" to="1" begin="200ms"/><set attributeName="opacity" to="0" begin="1800ms"/></g></svg>"#;
-        assert!(frame_svg(svg,500).unwrap().contains("x=\"5\""));
-        assert!(frame_svg(svg,1500).unwrap().contains("x=\"10\""));
-        assert!(frame_svg(svg,2500).unwrap().contains("x=\"15\""));
-        assert!(frame_svg(svg,1900).unwrap().contains("<g opacity=\"0\""));
+        let svg = r#"<svg><rect x="0"><animate attributeName="x" from="0" to="10" begin="0ms" dur="1000ms" fill="freeze" repeatCount="1"/><animate attributeName="x" from="10" to="20" begin="2000ms" dur="1000ms" fill="freeze"/></rect><g opacity="0"><set attributeName="opacity" to="1" begin="200ms"/><set attributeName="opacity" to="0" begin="1800ms"/></g></svg>"#;
+        assert!(frame_svg(svg, 500).unwrap().contains("x=\"5\""));
+        assert!(frame_svg(svg, 1500).unwrap().contains("x=\"10\""));
+        assert!(frame_svg(svg, 2500).unwrap().contains("x=\"15\""));
+        assert!(frame_svg(svg, 1900).unwrap().contains("<g opacity=\"0\""));
     }
 
     #[tokio::test]
