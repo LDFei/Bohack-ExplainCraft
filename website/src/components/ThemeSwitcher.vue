@@ -84,7 +84,7 @@ function navigateTheme(event: KeyboardEvent, index: number) {
             </div>
             <div class="mini-main">
               <div class="mini-canvas">
-                <img :src="mediaUrl('coffee-brew.jpg')" alt="" />
+                <img :src="mediaUrl('rel-thumb-1.jpg')" alt="" />
                 <span />
               </div>
               <div class="mini-tracks">

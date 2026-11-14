@@ -8,8 +8,8 @@ Bohack-ExplainCraft/
 ├── Cargo.toml              Cargo workspace，统一组织 Rust 工程
 ├── src-tauri/              单一 Rust crate：Tauri commands、SQLite、任务与模型供应商
 ├── front/                  Vue 3 + TypeScript：仅 Tauri 工作台
-├── website/                独立 Vite 官网：依赖、测试与 Pages 构建配置
-├── shared/public/media/    官网与工作台共享的本地示例媒体
+├── website/                独立 Vite 官网：自包含页面、素材与 Pages 构建配置
+├── shared/public/media/    工作台使用的本地示例媒体（官网素材在 website/public/media）
 └── .github/workflows/      自动检查与 GitHub Pages 发布
 ```
 
