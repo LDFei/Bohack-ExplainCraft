@@ -45,25 +45,33 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake nasm libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake nasm libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libjack-jackd2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        with:
+          path: ~/.cache/explaincraft-ffmpeg-8
+          key: linux-ffmpeg-8.0.1-static-v1
       - name: Build Linux FFmpeg 8 SDK
         if: runner.os == 'Linux'
         run: |
-          curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$RUNNER_TEMP/ffmpeg.tar.xz"
-          tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
-          cd "$RUNNER_TEMP/ffmpeg-8.0.1"
-          ./configure \
-            --prefix="$RUNNER_TEMP/ffmpeg-sdk" \
-            --disable-shared \
-            --enable-static \
-            --disable-programs \
-            --disable-doc \
-            --disable-debug \
-            --disable-network \
-            --disable-autodetect
-          make -j"$CARGO_BUILD_JOBS"
-          make install
-          echo "FFMPEG_DIR=$RUNNER_TEMP/ffmpeg-sdk" >> "$GITHUB_ENV"
+          sdk="$HOME/.cache/explaincraft-ffmpeg-8"
+          if ! test -f "$sdk/lib/pkgconfig/libavutil.pc"; then
+            curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$RUNNER_TEMP/ffmpeg.tar.xz"
+            tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
+            cd "$RUNNER_TEMP/ffmpeg-8.0.1"
+            ./configure \
+              --prefix="$sdk" \
+              --disable-shared \
+              --enable-static \
+              --disable-programs \
+              --disable-doc \
+              --disable-debug \
+              --disable-network \
+              --disable-autodetect
+            make -j"$CARGO_BUILD_JOBS"
+            make install
+          fi
+          echo "FFMPEG_DIR=$sdk" >> "$GITHUB_ENV"
       - name: Install macOS build libraries and tools
         if: runner.os == 'macOS'
         run: |
