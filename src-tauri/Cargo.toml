@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
+arc-swap = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.22"
@@ -25,12 +26,16 @@ hex = "0.4"
 hmac = "0.12"
 http-body-util = "0.1"
 image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp"] }
+png = { version = "0.17", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+resvg = "0.45"
+roxmltree = "0.20"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2", features = [] }
+tiny-skia = "0.11"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tower = { version = "0.5", features = ["util"] }
@@ -38,9 +43,15 @@ tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
 uuid = { version = "1", features = ["v4"] }
-quercus-engine-rs = { version = "=0.7.1", optional = true }
+usvg = "0.45"
+zip = { version = "2.4.2", optional = true, default-features = false, features = ["deflate"] }
+quercus-engine-rs = { version = "=0.7.2", optional = true }
+rmcp = { version = "3.8", optional = true, default-features = false }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 
 [features]
-default = []
+default = ["quercus"]
 # quercus 剪辑引擎（真实成片），需要 FFmpeg 开发包；见 README.md。
-quercus = ["dep:quercus-engine-rs", "dep:image"]
+quercus = ["dep:quercus-engine-rs", "dep:image", "dep:png", "dep:rmcp", "dep:zip"]
