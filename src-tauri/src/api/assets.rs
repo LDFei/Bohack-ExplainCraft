@@ -254,7 +254,12 @@ fn download_name(conn: &Connection, row: &AssetRow) -> ApiResult<String> {
                     .as_ref()
                     .map(|s| s.title.clone())
                     .unwrap_or_else(|| "我的短片".into());
-                return Ok(format!("{title}-v{}.mp4", version.version_number));
+                let extension = if row.asset.mime_type == "application/zip" {
+                    "zip"
+                } else {
+                    "mp4"
+                };
+                return Ok(format!("{title}-v{}.{extension}", version.version_number));
             }
         }
     }

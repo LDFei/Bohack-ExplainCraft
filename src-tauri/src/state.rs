@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +23,9 @@ pub struct AppState {
     /// 文件存储与签名地址。
     pub media: Arc<Media>,
     /// 四个模型与渲染器的供应商。
-    pub providers: Providers,
+    pub providers: Arc<ArcSwap<Providers>>,
+    /// 可热更新的模型配置；路径、媒体与鉴权仍使用上面的静态 config。
+    pub model_config: Arc<ArcSwap<Config>>,
     /// 能力目录。
     pub catalog: Arc<Catalog>,
     /// 与后台 worker 通信的句柄。

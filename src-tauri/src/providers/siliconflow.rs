@@ -3,7 +3,6 @@
 //! | 环节                     | 模型（默认）              | 接口                                   |
 //! | ------------------------ | ------------------------- | -------------------------------------- |
 //! | llm1 文案 / 分镜 / 剪辑  | `zai-org/GLM-5.3`         | `/chat/completions`（关闭思考，输出 JSON） |
-//! | llm2 画面                | `Qwen/Qwen-Image`         | `/images/generations`                  |
 //! | llm3 背景音乐            | `MiniMaxAI/MiniMax-H3`    | `/video/submit` + `/video/status`（取生成视频的音轨） |
 //!
 //! 约定：
@@ -39,10 +38,17 @@ impl SiliconFlow {
             .no_proxy()
             .timeout(Duration::from_secs(300))
             .build()?;
-        Ok(Self {
-            http,
-            base: config.siliconflow_base.clone(),
-        })
+        let base = if !config.llm1_base.is_empty() {
+            config.llm1_base.clone()
+        } else if config.provider_llm1 == "siliconflow" {
+            config.siliconflow_base.clone()
+        } else {
+            crate::config::provider_base(&config.provider_llm1).into()
+        };
+        if config.provider_llm1 == "custom" && base.trim().is_empty() {
+            anyhow::bail!("自定义供应商需要设置 LLM1_BASE_URL");
+        }
+        Ok(Self { http, base })
     }
 
     /// POST JSON 并解析 JSON 响应；HTTP 错误转为可重试的供应商错误。
@@ -129,9 +135,7 @@ impl SiliconFlow {
         let data = self
             .post(access, "/chat/completions", &body, "文案模型")
             .await?;
-        data["choices"][0]["message"]["content"]
-            .as_str()
-            .map(str::to_string)
+        content_text(&data["choices"][0]["message"]["content"])
             .filter(|text| !text.trim().is_empty())
             .ok_or_else(|| unavailable("文案模型", "返回内容为空".to_string()))
     }
@@ -152,6 +156,95 @@ impl SiliconFlow {
             ProviderError::unavailable("文案模型返回的格式不正确，请重试。")
         })
     }
+
+    /// 使用 OpenAI tool_calls 驱动 50 个 Quercus 工具，返回最终剪辑指令。
+    #[cfg(feature = "quercus")]
+    async fn chat_agent(
+        &self,
+        access: &ModelAccess,
+        system: &str,
+        user: &str,
+    ) -> ProviderResult<Option<Vec<EditOp>>> {
+        let mut oak = crate::oak::state::ServerState::new();
+        let mut messages = json!([
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]);
+        for _ in 0..8 {
+            let data = self
+                .post(
+                    access,
+                    "/chat/completions",
+                    &json!({
+                        "model": access.model,
+                        "enable_thinking": false,
+                        "temperature": 0.3,
+                        "max_tokens": 4000,
+                        "messages": messages,
+                        "tools": crate::oak::openai_tool_schemas(),
+                        "tool_choice": "auto"
+                    }),
+                    "剪辑工具模型",
+                )
+                .await?;
+            let message = data["choices"][0]["message"].clone();
+            messages.as_array_mut().unwrap().push(message.clone());
+            let calls = message["tool_calls"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            if calls.is_empty() {
+                let content = message["content"].as_str().unwrap_or("");
+                let Some(value) = extract_json(content) else {
+                    return Ok(None);
+                };
+                return Ok(serde_json::from_value::<Vec<EditOp>>(value["ops"].clone()).ok());
+            }
+            for call in calls {
+                let name = call["function"]["name"].as_str().unwrap_or("");
+                let arguments = call["function"]["arguments"]
+                    .as_str()
+                    .and_then(|text| serde_json::from_str(text).ok())
+                    .unwrap_or_else(|| json!({}));
+                let reply = crate::oak::tools::call(&mut oak, name, arguments);
+                let (structured, is_error) = match reply {
+                    Some(reply) => (reply.structured, reply.is_error),
+                    None => (Some(json!({"error": "unknown tool"})), true),
+                };
+                messages.as_array_mut().unwrap().push(json!({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "content": json!({
+                        "result": structured,
+                        "isError": is_error,
+                    }).to_string(),
+                }));
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// 兼容 OpenAI 字符串、文本对象和内容块数组三种 message.content 形式。
+fn content_text(content: &Value) -> Option<String> {
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(text) = content["text"].as_str() {
+        return Some(text.to_string());
+    }
+    content.as_array().map(|parts| {
+        parts
+            .iter()
+            .filter_map(|part| {
+                part["text"]
+                    .as_str()
+                    .or_else(|| part["content"].as_str())
+                    .or_else(|| part["output_text"].as_str())
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    })
 }
 
 /// 构造可重试的供应商错误，详细原因只写日志。
@@ -180,6 +273,13 @@ fn extract_json(text: &str) -> Option<Value> {
     let start = trimmed.find('{')?;
     let end = trimmed.rfind('}')?;
     serde_json::from_str(&trimmed[start..=end]).ok()
+}
+
+/// 从 llm1 文本中截取 SVG，复用同一文案模型完成场景绘制。
+fn extract_svg(text: &str) -> Option<String> {
+    let start = text.find("<svg")?;
+    let end = text[start..].rfind("</svg>").map(|end| start + end + 6)?;
+    Some(text[start..end].to_string())
 }
 
 /// 读取字符串字段，去掉首尾空白；缺失时返回默认值。
@@ -227,7 +327,7 @@ impl GlmScript {
 
 /// 镜头数：每个镜头约 7 秒，限制在 3～8 个。
 fn shot_count(seconds: u32) -> usize {
-    ((seconds as f64 / 7.0).round() as usize).clamp(3, 8)
+    ((seconds as f64 / 7.0).round() as usize).clamp(3, 40)
 }
 
 #[async_trait]
@@ -246,7 +346,7 @@ impl ScriptModel for GlmScript {
              {{\"subject\": 视频主题, \"audience\": 目标受众, \"purpose\": 目的（如店铺宣传、知识科普、情感共鸣）, \
              \"style\": 内容风格描述, \"project_title\": 不超过12字的项目名, \"summary\": 不超过50字的一句话创作方案, \
              \"aspect_ratio\": 用户明确要求横屏填\"16:9\"、方形填\"1:1\"、竖屏填\"9:16\"，否则沿用当前设置, \
-             \"target_duration_seconds\": 用户明确提到时长时填 15～60 的整数，否则沿用当前设置}}",
+             \"target_duration_seconds\": 用户明确提到时长时填 15～300 的整数，否则沿用当前设置}}",
             ctx.user_text,
             if answers.is_empty() { "无".into() } else { answers.join("；") },
             if attachments.is_empty() { "无".into() } else { attachments.join("、") },
@@ -271,7 +371,7 @@ impl ScriptModel for GlmScript {
             settings.aspect_ratio = ratio.into();
         }
         if let Some(seconds) = value["target_duration_seconds"].as_u64() {
-            settings.target_duration_seconds = (seconds as u32).clamp(15, 60);
+            settings.target_duration_seconds = (seconds as u32).clamp(15, 300);
         }
         let subject = text_or(&value, "subject", &ctx.user_text);
         Ok(PlanOutcome::Ready(Plan {
@@ -422,7 +522,7 @@ impl ScriptModel for GlmScript {
              只改用户提到的部分，输出 JSON（没有改动的字段填 null）：\n\
              {{\"summary\": 一句话说明这次改了什么, \"speech_rate\": 0.5～2.0 或 null, \
              \"voice\": \"male\"/\"female\"/null, \"style_id\": \"warm\"/\"cinematic\"/\"minimal\"/\"energetic\"/null, \
-             \"aspect_ratio\": \"9:16\"/\"16:9\"/\"1:1\"/null, \"target_duration_seconds\": 15～60 或 null, \
+             \"aspect_ratio\": \"9:16\"/\"16:9\"/\"1:1\"/null, \"target_duration_seconds\": 15～300 或 null, \
              \"music\": \"on\"/\"off\"/null, \"subtitles\": true/false/null, \"fade\": true/false/null, \
              \"color_preset_id\": \"natural\"/\"warm\"/\"cool\"/null, \
              \"shots\": [{{\"index\": 镜头序号（从1开始）, \"visual_prompt\": 新画面描述或 null, \"narration\": 新旁白或 null}}]}}",
@@ -589,34 +689,50 @@ impl ScriptModel for GlmScript {
             plan.total_ms,
             if plan.effect_preset_id == "fade" { "相邻镜头之间加交叉淡化" } else { "直接硬切，不加转场" },
         );
-        let ops = match self
+        #[cfg(feature = "quercus")]
+        let agent_ops = self
             .client
-            .chat_json(
+            .chat_agent(
                 &self.access,
-                "你是视频剪辑师，通过输出剪辑指令来操作剪辑软件。",
+                "你是视频剪辑师。可以使用 Quercus 工具创建工程、导入素材、调整时间线并预览；最后只输出符合用户给定格式的 ops JSON。",
                 &user,
-                4000,
             )
             .await
-        {
-            Ok(value) => match serde_json::from_value::<Vec<EditOp>>(value["ops"].clone()) {
-                Ok(ops) => match validate_ops(&ops, &plan) {
-                    Ok(()) => {
-                        tracing::info!(target: "job", "  · llm1 输出 {} 条剪辑指令，校验通过", ops.len());
-                        ops
-                    }
-                    Err(reason) => {
-                        tracing::warn!(target: "job", "  · llm1 剪辑指令校验未通过（{reason}），改用标准指令");
+            .ok()
+            .flatten();
+        #[cfg(not(feature = "quercus"))]
+        let agent_ops: Option<Vec<EditOp>> = None;
+        let ops = match agent_ops {
+            Some(ops) if validate_ops(&ops, &plan).is_ok() => ops,
+            _ => match self
+                .client
+                .chat_json(
+                    &self.access,
+                    "你是视频剪辑师，通过输出剪辑指令来操作剪辑软件。",
+                    &user,
+                    4000,
+                )
+                .await
+            {
+                Ok(value) => match serde_json::from_value::<Vec<EditOp>>(value["ops"].clone()) {
+                    Ok(ops) => match validate_ops(&ops, &plan) {
+                        Ok(()) => {
+                            tracing::info!(target: "job", "  · llm1 输出 {} 条剪辑指令，校验通过", ops.len());
+                            ops
+                        }
+                        Err(reason) => {
+                            tracing::warn!(target: "job", "  · llm1 剪辑指令校验未通过（{reason}），改用标准指令");
+                            fallback
+                        }
+                    },
+                    Err(error) => {
+                        tracing::warn!(target: "job", "  · llm1 剪辑指令格式错误（{error}），改用标准指令");
                         fallback
                     }
                 },
-                Err(error) => {
-                    tracing::warn!(target: "job", "  · llm1 剪辑指令格式错误（{error}），改用标准指令");
-                    fallback
-                }
+                // 剪辑指令有确定的兜底方案：模型调用失败不让整个任务失败。
+                Err(_) => fallback,
             },
-            // 剪辑指令有确定的兜底方案：模型调用失败不让整个任务失败。
-            Err(_) => fallback,
         };
         plan.ops = ops;
         Ok(plan)
@@ -802,74 +918,48 @@ fn validate_ops(ops: &[EditOp], plan: &EditPlan) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- llm2：Qwen-Image 画面 ----------
-
-/// llm2：用文生图模型为镜头生成画面。
-pub struct QwenImage {
-    /// 共用客户端。
-    client: Arc<SiliconFlow>,
-    /// 密钥与模型。
-    access: ModelAccess,
-}
-
-impl QwenImage {
-    /// 创建 llm2 供应商。
-    pub fn new(client: Arc<SiliconFlow>, config: &Config) -> Self {
-        Self {
-            client,
-            access: config.llm2.clone(),
-        }
-    }
-}
-
-/// Qwen-Image 推荐的分辨率（宽 x 高），按画面比例选择。
-fn qwen_image_size(aspect_ratio: &str) -> &'static str {
-    match aspect_ratio {
-        "16:9" => "1664x928",
-        "1:1" => "1328x1328",
-        _ => "928x1664",
-    }
-}
+// ---------- llm1 复用：SVG 动画场景 ----------
 
 #[async_trait]
-impl VisualModel for QwenImage {
+impl VisualModel for GlmScript {
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
-        let ctx = &request.ctx;
+        let (width, height) = crate::util::dimensions(&request.ctx.settings.aspect_ratio);
         let prompt = format!(
-            "{}。{}，{}，景别：{}，高清摄影，画面中不要出现任何文字、字幕或水印。",
+            "为以下镜头绘制 {}×{} 的 SVG 动画：{}\n风格：{}\n镜头时长：{} 毫秒。\n\
+             只输出完整 SVG，不要 Markdown。使用 rect/circle/ellipse/path/text 和 SMIL animate/animateTransform；\
+             禁止 script、foreignObject、image、animateMotion、外链和 CSS 动画。",
+            width,
+            height,
             request.shot.visual_prompt,
-            ctx.brief.as_ref().map(|b| b.style.as_str()).unwrap_or(""),
-            style_text(&ctx.settings.style_id),
-            request.shot.shot_size,
+            request
+                .ctx
+                .brief
+                .as_ref()
+                .map(|brief| brief.style.as_str())
+                .unwrap_or("温暖"),
+            request.shot.duration_ms,
         );
-        let body = json!({
-            "model": self.access.model,
-            "prompt": prompt,
-            "image_size": qwen_image_size(&ctx.settings.aspect_ratio),
-        });
-        let data = self
+        let text = self
             .client
-            .post(&self.access, "/images/generations", &body, "画面生成模型")
+            .chat(
+                &self.access,
+                "你同时负责短视频文案与 SVG 场景绘制，输出简洁、可循环的矢量动画，控制在6000字符以内且不超过60个元素。",
+                &prompt,
+                12000,
+            )
             .await?;
-        let url = data["images"][0]["url"]
-            .as_str()
-            .ok_or_else(|| unavailable("画面生成模型", "响应中没有图片地址".into()))?;
-        let bytes = self.client.download(url, "画面生成模型").await?;
-        let (mime, ext) = match crate::media::sniff(&bytes) {
-            Some(("image/jpeg", _, _)) => ("image/jpeg", "jpg"),
-            Some(("image/webp", _, _)) => ("image/webp", "webp"),
-            _ => ("image/png", "png"),
-        };
-        Ok(MediaOutput {
-            data: MediaData::Bytes(bytes),
-            file_name: format!("shot-{}.{ext}", request.shot_index + 1),
-            mime_type: mime.into(),
-            kind: "image".into(),
-            source: "generated".into(),
-            width: None,
-            height: None,
-            duration_ms: None,
-        })
+        let svg = extract_svg(&text).ok_or_else(|| {
+            tracing::warn!(target: "job", "SVG 场景模型返回内容不完整：{}", preview(&text));
+            ProviderError::invalid("模型没有返回完整 SVG，请重试或调整创作要求。")
+        })?;
+        crate::svg_animation::render(
+            &svg,
+            request.shot.duration_ms.max(1000),
+            width as u32,
+            height as u32,
+            request.shot_index,
+        )
+        .await
     }
 }
 
@@ -888,7 +978,13 @@ impl MiniMaxMusic {
     pub fn new(client: Arc<SiliconFlow>, config: &Config) -> Self {
         Self {
             client,
-            access: config.llm3.clone(),
+            access: ModelAccess {
+                api_key: config.llm3.api_key.clone(),
+                model: std::env::var("LLM3_MODEL")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "MiniMaxAI/MiniMax-H3".into()),
+            },
         }
     }
 }
@@ -991,11 +1087,16 @@ mod tests {
     }
 
     #[test]
-    fn picks_shot_count_and_image_size() {
+    fn picks_shot_count() {
         assert_eq!(shot_count(15), 3);
         assert_eq!(shot_count(30), 4);
-        assert_eq!(shot_count(60), 8);
-        assert_eq!(qwen_image_size("9:16"), "928x1664");
-        assert_eq!(qwen_image_size("16:9"), "1664x928");
+        assert_eq!(shot_count(60), 9);
+        assert_eq!(shot_count(300), 40);
+    }
+
+    #[test]
+    fn parses_openai_content_blocks() {
+        let content = json!([{"type": "text", "text": "<svg/>"}]);
+        assert_eq!(content_text(&content).unwrap(), "<svg/>");
     }
 }

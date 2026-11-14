@@ -1,10 +1,12 @@
 //! 运行配置。
 //!
-//! 所有配置都从环境变量读取，并带有适合本机演示的默认值，因此不设置任何变量也能直接启动。
+//! 所有配置都从环境变量读取，并带有真实供应商的默认值。
 //! 变量的完整列表与说明见 `src-tauri/README.md` 的“配置”一节。
 
 use std::env;
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 
 /// 后端运行配置，启动时由 [`Config::from_env`] 一次性读取，之后只读共享。
 #[derive(Clone, Debug)]
@@ -13,7 +15,7 @@ pub struct Config {
     pub database_path: PathBuf,
     /// 上传、生成与渲染文件的存放目录，按项目分子目录。
     pub storage_dir: PathBuf,
-    /// 演示供应商使用的示例素材目录（图片、示例成片、背景音）。
+    /// 本地示例与曲库素材目录。
     pub demo_media_dir: PathBuf,
     /// 对外暴露的接口前缀（不含末尾斜杠），用于路由挂载和拼接媒体地址。
     pub public_prefix: String,
@@ -23,8 +25,6 @@ pub struct Config {
     pub media_secret: Option<String>,
     /// 播放 / 下载地址有效期（秒）。
     pub media_url_ttl_seconds: i64,
-    /// 演示供应商每一步的模拟耗时（毫秒），便于在界面上看到制作进度。
-    pub demo_delay_ms: u64,
     /// 同时执行的任务数上限。
     pub max_concurrent_jobs: usize,
     /// 追问的等待时长（秒），超时后任务以 `INPUT_TIMEOUT` 失败。
@@ -35,8 +35,6 @@ pub struct Config {
     pub auth_mode: AuthMode,
     /// llm1（选题、文案、分镜、剪辑方案）的供应商名称。
     pub provider_llm1: String,
-    /// llm2（拍摄筹备 / 画面生成）的供应商名称。
-    pub provider_llm2: String,
     /// llm3（背景音乐）的供应商名称。
     pub provider_llm3: String,
     /// llm4（配音 TTS）的供应商名称。
@@ -49,10 +47,34 @@ pub struct Config {
     pub siliconflow_base: String,
     /// llm1（文案 / 分镜 / 剪辑）的密钥与模型。
     pub llm1: ModelAccess,
-    /// llm2（画面生成）的密钥与模型。
-    pub llm2: ModelAccess,
+    /// llm1 的 OpenAI 兼容 base URL。
+    pub llm1_base: String,
     /// llm3（背景音乐）的密钥与模型。
     pub llm3: ModelAccess,
+    /// llm3 的 base URL。
+    pub llm3_base: String,
+    /// 阿里云 Qwen-TTS 的密钥与模型。
+    pub qwen_tts: ModelAccess,
+    /// Qwen-TTS base URL。
+    pub qwen_tts_base: String,
+    /// Qwen-TTS 默认声线。
+    pub qwen_tts_voice: String,
+    /// 硅基流动 TTS 的密钥与模型。
+    pub siliconflow_tts: ModelAccess,
+    /// 硅基流动 TTS base URL。
+    pub siliconflow_tts_base: String,
+    /// 硅基流动默认声线。
+    pub siliconflow_tts_voice: String,
+    /// 用户可选择的声线 ID 列表。
+    pub tts_voices: Vec<String>,
+    /// 本地 IndexTTS 的 OpenAI 兼容 base URL。
+    pub indextts_base: String,
+    /// 本地 IndexTTS 模型名。
+    pub indextts_model: String,
+    /// 本地 IndexTTS 默认音色或参考音标识。
+    pub indextts_voice: String,
+    /// 设置写入的 `.env` 文件。
+    pub settings_file: PathBuf,
     /// 本地 ComfyUI 地址（breezeTTS2 配音）。
     pub comfyui_url: String,
     /// breezeTTS2 加载的检查点（ComfyUI 节点下拉框中的名称）。
@@ -110,6 +132,16 @@ fn number<T: std::str::FromStr>(name: &str, default: T) -> T {
 }
 
 impl Config {
+    /// 当前供应商的默认声线。
+    pub fn default_voice(&self) -> String {
+        match self.provider_llm4.as_str() {
+            "siliconflow" => self.siliconflow_tts_voice.clone(),
+            "indextts" => self.indextts_voice.clone(),
+            "breeze" => "voice_warm".into(),
+            _ => self.qwen_tts_voice.clone(),
+        }
+    }
+
     /// 返回给前端的媒体地址前缀：`PUBLIC_ORIGIN` + 接口前缀。
     pub fn public_base(&self) -> String {
         format!("{}{}", self.public_origin, self.public_prefix)
@@ -127,7 +159,7 @@ impl Config {
             storage_dir: env::var("STORAGE_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| data_dir.join("storage")),
-            demo_media_dir: PathBuf::from(var("DEMO_MEDIA_DIR", "../front/public/media")),
+            demo_media_dir: PathBuf::from(var("DEMO_MEDIA_DIR", "../shared/public/media")),
             public_origin: var("PUBLIC_ORIGIN", "").trim_end_matches('/').to_string(),
             public_prefix: var("PUBLIC_API_PREFIX", "/api/v1")
                 .trim_end_matches('/')
@@ -136,7 +168,6 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             media_url_ttl_seconds: number("MEDIA_URL_TTL_SECONDS", 1800),
-            demo_delay_ms: number("DEMO_DELAY_MS", 900),
             max_concurrent_jobs: number("MAX_CONCURRENT_JOBS", 4),
             question_ttl_seconds: number("QUESTION_TTL_SECONDS", 86_400),
             event_retention_seconds: number("EVENT_RETENTION_SECONDS", 86_400),
@@ -145,11 +176,10 @@ impl Config {
             } else {
                 AuthMode::Dev
             },
-            provider_llm1: var("PROVIDER_LLM1", "demo"),
-            provider_llm2: var("PROVIDER_LLM2", "demo"),
-            provider_llm3: var("PROVIDER_LLM3", "demo"),
-            provider_llm4: var("PROVIDER_LLM4", "demo"),
-            provider_renderer: var("PROVIDER_RENDERER", "demo"),
+            provider_llm1: var("PROVIDER_LLM1", "siliconflow"),
+            provider_llm3: var("PROVIDER_LLM3", "procedural"),
+            provider_llm4: var("PROVIDER_LLM4", "qwen"),
+            provider_renderer: var("PROVIDER_RENDERER", "quercus"),
             ffprobe: var("FFPROBE_PATH", "ffprobe"),
             siliconflow_base: var("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
                 .trim_end_matches('/')
@@ -158,20 +188,119 @@ impl Config {
                 api_key: var("LLM1_API_KEY", ""),
                 model: var("LLM1_MODEL", "zai-org/GLM-5.3"),
             },
-            llm2: ModelAccess {
-                api_key: var("LLM2_API_KEY", ""),
-                model: var("LLM2_MODEL", "Qwen/Qwen-Image"),
-            },
+            llm1_base: var("LLM1_BASE_URL", "").trim_end_matches('/').to_string(),
             llm3: ModelAccess {
                 api_key: var("LLM3_API_KEY", ""),
                 model: var("LLM3_MODEL", "MiniMaxAI/MiniMax-H3"),
             },
+            llm3_base: var("LLM3_BASE_URL", "").trim_end_matches('/').to_string(),
+            qwen_tts: ModelAccess {
+                api_key: var("QWEN_TTS_API_KEY", &var("DASHSCOPE_API_KEY", "")),
+                model: var("QWEN_TTS_MODEL", "qwen-tts"),
+            },
+            qwen_tts_base: var(
+                "QWEN_TTS_BASE_URL",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            )
+            .trim_end_matches('/')
+            .to_string(),
+            qwen_tts_voice: var("QWEN_TTS_VOICE", "Cherry"),
+            siliconflow_tts: ModelAccess {
+                api_key: var("SILICONFLOW_TTS_API_KEY", &var("LLM1_API_KEY", "")),
+                model: var("SILICONFLOW_TTS_MODEL", "fnlp/MOSS-TTSD-v0.5"),
+            },
+            siliconflow_tts_base: var("SILICONFLOW_TTS_BASE_URL", "https://api.siliconflow.cn/v1")
+                .trim_end_matches('/')
+                .to_string(),
+            siliconflow_tts_voice: var("SILICONFLOW_TTS_VOICE", ""),
+            tts_voices: var("TTS_VOICES", "alex,anna,bella,claire,diana,eric,jason,joanna,joseph,julia,liam,lily,mark,molly,noah,oliver,ryan,sophia,tony,uk,Cherry,Ethan,Serena")
+                .split(',')
+                .map(str::trim)
+                .filter(|voice| !voice.is_empty())
+                .map(str::to_string)
+                .collect(),
+            indextts_base: var("INDEXTTS_BASE_URL", "http://127.0.0.1:8000/v1")
+                .trim_end_matches('/')
+                .to_string(),
+            indextts_model: var("INDEXTTS_MODEL", "indextts"),
+            indextts_voice: var("INDEXTTS_VOICE", "default"),
             comfyui_url: var("COMFYUI_URL", "http://127.0.0.1:8188")
                 .trim_end_matches('/')
                 .to_string(),
             breeze_model: var("BREEZE_MODEL", "int8 hybrid (recommended)"),
             breeze_voice_male: var("BREEZE_VOICE_MALE", ""),
             breeze_voice_female: var("BREEZE_VOICE_FEMALE", ""),
+            settings_file: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env"),
+        }
+    }
+}
+
+/// 一组可编辑的供应商配置；密钥只在更新时传入，读取时不返回。
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSetting {
+    /// 供应商 ID。
+    pub provider: String,
+    /// OpenAI 兼容或服务 base URL。
+    pub base_url: String,
+    /// 模型名。
+    pub model: String,
+    /// 新密钥；`None` 表示保留现有密钥。
+    pub api_key: Option<String>,
+    /// 是否已有密钥，供 UI 显示而不泄露内容。
+    pub has_api_key: bool,
+    /// 默认声线；每次创作仍可在作品设置中重新选择。
+    #[serde(default)]
+    pub voice_id: String,
+}
+
+impl ProviderSetting {
+    /// 设置默认声线。
+    pub(crate) fn with_voice(mut self, voice_id: String) -> Self {
+        self.voice_id = voice_id;
+        self
+    }
+}
+
+/// 创作、音乐与配音三组配置。
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSettings {
+    /// 文案、对话、分镜和 SVG 共用的 llm1。
+    pub script: ProviderSetting,
+    /// 背景音乐。
+    pub music: ProviderSetting,
+    /// 配音。
+    pub voice: ProviderSetting,
+}
+
+/// OpenAI 兼容及原生模型供应商的默认 base URL。
+pub fn provider_base(provider: &str) -> &'static str {
+    match provider {
+        "openai" => "https://api.openai.com/v1",
+        "aliyun" | "qwen" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "deepseek" => "https://api.deepseek.com/v1",
+        "minimax" => "https://api.minimaxi.com/v1",
+        "glm" => "https://open.bigmodel.cn/api/paas/v4",
+        "stable_audio" => "https://api.stability.ai",
+        "custom" => "",
+        _ => "https://api.siliconflow.cn/v1",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn includes_all_documented_openai_compatible_presets() {
+        for provider in [
+            "openai",
+            "aliyun",
+            "deepseek",
+            "minimax",
+            "siliconflow",
+            "glm",
+        ] {
+            assert!(super::provider_base(provider).starts_with("https://"));
         }
     }
 }

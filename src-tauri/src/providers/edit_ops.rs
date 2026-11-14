@@ -97,7 +97,7 @@ pub const DEFAULT_FPS: i32 = 30;
 
 /// 把剪辑方案的时间线翻译成标准指令序列。
 ///
-/// 演示版 llm1 用它生成指令；真实模型可以直接输出指令，不经过这里。
+/// llm1 用它生成标准指令；模型也可以直接输出指令，不经过这里。
 /// 轨道约定：视频 0 放镜头画面，音频 0 放配音，音频 1 放背景音乐。
 pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
     let (width, height) = crate::util::dimensions(&plan.aspect_ratio);
@@ -137,7 +137,8 @@ pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
                 start_ms: clip.start_ms,
                 end_ms,
                 media_in_ms: 0,
-                clip: None,
+                // 每段旁白都保留独立片段 ID，便于核对时间线、设置音量和导出工程。
+                clip: Some(format!("voice_clip{index}")),
             });
         }
     }
@@ -161,13 +162,54 @@ pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
                 start_ms: start,
                 end_ms: end,
                 media_in_ms: 0,
-                clip: None,
+                clip: Some(format!("music_clip{start}")),
             });
             start = end;
         }
     }
     set_crossfades(&mut ops, plan.effect_preset_id == "fade", 300);
     ops
+}
+
+/// 把时间线字幕转为 SubRip；关闭字幕或没有文字时不生成文件。
+pub fn srt_from_plan(plan: &super::EditPlan) -> Option<String> {
+    if !plan.subtitles_enabled {
+        return None;
+    }
+    let mut srt = String::new();
+    let mut index = 1;
+    for clip in &plan.clips {
+        let Some(text) = clip
+            .subtitle
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let start = clip.start_ms.max(0);
+        let end = (clip.start_ms + clip.duration_ms).max(start + 1);
+        srt.push_str(&format!(
+            "{index}\n{} --> {}\n{}\n\n",
+            srt_timestamp(start),
+            srt_timestamp(end),
+            text.replace("\r\n", "\n").replace('\r', "\n")
+        ));
+        index += 1;
+    }
+    (!srt.is_empty()).then_some(srt)
+}
+
+/// 将毫秒编码为 SRT 的 `HH:MM:SS,mmm` 时间戳。
+fn srt_timestamp(ms: i64) -> String {
+    let ms = ms.max(0);
+    format!(
+        "{:02}:{:02}:{:02},{:03}",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    )
 }
 
 /// 按特效预设整理转场：先移除全部交叉淡化，开启时再为主画面轨上相邻的镜头补上。
@@ -237,5 +279,32 @@ mod tests {
         assert_eq!(ms_to_frames(1000, 30), 30);
         assert_eq!(ms_to_frames(7500, 30), 225);
         assert_eq!(ms_to_frames(16, 30), 0);
+    }
+
+    #[test]
+    fn subtitles_include_every_nonempty_clip() {
+        let plan = super::super::EditPlan {
+            subtitles_enabled: true,
+            clips: vec![
+                super::super::Clip {
+                    start_ms: 500,
+                    duration_ms: 1500,
+                    subtitle: Some("第一段字幕".into()),
+                    ..Default::default()
+                },
+                super::super::Clip {
+                    start_ms: 2000,
+                    duration_ms: 1000,
+                    subtitle: Some("第二段字幕".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let srt = srt_from_plan(&plan).expect("SRT");
+        assert!(srt.contains("00:00:00,500 --> 00:00:02,000"));
+        assert!(srt.contains("00:00:02,000 --> 00:00:03,000"));
+        assert!(srt.contains("第一段字幕"));
+        assert!(srt.contains("第二段字幕"));
     }
 }

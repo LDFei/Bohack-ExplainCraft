@@ -13,6 +13,7 @@ use tauri::State;
 use tower::ServiceExt;
 
 use crate::api::{self, user_from_headers};
+use crate::config::{provider_base, ModelSettings, ProviderSetting};
 use crate::db;
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -411,7 +412,7 @@ pub async fn get_version(
     .await
 }
 
-/// 导出指定版本为 MP4。
+/// 导出指定版本为 MP4，或包含全部素材与剪辑工程的 ZIP。
 #[tauri::command]
 pub async fn export_video(
     state: State<'_, AppState>,
@@ -419,13 +420,14 @@ pub async fn export_video(
     project_id: String,
     version_id: String,
     resolution: String,
+    include_project: bool,
 ) -> Result<CommandReply, String> {
     json_command(
         &state,
         Method::POST,
         format!("/api/v1/projects/{project_id}/versions/{version_id}/exports"),
         &request,
-        json!({ "format": "mp4", "resolution": resolution, "fps": 30 }),
+        json!({ "format": "mp4", "resolution": resolution, "fps": 30, "include_project": include_project }),
     )
     .await
 }
@@ -487,6 +489,378 @@ pub async fn project_events(
         .map_err(|error| error.message)
 }
 
+/// 把当前配置转换为 UI 视图，不返回任何密钥内容。
+fn settings_view(config: &crate::Config) -> ModelSettings {
+    let access = |provider: String, base: String, model: String, key: String| ProviderSetting {
+        provider,
+        base_url: base,
+        model,
+        api_key: None,
+        has_api_key: !key.trim().is_empty(),
+        ..Default::default()
+    };
+    let voice = match config.provider_llm4.as_str() {
+        "siliconflow" => access(
+            "siliconflow".into(),
+            config.siliconflow_tts_base.clone(),
+            config.siliconflow_tts.model.clone(),
+            config.siliconflow_tts.api_key.clone(),
+        )
+        .with_voice(config.siliconflow_tts_voice.clone()),
+        "indextts" => access(
+            "indextts".into(),
+            config.indextts_base.clone(),
+            config.indextts_model.clone(),
+            String::new(),
+        )
+        .with_voice(config.indextts_voice.clone()),
+        "breeze" => access(
+            "breeze".into(),
+            config.comfyui_url.clone(),
+            config.breeze_model.clone(),
+            String::new(),
+        )
+        .with_voice("voice_warm".into()),
+        _ => access(
+            "qwen".into(),
+            config.qwen_tts_base.clone(),
+            config.qwen_tts.model.clone(),
+            config.qwen_tts.api_key.clone(),
+        )
+        .with_voice(config.qwen_tts_voice.clone()),
+    };
+    ModelSettings {
+        script: access(
+            config.provider_llm1.clone(),
+            if config.llm1_base.is_empty() {
+                provider_base(&config.provider_llm1).into()
+            } else {
+                config.llm1_base.clone()
+            },
+            config.llm1.model.clone(),
+            config.llm1.api_key.clone(),
+        ),
+        music: access(
+            config.provider_llm3.clone(),
+            if config.llm3_base.is_empty() {
+                provider_base(&config.provider_llm3).into()
+            } else {
+                config.llm3_base.clone()
+            },
+            config.llm3.model.clone(),
+            config.llm3.api_key.clone(),
+        ),
+        voice,
+    }
+}
+
+/// 读取当前创作、音乐与配音配置。
+#[tauri::command]
+pub fn get_model_settings(state: State<'_, AppState>) -> ModelSettings {
+    settings_view(&state.model_config.load())
+}
+
+/// 更新 `.env` 中的单个键，保留其他配置与注释，不把密钥写进日志。
+fn write_env_values(path: &std::path::Path, values: &[(&str, String)]) -> Result<(), String> {
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let mut lines: Vec<String> = existing.lines().map(str::to_string).collect();
+    for (key, value) in values {
+        let prefix = format!("{key}=");
+        let escaped = value.replace('\\', "\\\\").replace('\'', "\\'");
+        let line = format!("{key}='{escaped}'");
+        if let Some(existing) = lines.iter_mut().find(|line| line.starts_with(&prefix)) {
+            *existing = line;
+        } else {
+            lines.push(line);
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(path, format!("{}\n", lines.join("\n"))).map_err(|error| error.to_string())
+}
+
+/// 校验供应商与 base URL，空地址表示使用内置预设。
+fn validate_setting(setting: &ProviderSetting, allowed: &[&str]) -> Result<(), String> {
+    if !allowed.contains(&setting.provider.as_str()) {
+        return Err(format!("不支持的供应商：{}", setting.provider));
+    }
+    if setting.model.trim().is_empty() {
+        return Err("模型名称不能为空。".into());
+    }
+    if !setting.base_url.trim().is_empty() {
+        let url = reqwest::Url::parse(setting.base_url.trim())
+            .map_err(|_| "base URL 格式不正确。".to_string())?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err("base URL 必须使用 HTTP 或 HTTPS。".into());
+        }
+    }
+    Ok(())
+}
+
+/// 保存配置并原子替换供应商；新任务立即使用新配置。
+#[tauri::command]
+pub fn update_model_settings(
+    state: State<'_, AppState>,
+    settings: ModelSettings,
+) -> Result<ModelSettings, String> {
+    validate_setting(
+        &settings.script,
+        &[
+            "openai",
+            "aliyun",
+            "deepseek",
+            "minimax",
+            "siliconflow",
+            "glm",
+            "custom",
+        ],
+    )?;
+    if settings.script.provider == "custom" && settings.script.base_url.trim().is_empty() {
+        return Err("自定义供应商必须填写 OpenAI Compatible Endpoint。".into());
+    }
+    validate_setting(
+        &settings.music,
+        &["procedural", "siliconflow", "minimax", "stable_audio"],
+    )?;
+    validate_setting(
+        &settings.voice,
+        &["qwen", "aliyun", "siliconflow", "indextts", "breeze"],
+    )?;
+    if settings.voice.voice_id.trim().is_empty() {
+        return Err("请选择或填写默认声线。".into());
+    }
+    let current = state.model_config.load();
+    let mut next = (**current).clone();
+    next.provider_llm1 = settings.script.provider.clone();
+    next.llm1_base = settings.script.base_url.trim().into();
+    next.llm1.model = settings.script.model.trim().into();
+    if let Some(key) = &settings.script.api_key {
+        next.llm1.api_key = key.clone();
+    }
+    next.provider_llm3 = settings.music.provider.clone();
+    next.llm3_base = settings.music.base_url.trim().into();
+    next.llm3.model = settings.music.model.trim().into();
+    if let Some(key) = &settings.music.api_key {
+        next.llm3.api_key = key.clone();
+    }
+    match settings.voice.provider.as_str() {
+        "siliconflow" => {
+            next.provider_llm4 = "siliconflow".into();
+            next.siliconflow_tts_base = settings.voice.base_url.trim().into();
+            next.siliconflow_tts.model = settings.voice.model.trim().into();
+            next.siliconflow_tts_voice = settings.voice.voice_id.trim().into();
+            if let Some(key) = &settings.voice.api_key {
+                next.siliconflow_tts.api_key = key.clone();
+            }
+        }
+        "indextts" => {
+            next.provider_llm4 = "indextts".into();
+            next.indextts_base = settings.voice.base_url.trim().into();
+            next.indextts_model = settings.voice.model.trim().into();
+            next.indextts_voice = settings.voice.voice_id.trim().into();
+        }
+        "breeze" => {
+            next.provider_llm4 = "breeze".into();
+            next.comfyui_url = settings.voice.base_url.trim().into();
+            next.breeze_model = settings.voice.model.trim().into();
+        }
+        _ => {
+            next.provider_llm4 = "qwen".into();
+            next.qwen_tts_base = settings.voice.base_url.trim().into();
+            next.qwen_tts.model = settings.voice.model.trim().into();
+            next.qwen_tts_voice = settings.voice.voice_id.trim().into();
+            if let Some(key) = &settings.voice.api_key {
+                next.qwen_tts.api_key = key.clone();
+            }
+        }
+    }
+    if !next.tts_voices.contains(&settings.voice.voice_id) {
+        next.tts_voices.push(settings.voice.voice_id.trim().into());
+    }
+    let providers = crate::providers::Providers::from_config(&next)
+        .map_err(|error| format!("配置无法应用：{error}"))?;
+    let values = [
+        ("PROVIDER_LLM1", next.provider_llm1.clone()),
+        ("LLM1_BASE_URL", next.llm1_base.clone()),
+        ("LLM1_MODEL", next.llm1.model.clone()),
+        ("LLM1_API_KEY", next.llm1.api_key.clone()),
+        ("PROVIDER_LLM3", next.provider_llm3.clone()),
+        ("LLM3_BASE_URL", next.llm3_base.clone()),
+        ("LLM3_MODEL", next.llm3.model.clone()),
+        ("LLM3_API_KEY", next.llm3.api_key.clone()),
+        ("PROVIDER_LLM4", next.provider_llm4.clone()),
+        ("QWEN_TTS_BASE_URL", next.qwen_tts_base.clone()),
+        ("QWEN_TTS_MODEL", next.qwen_tts.model.clone()),
+        ("QWEN_TTS_API_KEY", next.qwen_tts.api_key.clone()),
+        (
+            "SILICONFLOW_TTS_BASE_URL",
+            next.siliconflow_tts_base.clone(),
+        ),
+        ("SILICONFLOW_TTS_MODEL", next.siliconflow_tts.model.clone()),
+        (
+            "SILICONFLOW_TTS_API_KEY",
+            next.siliconflow_tts.api_key.clone(),
+        ),
+        ("INDEXTTS_BASE_URL", next.indextts_base.clone()),
+        ("INDEXTTS_MODEL", next.indextts_model.clone()),
+        ("COMFYUI_URL", next.comfyui_url.clone()),
+        ("BREEZE_MODEL", next.breeze_model.clone()),
+    ];
+    write_env_values(&next.settings_file, &values)?;
+    state.providers.store(std::sync::Arc::new(providers));
+    state.model_config.store(std::sync::Arc::new(next.clone()));
+    Ok(settings_view(&next))
+}
+
+/// 调用 OpenAI Compatible `GET /models`，返回可供下拉选择的模型 ID。
+#[tauri::command]
+pub async fn list_models(
+    state: State<'_, AppState>,
+    setting: ProviderSetting,
+    kind: Option<String>,
+) -> Result<Vec<String>, String> {
+    let base = if setting.base_url.trim().is_empty() {
+        provider_base(&setting.provider)
+    } else {
+        setting.base_url.trim()
+    };
+    if base.is_empty() {
+        return Err("请先填写 OpenAI Compatible Endpoint。".into());
+    }
+    let configured_key;
+    let api_key = match setting.api_key.filter(|key| !key.trim().is_empty()) {
+        Some(key) => Some(key),
+        None => {
+            let config = state.model_config.load();
+            configured_key = match kind.as_deref() {
+                Some("music") => config.llm3.api_key.clone(),
+                Some("voice") if setting.provider == "siliconflow" => {
+                    config.siliconflow_tts.api_key.clone()
+                }
+                Some("voice") => config.qwen_tts.api_key.clone(),
+                _ => config.llm1.api_key.clone(),
+            };
+            Some(configured_key)
+        }
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let request = client.get(format!("{}/models", base.trim_end_matches('/')));
+    let request = match api_key.filter(|key| !key.trim().is_empty()) {
+        Some(key) => request.bearer_auth(key),
+        None => request,
+    };
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "无法连接模型服务，请检查 Endpoint 和网络。".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("模型列表请求失败：HTTP {}", response.status()));
+    }
+    let data: Value = response
+        .json()
+        .await
+        .map_err(|_| "模型列表响应不是有效 JSON。".to_string())?;
+    let mut ids = std::collections::BTreeSet::new();
+    for item in data["data"]
+        .as_array()
+        .or_else(|| data["models"].as_array())
+        .into_iter()
+        .flatten()
+    {
+        if let Some(id) = item["id"].as_str().or_else(|| item["name"].as_str()) {
+            ids.insert(id.to_string());
+        }
+    }
+    if ids.is_empty() {
+        return Err("服务没有返回可用模型。".into());
+    }
+    Ok(ids.into_iter().collect())
+}
+
+/// 调用 TTS 供应商的 `/audio/voices`，返回用户可选择的声线 ID。
+#[tauri::command]
+pub async fn list_voices(
+    state: State<'_, AppState>,
+    setting: ProviderSetting,
+) -> Result<Vec<String>, String> {
+    if setting.provider == "breeze" {
+        return Ok(vec!["voice_warm".into(), "voice_calm".into()]);
+    }
+    let base = if setting.base_url.trim().is_empty() {
+        provider_base(&setting.provider)
+    } else {
+        setting.base_url.trim()
+    };
+    if base.is_empty() {
+        return Err("请先填写 TTS Endpoint。".into());
+    }
+    let configured_key;
+    let api_key = match setting.api_key.filter(|key| !key.trim().is_empty()) {
+        Some(key) => Some(key),
+        None => {
+            let config = state.model_config.load();
+            configured_key = if setting.provider == "siliconflow" {
+                config.siliconflow_tts.api_key.clone()
+            } else {
+                config.qwen_tts.api_key.clone()
+            };
+            Some(configured_key)
+        }
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let request = client.get(format!("{}/audio/voices", base.trim_end_matches('/')));
+    let request = match api_key.filter(|key| !key.trim().is_empty()) {
+        Some(key) => request.bearer_auth(key),
+        None => request,
+    };
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "无法连接声线服务，请检查 Endpoint 和网络。".to_string())?;
+    if response.status() == StatusCode::NOT_FOUND
+        || response.status() == StatusCode::METHOD_NOT_ALLOWED
+    {
+        let voices = state.model_config.load().tts_voices.clone();
+        if !voices.is_empty() {
+            return Ok(voices);
+        }
+    }
+    if !response.status().is_success() {
+        return Err(format!("声线列表请求失败：HTTP {}", response.status()));
+    }
+    let data: Value = response
+        .json()
+        .await
+        .map_err(|_| "声线列表响应不是有效 JSON。".to_string())?;
+    let mut voices = std::collections::BTreeSet::new();
+    for item in data["data"]
+        .as_array()
+        .or_else(|| data["voices"].as_array())
+        .into_iter()
+        .flatten()
+    {
+        if let Some(id) = item.as_str().or_else(|| {
+            item["id"]
+                .as_str()
+                .or_else(|| item["voice_id"].as_str())
+                .or_else(|| item["name"].as_str())
+        }) {
+            voices.insert(id.to_string());
+        }
+    }
+    if voices.is_empty() {
+        return Err("TTS 服务没有返回可选声线。".into());
+    }
+    Ok(voices.into_iter().collect())
+}
+
 /// 自定义媒体协议：在进程内校验签名并读取文件，保留 Range 与下载响应头。
 pub async fn media_response(state: AppState, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let result = async {
@@ -521,8 +895,9 @@ mod tests {
         let mut config = crate::Config::from_env();
         config.database_path = root.join("test.sqlite3");
         config.storage_dir = root.join("storage");
+        config.settings_file = root.join(".env");
         config.demo_media_dir =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../front/public/media");
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../shared/public/media");
         config.public_origin = crate::media_origin().into();
         crate::build_state(config).expect("创建 command 测试状态")
     }
@@ -541,7 +916,6 @@ mod tests {
         .expect("capabilities command");
 
         assert_eq!(reply.status, 200);
-        assert_eq!(reply.body["data"]["demo_mode"], true);
         assert!(reply.body["data"]["exports"]["resolutions"][0].is_string());
     }
 
@@ -555,5 +929,214 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert!(response.body().starts_with(b"RIFF"));
+    }
+
+    /// 使用 Tauri mock WebView 验证前端 IPC 参数能到达真实 AppState。
+    #[tokio::test]
+    async fn frontend_ipc_calls_reach_the_shared_backend_state() {
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        use tauri::webview::InvokeRequest;
+        use tauri::Manager;
+
+        /// 按 `@tauri-apps/api/core` 的 JSON 形式调用生产 command handler。
+        fn invoke(
+            window: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+            command: &str,
+            body: Value,
+            headers: HeaderMap,
+        ) -> Result<Value, Value> {
+            tauri::test::get_ipc_response(
+                window,
+                InvokeRequest {
+                    cmd: command.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: if cfg!(windows) {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .expect("WebView URL"),
+                    body: InvokeBody::Json(body),
+                    headers,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+            .map(|body| body.deserialize::<Value>().expect("JSON command 响应"))
+        }
+
+        let app = tauri::test::mock_builder()
+            .manage(test_state())
+            .invoke_handler(crate::command_handler())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("创建 mock Tauri 应用");
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("创建 mock WebView");
+
+        let capabilities =
+            invoke(&window, "capabilities", json!({}), HeaderMap::new()).expect("capabilities IPC");
+        assert_eq!(capabilities["status"], 200);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", "ipc-create-project".parse().unwrap());
+        let created =
+            invoke(&window, "create_project", json!({}), headers).expect("create_project IPC");
+        assert_eq!(created["status"], 201);
+        let project_id = created["body"]["data"]["project"]["id"]
+            .as_str()
+            .expect("项目 ID")
+            .to_string();
+
+        let snapshot = invoke(
+            &window,
+            "get_project",
+            json!({ "projectId": project_id }),
+            HeaderMap::new(),
+        )
+        .expect("get_project IPC");
+        assert_eq!(snapshot["status"], 200);
+        assert_eq!(
+            snapshot["body"]["data"]["project"]["id"],
+            created["body"]["data"]["project"]["id"]
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", "ipc-send-message".parse().unwrap());
+        let revision = snapshot["body"]["data"]["project"]["draft_revision"]
+            .as_i64()
+            .expect("草稿修订号");
+        let accepted = invoke(
+            &window,
+            "send_message",
+            json!({
+                "projectId": project_id,
+                "input": {
+                    "intent": "chat",
+                    "text": "验证前后端连接",
+                    "asset_ids": [],
+                    "expected_draft_revision": revision,
+                }
+            }),
+            headers,
+        )
+        .expect("send_message IPC");
+        assert_eq!(accepted["status"], 202);
+
+        let events = invoke(
+            &window,
+            "project_events",
+            json!({ "projectId": project_id, "after": "0" }),
+            HeaderMap::new(),
+        )
+        .expect("project_events IPC");
+        assert!(events["cursor"].is_string());
+        assert!(events["changed"].is_boolean());
+
+        let settings = invoke(&window, "get_model_settings", json!({}), HeaderMap::new())
+            .expect("get_model_settings IPC");
+        assert!(settings["script"]["apiKey"].is_null());
+
+        let updated = invoke(
+            &window,
+            "update_model_settings",
+            json!({
+                "settings": {
+                    "script": {
+                        "provider": "custom",
+                        "baseUrl": "https://provider.example.test/v1",
+                        "model": "gpt-4o-mini",
+                        "apiKey": null,
+                        "hasApiKey": false
+                    },
+                    "music": {
+                        "provider": "minimax",
+                        "baseUrl": "https://api.minimaxi.com/v1",
+                        "model": "music-1.5",
+                        "apiKey": null,
+                        "hasApiKey": false
+                    },
+                    "voice": {
+                        "provider": "qwen",
+                        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "model": "qwen-tts",
+                        "apiKey": null,
+                        "hasApiKey": false,
+                        "voiceId": "Cherry"
+                    }
+                }
+            }),
+            HeaderMap::new(),
+        )
+        .expect("update_model_settings IPC");
+        assert_eq!(updated["script"]["model"], "gpt-4o-mini");
+        assert!(updated["script"]["apiKey"].is_null());
+        assert_eq!(
+            app.state::<AppState>().model_config.load().llm1.model,
+            "gpt-4o-mini"
+        );
+        assert_eq!(
+            app.state::<AppState>().model_config.load().llm1_base,
+            "https://provider.example.test/v1"
+        );
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定模型列表测试服务");
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("接收模型或声线请求");
+                let mut buffer = [0_u8; 2048];
+                let _ = stream.read(&mut buffer);
+                let request = String::from_utf8_lossy(&buffer);
+                let body = if request.contains("/audio/voices") {
+                    r#"{"data":[{"id":"Cherry"},{"id":"Ethan"}]}"#
+                } else {
+                    r#"{"data":[{"id":"gpt-4o-mini"},{"id":"gpt-4.1"}]}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let models = invoke(
+            &window,
+            "list_models",
+            json!({
+                "setting": {
+                    "provider": "custom",
+                    "baseUrl": format!("http://{address}"),
+                    "model": "",
+                    "apiKey": "test-key",
+                    "hasApiKey": true
+                }
+            }),
+            HeaderMap::new(),
+        )
+        .expect("list_models IPC");
+        assert_eq!(models, json!(["gpt-4.1", "gpt-4o-mini"]));
+
+        let voices = invoke(
+            &window,
+            "list_voices",
+            json!({
+                "setting": {
+                    "provider": "qwen",
+                    "baseUrl": format!("http://{address}"),
+                    "model": "qwen-tts",
+                    "apiKey": "test-key",
+                    "hasApiKey": true,
+                    "voiceId": ""
+                }
+            }),
+            HeaderMap::new(),
+        )
+        .expect("list_voices IPC");
+        assert_eq!(voices, json!(["Cherry", "Ethan"]));
     }
 }

@@ -11,8 +11,6 @@ use crate::models::*;
 pub struct Catalog {
     /// 视频风格。
     pub styles: Vec<(&'static str, &'static str)>,
-    /// 配音音色。
-    pub voices: Vec<(&'static str, &'static str)>,
     /// 曲库中的背景音乐。
     pub music_tracks: Vec<(&'static str, &'static str)>,
     /// 调色预设。
@@ -60,7 +58,7 @@ pub const AUDIO_LIMIT: UploadLimit = UploadLimit {
 /// 示例曲库允许公开访问的文件（白名单，防止路径穿越）。
 pub const LIBRARY_FILES: &[&str] = &["ambient.wav"];
 
-/// 默认目录与前端 `src/domain/content.ts` 的演示选项保持一致。
+/// 默认目录与前端 `src/domain/content.ts` 的初始选项保持一致。
 impl Default for Catalog {
     fn default() -> Self {
         Self {
@@ -69,11 +67,6 @@ impl Default for Catalog {
                 ("cinematic", "电影质感"),
                 ("minimal", "简约高级"),
                 ("energetic", "活力轻快"),
-            ],
-            voices: vec![
-                ("voice_warm", "温柔女声"),
-                ("voice_calm", "沉稳男声"),
-                ("voice_bright", "元气女声"),
             ],
             music_tracks: vec![("piano", "午后钢琴"), ("light", "轻松日常")],
             color_presets: vec![
@@ -85,7 +78,7 @@ impl Default for Catalog {
             aspect_ratios: vec!["9:16", "16:9", "1:1"],
             languages: vec!["zh-CN"],
             duration_min: 15,
-            duration_max: 60,
+            duration_max: 300,
             export_resolutions: vec!["720p"],
             max_uploaded_files: 20,
         }
@@ -101,11 +94,6 @@ impl Catalog {
     /// 风格 ID 是否可用。
     pub fn has_style(&self, id: &str) -> bool {
         has(&self.styles, id)
-    }
-
-    /// 音色 ID 是否可用。
-    pub fn has_voice(&self, id: &str) -> bool {
-        has(&self.voices, id)
     }
 
     /// 曲库 ID 是否可用。
@@ -127,12 +115,12 @@ impl Catalog {
     ///
     /// - `prefix`：接口前缀，用于拼接曲库试听地址；
     /// - `event_retention_seconds`：事件保留时长，前端据此判断断线恢复策略；
-    /// - `demo_mode`：任一环节仍使用演示供应商时为 `true`。
     pub fn capabilities(
         &self,
         prefix: &str,
         event_retention_seconds: i64,
-        demo_mode: bool,
+        default_voice: &str,
+        voice_options: &[String],
     ) -> Value {
         let named = |list: &[(&str, &str)]| -> Vec<Value> {
             list.iter()
@@ -147,7 +135,7 @@ impl Catalog {
                 "aspect_ratio": "9:16",
                 "language": "zh-CN",
                 "style_id": "warm",
-                "voice_id": "voice_warm",
+                "voice_id": default_voice,
                 "music_mode": "auto",
                 "color_preset_id": "natural",
                 "effect_preset_id": "none",
@@ -157,11 +145,11 @@ impl Catalog {
             "aspect_ratios": self.aspect_ratios,
             "languages": self.languages,
             "styles": named(&self.styles),
-            // 音色试听需要真实 TTS，演示阶段不提供。
-            "voices": self.voices.iter()
-                .map(|(id, name)| json!({ "id": id, "name": name, "sample_url": null }))
+            // 音色试听需要真实 TTS，未配置时不提供。
+            "voices": voice_options.iter()
+                .map(|voice| json!({ "id": voice, "name": voice, "sample_url": null }))
                 .collect::<Vec<_>>(),
-            // 演示曲库只有一段示例背景音，所有曲目共用。
+            // 当前曲库共用一段本地背景音。
             "music_tracks": self.music_tracks.iter()
                 .map(|(id, name)| json!({
                     "id": id,
@@ -184,7 +172,6 @@ impl Catalog {
                 "audio": limit(&AUDIO_LIMIT),
             },
             "event_retention_seconds": event_retention_seconds,
-            "demo_mode": demo_mode,
         })
     }
 }
@@ -217,5 +204,15 @@ pub fn empty_draft() -> Draft {
             subtitles_enabled: true,
         },
         invalidated_stages: StageKey::ALL.to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn procedural_background_music_is_enabled_by_default() {
+        let draft = super::empty_draft();
+        assert_eq!(draft.audio.music_mode, "auto");
+        assert!(draft.audio.resolved_music_asset_id.is_none());
     }
 }

@@ -3,7 +3,7 @@
 //! | 流程环节               | trait            | 编号   |
 //! | ---------------------- | ---------------- | ------ |
 //! | 选题、文案、分镜、剪辑 | [`ScriptModel`]  | llm1   |
-//! | 拍摄筹备（画面生成）   | [`VisualModel`]  | llm2   |
+//! | SVG 场景（画面生成）   | [`VisualModel`]  | llm1   |
 //! | 背景音乐               | [`MusicModel`]   | llm3   |
 //! | 配音（TTS）            | [`VoiceModel`]   | llm4   |
 //! | 剪辑执行 / 成片输出    | [`Renderer`]     | 剪辑库 |
@@ -19,12 +19,13 @@
 //!   不要放供应商原始报错或密钥。
 //! - 调用可能被用户取消（编排层会丢弃未完成的 future），实现中不要依赖调用一定执行完。
 
-// 请求结构里的部分字段演示实现用不到，它们是留给真实供应商的输入。
+// 请求结构里的部分字段供不同供应商按需使用。
 #![allow(dead_code)]
 
 pub mod breeze;
-pub mod demo;
 pub mod edit_ops;
+pub mod openai;
+pub mod procedural;
 #[cfg(feature = "quercus")]
 pub mod quercus;
 pub mod siliconflow;
@@ -125,8 +126,6 @@ pub struct ProductionContext {
     pub user_text: String,
     /// 用户对追问的回答。
     pub answers: Vec<Answer>,
-    /// 演示用场景开关（`failure` / `question`），真实供应商忽略即可。
-    pub demo_scenario: Option<String>,
 }
 
 /// 本次消息附带的用户素材摘要，供选题阶段参考。
@@ -207,7 +206,7 @@ pub struct ShotPlan {
     pub duration_ms: i64,
     /// 该镜头的旁白。
     pub narration: String,
-    /// 画面描述，交给 llm2 生成画面。
+    /// 画面描述，交给 llm1 生成 SVG 场景。
     pub visual_prompt: String,
     /// 景别。
     pub shot_size: String,
@@ -318,7 +317,7 @@ pub trait ScriptModel: Send + Sync {
     async fn chat(&self, request: ChatRequest) -> ProviderResult<String>;
 }
 
-// ---------- llm2：拍摄筹备 / 画面生成 ----------
+// ---------- llm1 复用：SVG 场景生成 ----------
 
 /// 单个镜头的画面生成请求。
 pub struct VisualRequest {
@@ -332,7 +331,7 @@ pub struct VisualRequest {
     pub shot_count: usize,
 }
 
-/// llm2：拍摄筹备，为镜头生成或检索画面。
+/// llm1 复用：为镜头生成或检索画面。
 #[async_trait]
 pub trait VisualModel: Send + Sync {
     /// 为一个镜头生成（或从素材库检索）画面，图片或视频片段均可。
@@ -399,6 +398,8 @@ pub struct RenderRequest {
 pub struct ExportRequest {
     /// 源成片文件。
     pub source: PathBuf,
+    /// 源成片时长（毫秒）。
+    pub duration_ms: i64,
     /// 画面比例。
     pub aspect_ratio: String,
     /// 目标分辨率。
@@ -409,6 +410,30 @@ pub struct ExportRequest {
     pub format: String,
 }
 
+/// 工程包中的一份原始素材。
+pub struct BundleAsset {
+    /// 项目素材 ID，用于与时间线引用对应。
+    pub id: String,
+    /// 展示和归档时使用的原始文件名。
+    pub file_name: String,
+    /// 本地文件路径。
+    pub path: PathBuf,
+}
+
+/// 导出可人工继续剪辑的工程包请求。
+pub struct ProjectBundleRequest {
+    /// 当前版本的成片。
+    pub source: PathBuf,
+    /// 当前版本不可变的剪辑时间线。
+    pub plan: EditPlan,
+    /// 时间线素材及用户上传的全部素材。
+    pub assets: Vec<BundleAsset>,
+    /// 项目标题，用于工程与说明文件。
+    pub title: String,
+    /// 当前成片版本号。
+    pub version_number: i64,
+}
+
 /// 剪辑库：按方案合成成片，以及转换导出规格。
 #[async_trait]
 pub trait Renderer: Send + Sync {
@@ -416,6 +441,8 @@ pub trait Renderer: Send + Sync {
     async fn render(&self, request: RenderRequest) -> ProviderResult<MediaOutput>;
     /// 把已有成片转为其他导出规格。
     async fn export(&self, request: ExportRequest) -> ProviderResult<MediaOutput>;
+    /// 导出全部素材、Quercus 工程和通用剪辑交换文件。
+    async fn export_bundle(&self, request: ProjectBundleRequest) -> ProviderResult<MediaOutput>;
 }
 
 // ---------- 注册 ----------
@@ -425,7 +452,7 @@ pub trait Renderer: Send + Sync {
 pub struct Providers {
     /// llm1：文案、分镜、剪辑。
     pub script: Arc<dyn ScriptModel>,
-    /// llm2：画面。
+    /// SVG 场景（与文案共用 llm1）。
     pub visual: Arc<dyn VisualModel>,
     /// llm3：背景音乐。
     pub music: Arc<dyn MusicModel>,
@@ -441,64 +468,48 @@ impl Providers {
     /// # 错误
     /// 名称未注册时返回错误，进程启动失败并提示可用的名称。
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
-        let demo = Arc::new(demo::DemoProvider::new(config));
         // 硅基流动三个模型共用一个 HTTP 客户端。
         let cloud = Arc::new(siliconflow::SiliconFlow::new(config)?);
-
-        /// 根据名称选择某个环节的实现。新增供应商时在 `match` 中添加分支。
-        fn pick<T: ?Sized>(slot: &str, name: &str, demo: Arc<T>) -> anyhow::Result<Arc<T>> {
-            match name {
-                "demo" => Ok(demo),
-                // 在这里注册真实供应商，例如：
-                // "openai" => Ok(Arc::new(openai::OpenAiScript::new(..)?)),
-                other => anyhow::bail!(
-                    "{slot} 不支持供应商 `{other}`，可用：demo、siliconflow（llm1～llm3）、breeze（llm4）、quercus（渲染）"
-                ),
+        let script: Arc<dyn ScriptModel> = match config.provider_llm1.as_str() {
+            "openai" | "aliyun" | "deepseek" | "minimax" | "siliconflow" | "glm" | "custom" => {
+                Arc::new(siliconflow::GlmScript::new(cloud.clone(), config))
             }
-        }
+            other => anyhow::bail!("PROVIDER_LLM1 不支持供应商 `{other}`"),
+        };
+        let visual: Arc<dyn VisualModel> = match config.provider_llm1.as_str() {
+            "openai" | "aliyun" | "deepseek" | "minimax" | "siliconflow" | "glm" | "custom" => {
+                Arc::new(siliconflow::GlmScript::new(cloud.clone(), config))
+            }
+            _ => unreachable!(),
+        };
 
         Ok(Self {
-            script: match config.provider_llm1.as_str() {
-                "siliconflow" => Arc::new(siliconflow::GlmScript::new(cloud.clone(), config)),
-                name => pick::<dyn ScriptModel>("PROVIDER_LLM1", name, demo.clone())?,
-            },
-            visual: match config.provider_llm2.as_str() {
-                "siliconflow" => Arc::new(siliconflow::QwenImage::new(cloud.clone(), config)),
-                name => pick::<dyn VisualModel>("PROVIDER_LLM2", name, demo.clone())?,
-            },
+            script,
+            // SVG 与文案共用 llm1，不再配置第二个视觉模型。
+            visual,
             music: match config.provider_llm3.as_str() {
+                "procedural" => Arc::new(procedural::ProceduralMusic),
                 "siliconflow" => Arc::new(siliconflow::MiniMaxMusic::new(cloud.clone(), config)),
-                name => pick::<dyn MusicModel>("PROVIDER_LLM3", name, demo.clone())?,
+                "minimax" => Arc::new(openai::MiniMaxApiMusic::new(config)),
+                "stable_audio" => Arc::new(openai::StableAudioMusic::new(config)),
+                other => anyhow::bail!("PROVIDER_LLM3 不支持供应商 `{other}`"),
             },
             voice: match config.provider_llm4.as_str() {
                 "breeze" => Arc::new(breeze::BreezeTts::new(config)?),
-                name => pick::<dyn VoiceModel>("PROVIDER_LLM4", name, demo.clone())?,
+                "qwen" | "aliyun" => Arc::new(openai::OpenAiSpeech::qwen(config)),
+                "siliconflow" => Arc::new(openai::OpenAiSpeech::siliconflow(config)),
+                "indextts" => Arc::new(openai::OpenAiSpeech::indextts(config)),
+                other => anyhow::bail!("PROVIDER_LLM4 不支持供应商 `{other}`"),
             },
             renderer: match config.provider_renderer.as_str() {
-                // quercus 剪辑引擎：需要以 `--features quercus` 编译（依赖 FFmpeg 开发包）。
                 #[cfg(feature = "quercus")]
                 "quercus" => Arc::new(quercus::QuercusRenderer::new(config)),
                 #[cfg(not(feature = "quercus"))]
                 "quercus" => {
                     anyhow::bail!("PROVIDER_RENDERER=quercus 需要以 `--features quercus` 编译后端")
                 }
-                name => pick::<dyn Renderer>("PROVIDER_RENDERER", name, demo)?,
+                other => anyhow::bail!("PROVIDER_RENDERER 不支持供应商 `{other}`"),
             },
         })
-    }
-
-    /// 是否有任一环节仍在使用演示供应商。
-    ///
-    /// 为 `true` 时才接受演示情景请求头，并在 capabilities 中报告 `demo_mode`。
-    pub fn is_demo(config: &Config) -> bool {
-        [
-            &config.provider_llm1,
-            &config.provider_llm2,
-            &config.provider_llm3,
-            &config.provider_llm4,
-            &config.provider_renderer,
-        ]
-        .iter()
-        .any(|name| name.as_str() == "demo")
     }
 }

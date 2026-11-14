@@ -6,17 +6,20 @@
 它是根目录 Cargo workspace 中唯一的 crate。Tauri 桌面壳与全部业务实现共用
 `lingjing_desktop_lib`，后端只在桌面应用进程内运行，没有独立 Web 服务入口。
 
-| 环节                    | 真实供应商                                    | 演示供应商（默认） |
-| ----------------------- | --------------------------------------------- | ------------------ |
-| llm1 文案 / 分镜 / 剪辑 | `siliconflow`：GLM-5.3                        | 主题模板           |
-| llm2 画面               | `siliconflow`：Qwen-Image                     | 示例图片           |
-| llm3 背景音乐           | `siliconflow`：MiniMax-H3（取生成视频的音轨） | 示例背景音         |
-| llm4 配音               | `breeze`：本地 ComfyUI + breezeTTS2 语音克隆  | 静音占位           |
-| 剪辑渲染                | `quercus`：quercus-engine 执行剪辑指令        | 预制示例成片       |
+| 环节                    | 实现                                         | 说明          |
+| ----------------------- | -------------------------------------------- | ------------- |
+| llm1 文案 / 分镜 / 剪辑 | `siliconflow`：GLM-5.3 + 50 个 Quercus 工具  | 主题模板      |
+| llm1 SVG 动画           | 与文案共用 llm1                              | 本地逐帧渲染  |
+| llm3 背景音乐           | MiniMax / Stable Audio / 硅基流动            | 示例背景音    |
+| llm4 配音               | 阿里云 Qwen-TTS / 本地 IndexTTS / breezeTTS2 | 静音占位      |
+| 剪辑与导出              | `quercus`（默认）                            | 真实 MP4 输出 |
 
-## 快速开始（演示供应商，不需要任何密钥）
+## 快速开始
 
-需要 Node.js、Rust 和 Tauri 平台依赖。ffprobe 可选，有它时会解析上传素材的真实宽高和时长。
+需要 Node.js、Rust、Tauri 平台依赖、FFmpeg 与 Quercus 编译环境。macOS 可设置
+`FFMPEG_DIR=/opt/homebrew`，并通过 `brew install ffmpeg mpg123 zstd` 安装编解码库；Linux 还需要
+`libmpg123-dev` 和 `libzstd-dev`。Quercus 固定为 0.7.2，其 Unix 链接配置位于根目录 `.cargo/config.toml`。
+Windows 的依赖准备见下文。
 
 ```bash
 cd front
@@ -25,7 +28,7 @@ npm run desktop:dev
 ```
 
 Tauri 会初始化进程内后端并打开工作台，所有业务操作都通过 `#[tauri::command]` 完成。
-界面右上角显示“后端演示”，说明模型仍使用演示供应商。
+真实模型缺少密钥或本地服务未启动时会返回明确错误，不会用演示结果代替成功。
 
 ## 使用真实模型
 
@@ -56,20 +59,20 @@ Tauri 会初始化进程内后端并打开工作台，所有业务操作都通�
 ## 制作流程与模型分工
 
 ```
-选题 ──► 文案 ──► 分镜 ──┬─► 画面（llm2）──┬─► 剪辑方案 ──► 调色字幕 ──► 渲染输出
+选题 ──► 文案 ──► 分镜 ──┬─► SVG 画面（llm1）─┬─► 剪辑方案 ──► 调色字幕 ──► 渲染输出
         （llm1）         └─► 音频（llm3 背景音 + llm4 配音）┘    （llm1）     （预设）      （剪辑库）
 ```
 
-| 阶段 key     | 流程环节      | 接口（`src/providers/mod.rs`）                                  | 演示实现                          |
-| ------------ | ------------- | --------------------------------------------------------------- | --------------------------------- |
-| `planning`   | 1. 选题       | `ScriptModel::plan` / `revise`（llm1）                          | 关键词识别咖啡 / 旅行 / 产品      |
-| `script`     | 2. 文案       | `ScriptModel::write_script`（llm1）                             | 主题模板文案                      |
-| `storyboard` | 2. 分镜       | `ScriptModel::storyboard`（llm1）                               | 按句拆镜头、平分时长              |
-| `visuals`    | 3. 拍摄筹备   | `VisualModel::generate_shot`（llm2）                            | 示例图片                          |
-| `audio`      | 4. 音频       | `MusicModel::compose`（llm3）+ `VoiceModel::synthesize`（llm4） | 示例背景音 + 静音 WAV 占位配音    |
-| `edit`       | 5. 剪辑       | `ScriptModel::edit_plan`（llm1）输出剪辑指令                    | 按分镜生成标准剪辑指令            |
-| `finishing`  | 6. 调色与特效 | 用户选择的预设写入剪辑方案（转场同步到指令）                    | —                                 |
-| `render`     | 输出          | `Renderer::render` / `export`                                   | demo：示例成片；quercus：真实剪辑 |
+| 阶段 key     | 流程环节      | 接口（`src/providers/mod.rs`）                                  | 实现说明                       |
+| ------------ | ------------- | --------------------------------------------------------------- | ------------------------------ |
+| `planning`   | 1. 选题       | `ScriptModel::plan` / `revise`（llm1）                          | 关键词识别咖啡 / 旅行 / 产品   |
+| `script`     | 2. 文案       | `ScriptModel::write_script`（llm1）                             | 主题模板文案                   |
+| `storyboard` | 2. 分镜       | `ScriptModel::storyboard`（llm1）                               | 按句拆镜头、平分时长           |
+| `visuals`    | 3. SVG 场景   | `VisualModel::generate_shot`（与文案共用 llm1）                 | SVG/SMIL 逐帧渲染              |
+| `audio`      | 4. 音频       | `MusicModel::compose`（llm3）+ `VoiceModel::synthesize`（llm4） | 示例背景音 + 静音 WAV 占位配音 |
+| `edit`       | 5. 剪辑       | `ScriptModel::edit_plan`（llm1）输出剪辑指令                    | 按分镜生成标准剪辑指令         |
+| `finishing`  | 6. 调色与特效 | 用户选择的预设写入剪辑方案（转场同步到指令）                    | —                              |
+| `render`     | 输出          | `Renderer::render` / `export`                                   | quercus：SVG 镜头剪辑与导出    |
 
 画面和音频两个阶段并行执行，剪辑等待两者完成。仅讨论模式调用 `ScriptModel::chat`。
 
@@ -85,9 +88,13 @@ Tauri 会初始化进程内后端并打开工作台，所有业务操作都通�
 这是给 LLM 的工具调用格式，真实模型可以直接按这个格式输出。渲染器 `quercus`（`src/providers/quercus.rs`）逐条把指令翻译成
 [quercus-engine](https://docs.rs/quercus-engine-rs) 的 `EditCommand`，在它的非线性剪辑工程里搭出时间线，最后导出
 H.264 / AAC 的 MP4。
+每段旁白都有独立片段 ID。字幕会生成 SRT 和透明 PNG，再按时间区间烧录到 Quercus 成片；
+不启用会覆盖黑色画面的 Quercus 原生 Text 字幕层。
+同规格 MP4 导出直接复用已渲染文件；选择工程包时还会保存 OVE / OTIO / FCPXML，
+连同全部相关素材、上传文件和独立字幕打入使用相对路径的 ZIP。
 
-quercus 是可选 feature，需要 FFmpeg 8 开发包。默认 workspace 构建不启用它，因此不要求安装 FFmpeg，
-也不依赖仓库外的本地补丁。
+quercus 是默认 feature 和默认渲染器，需要 FFmpeg 开发包。可用 `--no-default-features`
+显式关闭它以只做轻量检查；预览和工程包都会通过 Quercus 执行。
 
 ```powershell
 $env:PROVIDER_RENDERER = 'quercus'
@@ -95,17 +102,33 @@ cd front
 npm run desktop:build:windows
 ```
 
-`tauri.ps1` 会自动设置 `FFMPEG_DIR`（同级目录 `ffmpeg-msvc`）和 `LIBCLANG_PATH`（MSYS2）。不加 feature 时仍用演示渲染器，不需要 FFmpeg。
+`tauri.ps1` 会自动设置 `FFMPEG_DIR`（同级目录 `ffmpeg-msvc`）和 `LIBCLANG_PATH`（MSYS2）。
+
+## 视觉、音乐、配音与 50 个工具
+
+- `PROVIDER_LLM1=openai|aliyun|deepseek|minimax|siliconflow|glm`：创作与 SVG 共用 llm1，只输出受约束的
+  SVG/SMIL，后端验证并逐帧渲染为镜头 MP4，不使用文生视频。
+- `LLM1_BASE_URL` 可覆盖六家预设；`LLM1_API_KEY` 和 `LLM1_MODEL` 配置密钥与模型。
+- `PROVIDER_LLM1=custom` 使用用户自定义 OpenAI Compatible Endpoint，此时必须设置 `LLM1_BASE_URL`。
+- `PROVIDER_LLM3=minimax` 使用 MiniMax `music_generation`，`stable_audio` 使用 Stability AI，
+  `siliconflow` 保留 MiniMax-H3 音轨方案。
+- `PROVIDER_LLM4=qwen` 使用阿里云 Qwen-TTS，`indextts` 使用本地 OpenAI `audio/speech`
+  兼容接口，`breeze` 保留 ComfyUI 语音克隆。
+- `PROVIDER_LLM4=siliconflow` 使用硅基流动 TTS，独立配置 `SILICONFLOW_TTS_*`。
+- `list_models` command 通过 OpenAI Compatible `/models` 获取模型下拉候选，支持手动覆盖模型名。
+- `TTS_VOICES` 配置可选声线，作品设置允许每次重新选择或手填；不再做供应商之间的声线名称猜测。
+- 目标时长支持 15～300 秒，超过后返回 `DURATION_TOO_LONG`。
+- `src/oak/` 包含参考项目的 50 个 Quercus 工具及 GPL 声明。llm1 可通过 OpenAI `tool_calls`
+  创建工程、操作时间线、预览、导出、撤销与重做，最终剪辑指令仍经过本地校验。
 
 ### 接入真实模型
 
 1. 在 `src/providers/` 新建文件，实现对应 trait（例如 `impl ScriptModel for MyLlm`）。
 2. 在 `Providers::from_config` 的 `pick` 中按名称注册。
-3. 设置环境变量切换，例如 `PROVIDER_LLM1=my-llm`，其余环节保持 `demo`。
+3. 设置环境变量切换，例如 `PROVIDER_LLM1=my-llm`。
 
 供应商只负责“输入 → 结果 / 媒体文件”，不访问数据库。文件保存、版本、进度、取消、重试都由编排层处理。错误使用
-`ProviderError`，其中的 `message` 必须能直接展示给用户。全部环节都换成真实供应商后，`/capabilities`
-的 `demo_mode` 会变为 `false`，前端也会隐藏演示提示。
+`ProviderError`，其中的 `message` 必须能直接展示给用户。
 
 ## 代码结构
 
@@ -117,7 +140,7 @@ npm run desktop:build:windows
 | `src/ops.rs`      | 接口层和 worker 共用的状态变更：建任务、写消息、结束任务                 |
 | `src/worker.rs`   | 认领队列任务（attempt 作为 fencing token）、重启恢复、追问超时、事件清理 |
 | `src/pipeline.rs` | 八个阶段的编排、检查点复用、取消与失败处理                               |
-| `src/providers/`  | 模型 / 渲染器接口与演示实现                                              |
+| `src/providers/`  | 模型与渲染器接口及真实供应商实现                                         |
 | `src/media.rs`    | 文件存储、HMAC 签名地址、文件头识别、ffprobe 解析                        |
 | `src/catalog.rs`  | `/capabilities` 内容与新项目默认草稿                                     |
 
@@ -137,26 +160,27 @@ npm run desktop:build:windows
 
 ## 配置（环境变量）
 
-| 变量                               | 默认值                          | 说明                                                       |
-| ---------------------------------- | ------------------------------- | ---------------------------------------------------------- |
-| `DATA_DIR`                         | 系统应用数据目录                | 数据库与文件目录                                           |
-| `DEMO_MEDIA_DIR`                   | 应用内嵌 `media/`               | 演示素材目录；开发时回退到 `front/public/media`            |
-| `PROVIDER_LLM1` ～ `PROVIDER_LLM4` | `demo`                          | 四个模型的供应商                                           |
-| `PROVIDER_RENDERER`                | `demo`                          | 渲染器                                                     |
-| `DEMO_DELAY_MS`                    | `900`                           | 演示供应商每步模拟耗时                                     |
-| `AUTH_MODE`                        | `dev`                           | `dev`：没有令牌时视为 `local_user`；`strict`：必须携带令牌 |
-| `MEDIA_SIGNING_SECRET`             | 随机                            | 媒体签名密钥；不设置时，重启后旧链接失效                   |
-| `MEDIA_URL_TTL_SECONDS`            | `1800`                          | 播放 / 下载地址有效期                                      |
-| `MAX_CONCURRENT_JOBS`              | `4`                             | 同时执行的任务数                                           |
-| `QUESTION_TTL_SECONDS`             | `86400`                         | 追问等待时长                                               |
-| `FFPROBE_PATH`                     | `ffprobe`                       | 素材解析工具                                               |
-| `LLM1_API_KEY` / `LLM1_MODEL`      | 空 / `zai-org/GLM-5.3`          | llm1 密钥与模型（硅基流动）                                |
-| `LLM2_API_KEY` / `LLM2_MODEL`      | 空 / `Qwen/Qwen-Image`          | llm2 密钥与模型                                            |
-| `LLM3_API_KEY` / `LLM3_MODEL`      | 空 / `MiniMaxAI/MiniMax-H3`     | llm3 密钥与模型                                            |
-| `SILICONFLOW_BASE_URL`             | `https://api.siliconflow.cn/v1` | 硅基流动接口地址                                           |
-| `COMFYUI_URL`                      | `http://127.0.0.1:8188`         | 本地 ComfyUI（breezeTTS2）                                 |
-| `BREEZE_MODEL`                     | `int8 hybrid (recommended)`     | breezeTTS2 检查点                                          |
-| `BREEZE_VOICE_MALE` / `_FEMALE`    | 空                              | 参考音路径；“沉稳男声”用男声，其余用女声                   |
+| 变量                            | 默认值                          | 说明                                                       |
+| ------------------------------- | ------------------------------- | ---------------------------------------------------------- |
+| `DATA_DIR`                      | 系统应用数据目录                | 数据库与文件目录                                           |
+| `DEMO_MEDIA_DIR`                | 应用内嵌 `media/`               | 示例与曲库目录；开发时回退到 `shared/public/media`         |
+| `PROVIDER_LLM1`                 | `siliconflow`                   | 创作、对话、分镜与 SVG 供应商                              |
+| `PROVIDER_LLM3`                 | `procedural`                    | 本地程序化配乐；新项目默认启用                             |
+| `PROVIDER_LLM4`                 | `qwen`                          | 配音供应商                                                 |
+| `PROVIDER_RENDERER`             | `quercus`                       | 剪辑与导出                                                 |
+| `AUTH_MODE`                     | `dev`                           | `dev`：没有令牌时视为 `local_user`；`strict`：必须携带令牌 |
+| `MEDIA_SIGNING_SECRET`          | 随机                            | 媒体签名密钥；不设置时，重启后旧链接失效                   |
+| `MEDIA_URL_TTL_SECONDS`         | `1800`                          | 播放 / 下载地址有效期                                      |
+| `MAX_CONCURRENT_JOBS`           | `4`                             | 同时执行的任务数                                           |
+| `QUESTION_TTL_SECONDS`          | `86400`                         | 追问等待时长                                               |
+| `FFPROBE_PATH`                  | `ffprobe`                       | 素材解析工具                                               |
+| `LLM1_API_KEY` / `LLM1_MODEL`   | 空 / `zai-org/GLM-5.3`          | llm1 密钥与模型（硅基流动）                                |
+| `LLM1_API_KEY` / `LLM1_MODEL`   | 空 / 按供应商选择模型           | 创作与 SVG 共用的模型                                      |
+| `LLM3_API_KEY` / `LLM3_MODEL`   | 空 / `MiniMaxAI/MiniMax-H3`     | llm3 密钥与模型                                            |
+| `SILICONFLOW_BASE_URL`          | `https://api.siliconflow.cn/v1` | 硅基流动接口地址                                           |
+| `COMFYUI_URL`                   | `http://127.0.0.1:8188`         | 本地 ComfyUI（breezeTTS2）                                 |
+| `BREEZE_MODEL`                  | `int8 hybrid (recommended)`     | breezeTTS2 检查点                                          |
+| `BREEZE_VOICE_MALE` / `_FEMALE` | 空                              | 参考音路径；“沉稳男声”用男声，其余用女声                   |
 
 登录模块还没有接入。dev 模式下，不同的 Bearer 令牌会被当作不同用户，可以用来验证跨用户隔离。
 
@@ -180,7 +204,7 @@ npm run desktop:build:windows
 
 ## 尚未实现
 
-- 字幕与调色：剪辑指令里还没有字幕和调色操作，`subtitles_enabled`、`color_preset_id` 目前只写进剪辑方案。
+- 调色：`color_preset_id` 目前只写进剪辑方案，还没有对应的 Quercus 调色操作。
 - 运镜：静态图片按原样铺满镜头时长，还没有推拉摇移动画。
 - breezeTTS2 没有语速参数，“语速”设置暂不生效；剪辑时按实际配音时长延长镜头，保证旁白不被截断。
 - MiniMax-H3 生成的音轨约 5 秒，剪辑时循环铺满整片。

@@ -13,16 +13,20 @@ mod db;
 mod error;
 mod media;
 mod models;
+#[cfg(feature = "quercus")]
+mod oak;
 mod ops;
 mod pipeline;
 mod providers;
 mod state;
+mod svg_animation;
 mod util;
 mod worker;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::EnvFilter;
@@ -77,7 +81,7 @@ fn dev_env_file() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-/// 演示素材目录：优先使用应用资源，开发时回退到前端工程的 `public/media`。
+/// 示例与曲库素材目录：优先使用应用资源，开发时回退到共享媒体目录。
 fn demo_media_dir(app: &tauri::App) -> PathBuf {
     if let Ok(dir) = app.path().resource_dir() {
         let bundled = dir.join("media");
@@ -85,7 +89,7 @@ fn demo_media_dir(app: &tauri::App) -> PathBuf {
             return bundled;
         }
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../front/public/media")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../shared/public/media")
 }
 
 /// 自定义媒体协议的源；Windows WebView2 使用 Tauri 的 HTTP 映射形式。
@@ -111,6 +115,11 @@ fn backend_config(app: &tauri::App) -> anyhow::Result<Config> {
     if std::env::var_os("DEMO_MEDIA_DIR").is_none() {
         config.demo_media_dir = demo_media_dir(app);
     }
+    config.settings_file = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env")
+    } else {
+        app.path().app_config_dir()?.join(".env")
+    };
     config.public_origin = media_origin().into();
     Ok(config)
 }
@@ -118,6 +127,7 @@ fn backend_config(app: &tauri::App) -> anyhow::Result<Config> {
 /// 创建共享业务状态并启动可恢复的后台 worker。
 fn build_state(config: Config) -> anyhow::Result<AppState> {
     let providers = providers::Providers::from_config(&config)?;
+    let model_config = Arc::new(ArcSwap::from_pointee(config.clone()));
     if !config.demo_media_dir.is_dir() {
         tracing::warn!(
             target: "startup",
@@ -128,7 +138,8 @@ fn build_state(config: Config) -> anyhow::Result<AppState> {
     let state = AppState {
         db: Arc::new(db::Db::open(&config.database_path)?),
         media: Arc::new(media::Media::new(&config)?),
-        providers,
+        providers: Arc::new(ArcSwap::from_pointee(providers)),
+        model_config,
         config: Arc::new(config),
         catalog: Arc::new(catalog::Catalog::default()),
         worker: WorkerHandle::default(),
@@ -139,6 +150,37 @@ fn build_state(config: Config) -> anyhow::Result<AppState> {
 
 /// 主窗口标题。
 const WINDOW_TITLE: &str = "灵镜 · AI 视频创作空间";
+
+/// 注册前端可调用的全部 commands；生产应用与 IPC 集成测试共用同一份清单。
+fn command_handler<R: tauri::Runtime>(
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        commands::capabilities,
+        commands::list_projects,
+        commands::create_project,
+        commands::get_project,
+        commands::rename_project,
+        commands::delete_project,
+        commands::send_message,
+        commands::patch_draft,
+        commands::list_assets,
+        commands::upload_asset,
+        commands::get_asset,
+        commands::get_job,
+        commands::cancel_job,
+        commands::retry_job,
+        commands::answer_job,
+        commands::list_versions,
+        commands::get_version,
+        commands::export_video,
+        commands::download_asset,
+        commands::project_events,
+        commands::get_model_settings,
+        commands::update_model_settings,
+        commands::list_models,
+        commands::list_voices,
+    ]
+}
 
 /// 初始化共享状态并创建工作台窗口。
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -177,28 +219,7 @@ pub fn run() {
                 responder.respond(commands::media_response(state, request).await);
             });
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::capabilities,
-            commands::list_projects,
-            commands::create_project,
-            commands::get_project,
-            commands::rename_project,
-            commands::delete_project,
-            commands::send_message,
-            commands::patch_draft,
-            commands::list_assets,
-            commands::upload_asset,
-            commands::get_asset,
-            commands::get_job,
-            commands::cancel_job,
-            commands::retry_job,
-            commands::answer_job,
-            commands::list_versions,
-            commands::get_version,
-            commands::export_video,
-            commands::download_asset,
-            commands::project_events,
-        ])
+        .invoke_handler(command_handler())
         .setup(setup)
         .build(tauri::generate_context!())
         .expect("启动灵镜桌面应用失败");

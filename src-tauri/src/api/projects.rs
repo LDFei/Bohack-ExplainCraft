@@ -26,7 +26,8 @@ pub async fn capabilities(State(state): State<AppState>, _user: CurrentUser) -> 
     ok(state.catalog.capabilities(
         &state.config.public_base(),
         state.config.event_retention_seconds,
-        crate::providers::Providers::is_demo(&state.config),
+        &state.model_config.load().default_voice(),
+        &state.model_config.load().tts_voices,
     ))
 }
 
@@ -340,15 +341,6 @@ pub async fn send_message(
     if text.is_empty() || text.chars().count() > 5000 {
         return Err(ApiError::validation("请输入 1～5000 字的内容。"));
     }
-    // 演示开关：仅在使用演示供应商时生效，用于体验失败重试与追问。
-    // 演示开关：仅在使用演示供应商时生效，用于体验失败重试与追问。
-    let demo_scenario = headers
-        .get("x-demo-scenario")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| matches!(*v, "failure" | "question"))
-        .filter(|_| crate::providers::Providers::is_demo(&state.config))
-        .map(str::to_string);
-
     let response = state.db.write(|t| {
         // 网络重发：返回首次受理的结果，不重复创建消息和任务。
         if let Some(response) = idem.replay(t)? {
@@ -380,7 +372,6 @@ pub async fn send_message(
                 input.asset_ids.clone()
             },
             base_video_version_id: input.base_video_version_id.clone(),
-            demo_scenario: demo_scenario.clone(),
             ..Default::default()
         };
         db::insert_message(t, &user_message)?;
@@ -589,8 +580,8 @@ pub async fn patch_draft(
 
         // 音频：换音色、语速或音乐需要重新准备音频；只改音量只需重新剪辑混音。
         if let Some(mut audio) = changes.audio {
-            if !catalog.has_voice(&audio.voice_id) {
-                return Err(field_error("audio.voice_id", "不支持这个音色。"));
+            if audio.voice_id.trim().is_empty() {
+                return Err(field_error("audio.voice_id", "请选择或填写声线。"));
             }
             if !(0.5..=2.0).contains(&audio.speech_rate) {
                 return Err(field_error(

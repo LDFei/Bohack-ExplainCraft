@@ -18,7 +18,7 @@ pub enum StageKey {
     Script,
     /// 分镜：景别、运镜、画面内容与时长（llm1）。
     Storyboard,
-    /// 拍摄筹备：为每个镜头准备画面（llm2）。
+    /// 拍摄筹备：为每个镜头准备 SVG 动画（llm1）。
     Visuals,
     /// 音频：背景音乐（llm3）与配音（llm4）。
     Audio,
@@ -534,6 +534,9 @@ pub struct ExportSpec {
     pub resolution: String,
     /// 帧率。
     pub fps: u32,
+    /// 是否同时导出全部素材和 OVE/OTIO/FCPXML 工程包。
+    #[serde(default)]
+    pub include_project: bool,
 }
 
 /// 任务受理时保存的完整输入，重试时原样复用，保证结果可复现。
@@ -547,9 +550,6 @@ pub struct JobInput {
     /// revise 时的基准成片版本。
     #[serde(default)]
     pub base_video_version_id: Option<String>,
-    /// 仅演示供应商使用：`failure` / `question`，用于体验失败重试与追问。
-    #[serde(default)]
-    pub demo_scenario: Option<String>,
     /// 用户对追问的回答，按时间顺序。
     #[serde(default)]
     pub answers: Vec<Answer>,

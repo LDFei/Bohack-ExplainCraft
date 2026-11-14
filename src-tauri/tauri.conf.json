@@ -35,7 +35,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../front/public/media/": "media/"
+      "../shared/public/media/": "media/"
     }
   }
 }

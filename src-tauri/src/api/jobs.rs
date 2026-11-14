@@ -200,10 +200,7 @@ pub async fn retry(
         if project.project.draft_revision != parent.checkpoint_revision {
             return Err(ApiError::conflict("RETRY_INPUT_CHANGED", "草稿已经改变，请根据当前内容重新生成。"));
         }
-        // 复用原输入与检查点；演示故障开关不带入重试。
-        let mut job_input = parent.input.clone();
-        // 演示故障开关不带入重试，否则重试会再次失败。
-        job_input.demo_scenario = None;
+        let job_input = parent.input.clone();
         let job = ops::create_job(t, &mut project, parent.job.kind, job_input, Some(parent.job.id.clone()))?;
         let data = json!({ "job_id": job.job.id, "parent_job_id": parent.job.id, "job_status": job.job.status });
         idem.store(t, StatusCode::ACCEPTED, &data)?;
@@ -272,6 +269,9 @@ struct ExportBody {
     resolution: String,
     /// 帧率，目前只支持 30。
     fps: u32,
+    /// 导出 ZIP 工程包；false 保持原来的 MP4 下载。
+    #[serde(default)]
+    include_project: bool,
 }
 
 /// `POST /projects/{id}/versions/{vid}/exports`：导出指定成片（幂等）。
@@ -319,7 +319,14 @@ pub async fn export(
         // 已有相同规格的文件：直接复用。
         // 已有相同规格的文件：直接复用，无需重新渲染。
         if let Some(existing) = version.exports.iter().find(|e| {
-            e.format == input.format && e.resolution == input.resolution && e.fps == input.fps
+            e.format.as_str()
+                == if input.include_project {
+                    "zip"
+                } else {
+                    input.format.as_str()
+                }
+                && e.resolution == input.resolution
+                && e.fps == input.fps
         }) {
             let data = json!({ "asset_id": existing.asset_id, "cached": true });
             idem.store(t, StatusCode::OK, &data)?;
@@ -328,12 +335,17 @@ pub async fn export(
         }
         ops::assert_idle(&project)?;
         let job_input = JobInput {
-            text: format!("导出 {} {}", input.resolution, input.format),
+            text: if input.include_project {
+                format!("导出 {} 工程包", input.resolution)
+            } else {
+                format!("导出 {} {}", input.resolution, input.format)
+            },
             export: Some(ExportSpec {
                 version_id: version.id.clone(),
                 format: input.format.clone(),
                 resolution: input.resolution.clone(),
                 fps: input.fps,
+                include_project: input.include_project,
             }),
             ..Default::default()
         };

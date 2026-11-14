@@ -68,6 +68,54 @@ impl From<ApiError> for Stop {
 /// 流程中每一步的结果类型。
 type Step<T> = Result<T, Stop>;
 
+/// 从用户明确的“60秒 / 60s”文本提取目标时长，避免默认值覆盖需求。
+fn requested_duration_seconds(text: &str) -> Option<u32> {
+    for (start, _) in text.char_indices().filter(|(_, ch)| ch.is_ascii_digit()) {
+        let tail = &text[start..];
+        let digits = tail
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        let suffix = tail[digits.len()..].trim_start();
+        if suffix.starts_with('秒') || suffix.starts_with('s') || suffix.starts_with('S') {
+            if let Ok(seconds) = digits.parse::<u32>() {
+                if (15..=300).contains(&seconds) {
+                    return Some(seconds);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 检测明确超过 300 秒的需求，不能用时长上限静默截断。
+fn duration_exceeds_limit(text: &str) -> bool {
+    text.char_indices().any(|(start, _)| {
+        let tail = &text[start..];
+        let digits = tail
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        let suffix = tail[digits.len()..].trim_start();
+        (suffix.starts_with('秒') || suffix.starts_with('s') || suffix.starts_with('S'))
+            && digits.parse::<u32>().is_ok_and(|seconds| seconds > 300)
+    })
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::{duration_exceeds_limit, requested_duration_seconds};
+
+    #[test]
+    fn honors_explicit_duration_and_rejects_overlong_requests() {
+        assert_eq!(requested_duration_seconds("请做60秒的视频"), Some(60));
+        assert_eq!(requested_duration_seconds("请做300秒的视频"), Some(300));
+        assert_eq!(requested_duration_seconds("请做301秒的视频"), None);
+        assert!(duration_exceeds_limit("请做301秒的视频"));
+        assert!(!duration_exceeds_limit("请做300秒的视频"));
+    }
+}
+
 /// 把供应商错误转为任务失败，并标记失败阶段。
 fn provider_error(stage: StageKey, error: ProviderError) -> Stop {
     Stop::Failed(JobError {
@@ -97,7 +145,6 @@ fn context(draft: &Draft, input: &JobInput) -> ProductionContext {
         settings: draft.settings.clone(),
         user_text: input.text.clone(),
         answers: input.answers.clone(),
-        demo_scenario: input.demo_scenario.clone(),
     }
 }
 
@@ -370,6 +417,17 @@ impl Runner {
         let mut draft = project.draft.clone();
         let mut artifacts = project.artifacts.clone();
         let providers = self.state.providers.clone();
+        if duration_exceeds_limit(&input.text) {
+            return Err(Stop::Failed(JobError {
+                code: "DURATION_TOO_LONG".into(),
+                message: "单个作品最长支持 300 秒，请缩短目标时长后重试。".into(),
+                retryable: false,
+                failed_stage: Some(StageKey::Planning),
+            }));
+        }
+        if let Some(seconds) = requested_duration_seconds(&input.text) {
+            draft.settings.target_duration_seconds = seconds;
+        }
 
         // 开场白（恢复执行时不重复）。
         let opening = match &job.assistant_message_id {
@@ -399,7 +457,7 @@ impl Runner {
                 .call(
                     StageKey::Planning,
                     "llm1 理解修改意见",
-                    providers.script.revise(ReviseRequest {
+                    providers.load().script.revise(ReviseRequest {
                         draft: draft.clone(),
                         instruction: input.text.clone(),
                     }),
@@ -430,7 +488,7 @@ impl Runner {
                 .call(
                     StageKey::Planning,
                     "llm1 选题",
-                    providers.script.plan(PlanRequest {
+                    providers.load().script.plan(PlanRequest {
                         ctx: context(&draft, &input),
                         attachments,
                     }),
@@ -481,7 +539,7 @@ impl Runner {
                 .call(
                     StageKey::Script,
                     "llm1 写文案",
-                    providers.script.write_script(ScriptRequest {
+                    providers.load().script.write_script(ScriptRequest {
                         ctx: ctx.clone(),
                         brief,
                     }),
@@ -506,7 +564,7 @@ impl Runner {
                 .call(
                     StageKey::Storyboard,
                     "llm1 画分镜",
-                    providers.script.storyboard(StoryboardRequest {
+                    providers.load().script.storyboard(StoryboardRequest {
                         ctx: ctx.clone(),
                         brief,
                         script,
@@ -544,7 +602,7 @@ impl Runner {
             self.apply_attachments(&mut draft, &mut input)?;
         }
 
-        // 4. 画面（llm2）与 5. 音频（llm3 + llm4）并行
+        // 4. SVG 画面（llm1）与 5. 音频（llm3 + llm4）并行
         let ctx = context(&draft, &input);
         // 有失效标记，或有镜头还没有画面，才需要准备画面。
         let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
@@ -686,7 +744,7 @@ impl Runner {
             .call(
                 StageKey::Edit,
                 "llm1 生成剪辑方案",
-                providers.script.edit_plan(EditRequest {
+                providers.load().script.edit_plan(EditRequest {
                     draft: draft.clone(),
                     narration: narration_map,
                     music_duration_ms,
@@ -727,13 +785,15 @@ impl Runner {
             .call(
                 StageKey::Render,
                 "剪辑库 渲染成片",
-                providers
-                    .renderer
-                    .render(RenderRequest { ctx, plan, inputs }),
+                providers.load().renderer.render(RenderRequest {
+                    ctx,
+                    plan: plan.clone(),
+                    inputs,
+                }),
             )
             .await?;
         let video = self.store_asset(&project_id, &output).await?;
-        self.publish(draft, video)
+        self.publish(draft, video, plan)
     }
 
     /// 提交一个阶段的草稿产物：阶段成功、草稿版本 + 1。
@@ -867,7 +927,7 @@ impl Runner {
         Ok(())
     }
 
-    /// llm2：为没有画面的镜头生成画面（用户上传的素材保留）。
+    /// llm1：为没有画面的镜头生成 SVG 动画（用户上传的素材保留）。
     async fn prepare_visuals(
         &self,
         project_id: &str,
@@ -891,8 +951,8 @@ impl Runner {
                 let media = self
                     .call(
                         StageKey::Visuals,
-                        &format!("llm2 生成画面（镜头 {}/{}）", index + 1, count),
-                        self.state.providers.visual.generate_shot(request),
+                        &format!("llm1 生成 SVG 画面（镜头 {}/{}）", index + 1, count),
+                        self.state.providers.load().visual.generate_shot(request),
                     )
                     .await?;
                 Ok::<_, Stop>((shot.id.clone(), self.store_asset(project_id, &media).await?))
@@ -930,7 +990,7 @@ impl Runner {
                     .call(
                         StageKey::Audio,
                         &format!("llm4 配音（{}字）", shot.narration.chars().count()),
-                        self.state.providers.voice.synthesize(request),
+                        self.state.providers.load().voice.synthesize(request),
                     )
                     .await?;
                 narrations.push((
@@ -963,7 +1023,7 @@ impl Runner {
                         .call(
                             StageKey::Audio,
                             "llm3 背景音乐",
-                            self.state.providers.music.compose(request),
+                            self.state.providers.load().music.compose(request),
                         )
                         .await?;
                     Some(MusicChoice::New(Box::new(
@@ -1002,7 +1062,7 @@ impl Runner {
     }
 
     /// 发布新成片：创建不可变版本，任务成功，释放项目。
-    fn publish(&self, mut draft: Draft, video: AssetRow) -> Step<()> {
+    fn publish(&self, mut draft: Draft, video: AssetRow, edit_plan: EditPlan) -> Step<()> {
         draft.invalidated_stages.clear();
         self.guarded(move |t, job, project| {
             db::insert_asset(t, &video)?;
@@ -1023,6 +1083,7 @@ impl Runner {
                 width: video.asset.width.unwrap_or_default(),
                 height: video.asset.height.unwrap_or_default(),
                 snapshot: draft.clone(),
+                edit_plan: Some(edit_plan),
                 exports: vec![VideoExport {
                     asset_id: video.asset.id.clone(),
                     resolution: "720p".into(),
@@ -1100,7 +1161,7 @@ impl Runner {
             .call(
                 StageKey::Planning,
                 "llm1 仅讨论回答",
-                self.state.providers.script.chat(ChatRequest {
+                self.state.providers.load().script.chat(ChatRequest {
                     brief: project.draft.brief.clone(),
                     text: job.input.text.clone(),
                 }),
@@ -1143,7 +1204,7 @@ impl Runner {
     ///
     /// 成功后把文件追加到该版本的导出列表，不创建新的内容版本。
     async fn export(&self) -> Step<()> {
-        let (job, version, source) = self
+        let (job, version, source, plan, bundle_assets, title) = self
             .state
             .db
             .read(|conn| {
@@ -1157,26 +1218,134 @@ impl Runner {
                     .ok_or_else(|| ApiError::internal("version missing"))?;
                 let source = db::load_asset(conn, &version.video_asset_id)?
                     .ok_or_else(|| ApiError::internal("video missing"))?;
-                Ok((job, version, source))
+                let project = db::load_project(conn, &job.job.project_id)?
+                    .ok_or_else(|| ApiError::internal("project missing"))?;
+                let mut bundle_assets = Vec::new();
+                let plan = if spec.include_project {
+                    // 新版本直接读取不可变时间线。旧版本仅在草稿仍完全一致时
+                    // 允许使用当前检查点，避免把后来修改的旁白混入历史工程包。
+                    let plan = version
+                        .edit_plan
+                        .clone()
+                        .or_else(|| {
+                            let unchanged = match (
+                                serde_json::to_value(&project.draft),
+                                serde_json::to_value(&version.snapshot),
+                            ) {
+                                (Ok(current), Ok(original)) => current == original,
+                                _ => false,
+                            };
+                            unchanged
+                                .then(|| project.artifacts.edit_plan.clone())
+                                .flatten()
+                        })
+                        .ok_or_else(|| {
+                            ApiError::validation(
+                                "这个旧版本没有可恢复的工程时间线，请重新生成后再导出工程包。",
+                            )
+                        })?;
+                    let mut ids: Vec<String> = plan
+                        .clips
+                        .iter()
+                        .flat_map(|clip| {
+                            [
+                                clip.visual_asset_id.clone(),
+                                clip.narration_asset_id.clone(),
+                            ]
+                        })
+                        .flatten()
+                        .collect();
+                    ids.extend(plan.music_asset_id.clone());
+                    let mut seen = std::collections::HashSet::new();
+                    for id in ids {
+                        if !seen.insert(id.clone()) {
+                            continue;
+                        }
+                        let row = db::load_asset(conn, &id)?.ok_or_else(|| {
+                            ApiError::internal(format!("bundle asset {id} missing"))
+                        })?;
+                        bundle_assets.push(BundleAsset {
+                            id,
+                            file_name: row.asset.file_name,
+                            path: row.storage_path.into(),
+                        });
+                    }
+                    // 用户上传的文件即使未放入当前时间线，也一并交给人工剪辑。
+                    let (uploads, _) =
+                        db::list_assets(conn, &version.project_id, None, 10_000, true)?;
+                    for row in uploads {
+                        if seen.insert(row.asset.id.clone()) {
+                            bundle_assets.push(BundleAsset {
+                                id: row.asset.id,
+                                file_name: row.asset.file_name,
+                                path: row.storage_path.into(),
+                            });
+                        }
+                    }
+                    Some(plan)
+                } else {
+                    None
+                };
+                Ok((
+                    job,
+                    version,
+                    source,
+                    plan,
+                    bundle_assets,
+                    project.project.title,
+                ))
             })
             .map_err(Stop::from)?;
         let spec = job.input.export.clone().expect("checked");
-        self.set_stage(&[StageKey::Render], "running", Some("正在导出"))?;
-        let output = self
-            .call(
+        tracing::info!(target: "job", "{} 导出模式：{}，版本 {}", self.tag(), if spec.include_project { "MP4 + 全部素材 + OVE/OTIO/FCPXML" } else { "仅 MP4" }, short(&version.id));
+        self.set_stage(
+            &[StageKey::Render],
+            "running",
+            Some(if spec.include_project {
+                "正在打包工程与素材"
+            } else {
+                "正在导出"
+            }),
+        )?;
+        let output = if spec.include_project {
+            self.call(
+                StageKey::Render,
+                "剪辑库 导出工程包",
+                self.state
+                    .providers
+                    .load()
+                    .renderer
+                    .export_bundle(ProjectBundleRequest {
+                        source: source.storage_path.clone().into(),
+                        plan: plan.expect("bundle plan checked"),
+                        assets: bundle_assets,
+                        title,
+                        version_number: version.version_number,
+                    }),
+            )
+            .await?
+        } else {
+            self.call(
                 StageKey::Render,
                 "剪辑库 导出成片",
-                self.state.providers.renderer.export(ExportRequest {
-                    source: source.storage_path.into(),
+                self.state.providers.load().renderer.export(ExportRequest {
+                    source: source.storage_path.clone().into(),
+                    duration_ms: source.asset.duration_ms.unwrap_or(version.duration_ms),
                     aspect_ratio: version.snapshot.settings.aspect_ratio.clone(),
                     resolution: spec.resolution.clone(),
                     fps: spec.fps,
                     format: spec.format.clone(),
                 }),
             )
-            .await?;
+            .await?
+        };
         let asset = self.store_asset(&version.project_id, &output).await?;
         let version_id = version.id.clone();
+        let exported_format = if spec.include_project {
+            "zip".into()
+        } else {
+            spec.format
+        };
         self.guarded(move |t, job, project| {
             db::insert_asset(t, &asset)?;
             let mut version = db::load_version(t, &version_id)?
@@ -1185,7 +1354,7 @@ impl Runner {
                 asset_id: asset.asset.id.clone(),
                 resolution: spec.resolution,
                 fps: spec.fps,
-                format: spec.format,
+                format: exported_format,
                 created_at: now_iso(),
             });
             db::save_version_exports(t, &version)?;

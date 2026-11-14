@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS versions (
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
     snapshot TEXT NOT NULL,
+    edit_plan TEXT,
     exports TEXT NOT NULL,
     UNIQUE (project_id, version_number)
 );
@@ -185,6 +186,18 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.execute_batch(SCHEMA)?;
+        // 早期版本的 versions 表没有工程时间线；仅补充列，不重写任何历史数据。
+        let has_edit_plan = {
+            let mut statement = conn.prepare("PRAGMA table_info(versions)")?;
+            let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+            columns
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .any(|name| name == "edit_plan")
+        };
+        if !has_edit_plan {
+            conn.execute("ALTER TABLE versions ADD COLUMN edit_plan TEXT", [])?;
+        }
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -756,6 +769,8 @@ pub struct VersionRow {
     pub height: i64,
     /// 生成时的完整草稿快照，不可修改。
     pub snapshot: Draft,
+    /// 生成时的完整剪辑时间线；早期版本可能为 None。
+    pub edit_plan: Option<crate::providers::EditPlan>,
     /// 已生成的导出文件。
     pub exports: Vec<VideoExport>,
 }
@@ -775,6 +790,7 @@ fn version_row(row: &Row) -> rusqlite::Result<VersionRow> {
         width: row.get("width")?,
         height: row.get("height")?,
         snapshot: from_json(&row.get::<_, String>("snapshot")?)?,
+        edit_plan: opt_json(row.get("edit_plan")?)?,
         exports: from_json(&row.get::<_, String>("exports")?)?,
     })
 }
@@ -783,8 +799,9 @@ fn version_row(row: &Row) -> rusqlite::Result<VersionRow> {
 pub fn insert_version(conn: &Connection, v: &VersionRow) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO versions (id, project_id, version_number, source_draft_revision, source_job_id,
-            created_at, video_asset_id, thumbnail_asset_id, duration_ms, width, height, snapshot, exports)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            created_at, video_asset_id, thumbnail_asset_id, duration_ms, width, height, snapshot,
+            edit_plan, exports)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             v.id,
             v.project_id,
@@ -798,6 +815,7 @@ pub fn insert_version(conn: &Connection, v: &VersionRow) -> ApiResult<()> {
             v.width,
             v.height,
             to_json(&v.snapshot)?,
+            opt_to_json(&v.edit_plan)?,
             to_json(&v.exports)?
         ],
     )?;
