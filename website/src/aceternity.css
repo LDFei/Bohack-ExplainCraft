@@ -1782,7 +1782,6 @@
   padding-top: 2px;
 }
 
-
 /* 分镜卡紧凑排版：四镜必须在一屏内显示完整 */
 .script-shot {
   padding: 6px 0;
@@ -1811,8 +1810,6 @@
   margin: 8px 0 6px;
 }
 
-
-
 /* 分镜卡：宽屏两栏，左提示词右分镜，四镜全部可见 */
 @media (min-width: 900px) {
   .landing-features .ac-bento-item:first-child .feature-script {
@@ -1838,3 +1835,45 @@
   margin: 6px 0 4px;
 }
 
+/* 分镜卡左栏：状态与快捷指令，填满留白 */
+.script-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.script-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--muted);
+}
+.script-meta span:first-child {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.script-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.script-hints i {
+  font-style: normal;
+  font-size: 10px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--secondary);
+}
+
+.script-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
