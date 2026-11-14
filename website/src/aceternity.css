@@ -1526,3 +1526,63 @@
 [data-theme="glass"] #hero-title span {
   text-shadow: 0 0 28px rgba(120, 178, 226, 0.35);
 }
+
+/* 工作流分支：通用 / Vibe 大赏模板。 */
+.landing-workflow .workflow-lead {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 26px auto 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.workflow-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.workflow-tabs button:hover {
+  color: var(--secondary);
+}
+.workflow-tabs button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.workflow-panel ol.vibe-steps {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 880px;
+  margin-inline: auto;
+  row-gap: 4px;
+}
+.workflow-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 26px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.workflow-lock svg {
+  color: var(--accent);
+}
+@media (max-width: 767px) {
+  .workflow-panel ol.vibe-steps {
+    grid-template-columns: 1fr;
+  }
+}

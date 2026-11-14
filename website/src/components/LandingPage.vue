@@ -9,6 +9,7 @@ import Modal from "./Modal.vue";
 import { mediaUrl } from "../domain/assets.ts";
 import { DOWNLOAD_URL } from "../domain/links.ts";
 import ThemeSwitcher from "./ThemeSwitcher.vue";
+const activePath = ref<"generic" | "vibe">("generic");
 const previewOpen = ref(false),
   musicPlaying = ref(false),
   mediaError = ref("");
@@ -434,33 +435,102 @@ onBeforeUnmount(() => {
         <div>
           <span class="section-kicker">FROM KNOWLEDGE TO VIDEO</span>
           <h2 id="workflow-title">
-            <span>三个动作，</span>
+            <span>两条路，</span>
             <span>把知识变成视频。</span>
           </h2>
+          <p class="workflow-lead">
+            通用流程自己写；Vibe 大赏模板，照着那一系列的手感来。
+          </p>
         </div>
-        <ol>
-          <li>
-            <span>01</span>
-            <div>
-              <h3>说清知识点</h3>
-              <p>一句话，或一份资料。</p>
-            </div>
-          </li>
-          <li>
-            <span>02</span>
-            <div>
-              <h3>边看边改</h3>
-              <p>脚本、分镜，用对话调整。</p>
-            </div>
-          </li>
-          <li>
-            <span>03</span>
-            <div>
-              <h3>预览后导出</h3>
-              <p>满意了，导出 MP4。</p>
-            </div>
-          </li>
-        </ol>
+        <div class="workflow-tabs" role="tablist" aria-label="制作流程分支">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activePath === 'generic'"
+            :class="{ active: activePath === 'generic' }"
+            @click="activePath = 'generic'"
+          >
+            通用流程
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activePath === 'vibe'"
+            :class="{ active: activePath === 'vibe' }"
+            @click="activePath = 'vibe'"
+          >
+            Vibe 知识大赏
+          </button>
+        </div>
+        <div
+          v-show="activePath === 'generic'"
+          class="workflow-panel"
+          role="tabpanel"
+        >
+          <ol>
+            <li>
+              <span>01</span>
+              <div>
+                <h3>说清知识点</h3>
+                <p>一句话，或一份资料。</p>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <h3>边看边改</h3>
+                <p>脚本、分镜，用对话调整。</p>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <h3>预览后导出</h3>
+                <p>满意了，导出 MP4。</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <div
+          v-show="activePath === 'vibe'"
+          class="workflow-panel"
+          role="tabpanel"
+        >
+          <ol class="vibe-steps">
+            <li>
+              <span>01</span>
+              <div>
+                <h3>选「Vibe 知识大赏」模板</h3>
+                <p>新建时选它，分镜、配色、字幕节奏都按这一系列。</p>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <h3>BGM 自动锁定</h3>
+                <p>这一系列每期都用同一首，选模板即锁定。</p>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <h3>AI 生成风格提示词</h3>
+                <p>按模板的语气和结构，写一段提示词。</p>
+              </div>
+            </li>
+            <li>
+              <span>04</span>
+              <div>
+                <h3>提交素材，生成成片</h3>
+                <p>文字、图片、片段按提示词归位。</p>
+              </div>
+            </li>
+          </ol>
+          <p class="workflow-lock">
+            <Icon name="lock" :size="13" />
+            背景音乐已锁定 · 这一系列每期都是同一首
+          </p>
+        </div>
         <a :href="DOWNLOAD_URL" class="button primary">
           立即下载
           <Icon name="arrowRight" :size="15" />
