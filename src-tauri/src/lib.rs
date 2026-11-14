@@ -206,6 +206,15 @@ fn command_handler<R: tauri::Runtime>(
 
 /// 初始化共享状态并创建工作台窗口。
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // 发布包优先使用随应用分发的媒体工具；开发环境继续尊重显式配置。
+    if let Ok(resources) = app.path().resource_dir() {
+        for (variable, name) in [("FFMPEG_PATH", "ffmpeg"), ("FFPROBE_PATH", "ffprobe")] {
+            let executable = if cfg!(windows) {format!("{name}.exe")} else {name.into()};
+            for candidate in [resources.join("runtime").join(&executable),resources.join(&executable)] {
+                if std::env::var_os(variable).is_none() && candidate.is_file() {std::env::set_var(variable,candidate);break;}
+            }
+        }
+    }
     if let Ok(dir) = app.path().app_config_dir() {
         let path = dir.join(".env");
         if path.is_file() {

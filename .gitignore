@@ -4,3 +4,8 @@
 .env.*
 !.env.example
 /target/
+
+/src-tauri/runtime/*
+!/src-tauri/runtime/.keep
+/src-tauri/tauri.release.json
+/dist-release/
