@@ -1,0 +1,485 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1280"
+  height="720"
+  viewBox="0 0 1280 720"
+>
+  <rect
+    width="1280"
+    height="720"
+    fill="#0B1117"
+  />
+  <defs>
+    <marker
+      id="arrow"
+      markerWidth="8"
+      markerHeight="8"
+      refX="7"
+      refY="4"
+      orient="auto"
+    >
+      <path
+        d="M0 0 L8 4 L0 8"
+        fill="#D8B56E"
+      />
+    </marker>
+  </defs>
+  <g font-family="Arial,Hiragino Sans GB,Microsoft YaHei,Noto Sans CJK SC,sans-serif">
+    <text
+      x="43.199999999999996"
+      y="54"
+      font-size="14"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      EXPLAINCRAFT · 科学图解
+    </text>
+    <text
+      x="43.199999999999996"
+      y="104.39999999999999"
+      font-size="32"
+      fill="#F1E8D5"
+      text-anchor="start"
+    >
+      TCP 三次握手：消息与状态同步
+    </text>
+    <path
+      d="M76.8 152.79999999999998 H665.6"
+      stroke="#D8B56E"
+      stroke-opacity="0.35"
+    />
+    <text
+      x="76.8"
+      y="140.79999999999998"
+      font-size="15"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      01 / 观察对象
+    </text>
+    <clipPath id="panel0">
+      <rect
+        x="76.8"
+        y="168.79999999999998"
+        width="588.8000000000001"
+        height="405.2"
+      />
+    </clipPath>
+    <path
+      d="M755.1999999999999 152.79999999999998 H1203.1999999999998"
+      stroke="#D8B56E"
+      stroke-opacity="0.35"
+    />
+    <text
+      x="755.1999999999999"
+      y="140.79999999999998"
+      font-size="15"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      02 / 数据与推理
+    </text>
+    <clipPath id="panel1">
+      <rect
+        x="755.1999999999999"
+        y="168.79999999999998"
+        width="448"
+        height="405.2"
+      />
+    </clipPath>
+    <g
+      id="client"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <g transform="translate(153.344 290.304)">
+          <g transform="scale(1)">
+            <g transform="translate(-153.344 -290.304)">
+              <path
+                d="M0 0 H100 V76 H0 Z M50 76 V96 M25 100 H75"
+                transform="translate(88.576 213.19199999999998) scale(1.2953600000000003 1.5422399999999998)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2968150223052186"
+                stroke-dasharray="422"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="153.344"
+                y="392.41599999999994"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                客户端
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="server"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <g transform="translate(589.056 292.14)">
+          <g transform="scale(1)">
+            <g transform="translate(-589.056 -292.14)">
+              <path
+                d="M8 0 H92 V100 H8 Z M18 15 H82 M18 35 H82 M18 55 H82 M18 75 H82"
+                transform="translate(524.288 194.832) scale(1.2953600000000003 1.9461600000000001)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.0276647346569654"
+                stroke-dasharray="624"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="589.056"
+                y="414.448"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                服务器
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="syn"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="200ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;25.76 0;51.52 0;77.28 0;103.04 0;128.8 0;154.56 0;180.32 0;206.08 0"
+          begin="300ms"
+          dur="1100ms"
+          fill="freeze"
+        />
+        <animate
+          attributeName="opacity"
+          from="1"
+          to="0"
+          begin="1500ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <g transform="translate(268.16 257.256)">
+          <g transform="scale(1)">
+            <g transform="translate(-268.16 -257.256)">
+              <path
+                d="M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0"
+                transform="translate(229.88800000000003 238.89599999999996) scale(0.7654400000000001 0.36719999999999997)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6128762541806014"
+                stroke-dasharray="556.204993518133"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="268.16"
+                y="300.616"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                SYN
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="synack"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="1800ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;-25.76 0;-51.52 0;-77.28 0;-103.04 0;-128.8 0;-154.56 0;-180.32 0;-206.08 0"
+          begin="1900ms"
+          dur="1100ms"
+          fill="freeze"
+        />
+        <animate
+          attributeName="opacity"
+          from="1"
+          to="0"
+          begin="3100ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <g transform="translate(474.24 341.712)">
+          <g transform="scale(1)">
+            <g transform="translate(-474.24 -341.712)">
+              <path
+                d="M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0"
+                transform="translate(435.968 323.352) scale(0.7654400000000001 0.36719999999999997)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6128762541806014"
+                stroke-dasharray="556.204993518133"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="474.24"
+                y="385.072"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                SYN + ACK
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="ack"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="3400ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;25.76 0;51.52 0;77.28 0;103.04 0;128.8 0;154.56 0;180.32 0;206.08 0"
+          begin="3500ms"
+          dur="1100ms"
+          fill="freeze"
+        />
+        <animate
+          attributeName="opacity"
+          from="1"
+          to="0"
+          begin="4700ms"
+          dur="80ms"
+          fill="freeze"
+        />
+        <g transform="translate(268.16 433.512)">
+          <g transform="scale(1)">
+            <g transform="translate(-268.16 -433.512)">
+              <path
+                d="M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0"
+                transform="translate(229.88800000000003 415.152) scale(0.7654400000000001 0.36719999999999997)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6128762541806014"
+                stroke-dasharray="556.204993518133"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="268.16"
+                y="476.87199999999996"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                ACK
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="initial"
+      clip-path="url(#panel1)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <animate
+          attributeName="opacity"
+          from="1"
+          to="0"
+          begin="1650ms"
+          dur="50ms"
+          fill="freeze"
+        />
+        <g transform="translate(974.7199999999999 231.552)">
+          <g transform="scale(1)">
+            <g transform="translate(-974.7199999999999 -231.552)">
+              <g opacity="0">
+                <set
+                  attributeName="opacity"
+                  to="1"
+                  begin="0ms"
+                />
+                <text
+                  x="773.1199999999999"
+                  y="238.1616"
+                  font-size="24"
+                  fill="#F1E8D5"
+                  text-anchor="start"
+                >
+                  CLOSED / LISTEN
+                </text>
+                <set
+                  attributeName="opacity"
+                  to="0"
+                  begin="6000ms"
+                />
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="wait"
+      clip-path="url(#panel1)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="1700ms"
+          dur="180ms"
+          fill="freeze"
+        />
+        <animate
+          attributeName="opacity"
+          from="1"
+          to="0"
+          begin="4800ms"
+          dur="50ms"
+          fill="freeze"
+        />
+        <g transform="translate(974.7199999999999 327.02399999999994)">
+          <g transform="scale(1)">
+            <g transform="translate(-974.7199999999999 -327.02399999999994)">
+              <g opacity="0">
+                <set
+                  attributeName="opacity"
+                  to="1"
+                  begin="0ms"
+                />
+                <text
+                  x="773.1199999999999"
+                  y="333.63359999999994"
+                  font-size="24"
+                  fill="#F1E8D5"
+                  text-anchor="start"
+                >
+                  SYN-SENT / SYN-RCVD
+                </text>
+                <set
+                  attributeName="opacity"
+                  to="0"
+                  begin="6000ms"
+                />
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="established"
+      clip-path="url(#panel1)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="4850ms"
+          dur="200ms"
+          fill="freeze"
+        />
+        <g transform="translate(974.7199999999999 429.84)">
+          <g transform="scale(1)">
+            <g transform="translate(-974.7199999999999 -429.84)">
+              <g opacity="0">
+                <set
+                  attributeName="opacity"
+                  to="1"
+                  begin="0ms"
+                />
+                <text
+                  x="773.1199999999999"
+                  y="436.4496"
+                  font-size="24"
+                  fill="#F1E8D5"
+                  text-anchor="start"
+                >
+                  ESTABLISHED
+                </text>
+                <set
+                  attributeName="opacity"
+                  to="0"
+                  begin="6000ms"
+                />
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <text
+      x="640"
+      y="547.2"
+      font-size="24"
+      fill="#F1E8D5"
+      text-anchor="middle"
+    >
+      SYN → SYN + ACK → ACK
+    </text>
+  </g>
+</svg>

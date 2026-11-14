@@ -1,0 +1,26 @@
+{
+  "results": [
+    {
+      "mode": "default",
+      "passed": true
+    },
+    {
+      "mode": "late-upload",
+      "passed": true
+    },
+    {
+      "mode": "existing",
+      "passed": true
+    },
+    {
+      "mode": "upload-failure",
+      "passed": true
+    },
+    {
+      "mode": "missing-api",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "backendRoot": "/var/folders/f1/mq_jknp5019bkqpzdwcftrc80000gn/T/guided-test_28469dce84c345c49b839f2dd343db82"
+}

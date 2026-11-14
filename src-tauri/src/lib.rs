@@ -26,6 +26,7 @@ mod providers;
 mod quality;
 mod research;
 mod rhythm;
+mod scene_plan;
 mod skills;
 mod state;
 mod svg_animation;

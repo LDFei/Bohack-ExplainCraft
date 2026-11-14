@@ -276,7 +276,38 @@ await page.addInitScript(() => {
               ],
               'single_select',
             );
-          else if (old.skill_id === 'music') script();
+          else if (old.skill_id === 'music' && args.value === 'upload') {
+            set(
+              'music',
+              '选择并试听本项目已上传音频',
+              [
+                ['ready', '已上传，刷新音频列表'],
+                ['back', '返回音乐来源'],
+              ],
+              'single_select',
+            );
+            state.job.question.id = 'skill:music_asset:1:ui-test';
+          } else if (old.skill_id === 'music' && old.id.startsWith('skill:music_asset:')) {
+            if (args.value === 'ready') {
+              state.job.question = old;
+            } else if (args.value === 'back')
+              set(
+                'music',
+                '选择背景音乐来源',
+                [
+                  ['upload', '从本地选择音乐'],
+                  ['fixed', '原版 Vibe 示例音乐'],
+                ],
+                'single_select',
+              );
+            else if (
+              row.assets.some(
+                (a) => a.id === args.value && a.source === 'upload' && a.kind === 'audio',
+              )
+            )
+              script();
+            else throw new Error('Invalid music candidate');
+          } else if (old.skill_id === 'music') script();
           else if (old.skill_id === 'script' && args.value === 'continue')
             set('storyboard', '审阅分镜', [
               ['continue', '采用分镜'],
@@ -432,6 +463,8 @@ try {
   assert.equal(await page.getByLabel('目标视频时长').count(), 0);
   await page.getByRole('button', { name: '30 秒', exact: true }).click();
   await page.getByRole('button', { name: '从本地选择音乐', exact: true }).waitFor();
+  await page.getByRole('button', { name: '从本地选择音乐', exact: true }).click();
+  await page.getByRole('button', { name: '上传新音频', exact: true }).waitFor();
   await page.locator('.question-card input[type=file]').setInputFiles({
     name: '我的节奏.wav',
     mimeType: 'audio/wav',
@@ -446,10 +479,10 @@ try {
   await page.getByLabel('当前步骤修改意见').fill('保留结论，换一个抛硬币的例子');
   const music = await page.evaluate(() =>
     window.__review.calls
-      .filter((c) => c.command === 'answer_job' && c.args.value === 'upload')
+      .filter((c) => c.command === 'answer_job' && c.args.value === 'new-local-music')
       .at(-1),
   );
-  assert.equal(music.args.assetId, 'new-local-music');
+  assert.equal(music.args.questionId, 'skill:music_asset:1:ui-test');
   await page.getByRole('button', { name: '按修改意见调整', exact: true }).click();
   await page.getByText('已按修改意见更新文案，请重新审阅。', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('当前步骤修改意见').inputValue(), '');

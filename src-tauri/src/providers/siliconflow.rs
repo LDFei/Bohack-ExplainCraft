@@ -34,6 +34,14 @@ pub struct SiliconFlow {
 }
 
 impl SiliconFlow {
+    /// 显式批准后才运行的最小 Schema 探针；测试不会改变持久模型配置。
+    #[cfg(test)]
+    pub async fn probe_scene_schema(&self, access:&ModelAccess)->ProviderResult<bool> {
+        let data=self.post(access,"/chat/completions",&json!({"model":access.model,"enable_thinking":false,"temperature":0.,"max_tokens":40,
+            "response_format":{"type":"json_schema","json_schema":{"name":"scene_probe","strict":true,"schema":{"type":"object","additionalProperties":false,"required":["ok"],"properties":{"ok":{"type":"boolean","const":true}}}}},
+            "messages":[{"role":"user","content":"Return JSON matching the schema: ok must be true."}]}),"JSON Schema 支持验证").await?;
+        Ok(content_text(&data["choices"][0]["message"]["content"]).and_then(|t|extract_json(&t)).is_some_and(|v|v==json!({"ok":true})))
+    }
     /// 创建客户端。单次请求超时 5 分钟（文生图、长文本生成可能较慢）。
     pub fn new(config: &Config) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
@@ -197,6 +205,19 @@ impl SiliconFlow {
         })
     }
 
+    /// 导演阶段使用低温 Schema 输出；当前硅基模型端点已实测，语义仍由本地校验。
+    async fn scene_json(&self, access:&ModelAccess, user:&str, duration_ms:i64) -> ProviderResult<Value> {
+        let data=self.post(access,"/chat/completions",&json!({
+            "model":access.model,"enable_thinking":false,"temperature":0.25,"max_tokens":6500,
+            "response_format":{"type":"json_schema","json_schema":{"name":"scene_plan","strict":true,"schema":crate::scene_plan::json_schema(duration_ms)}},
+            "messages":[{"role":"system","content":"你是科学动画导演。只输出符合给定协议的 JSON 对象；知识对象与数据共同构成动态叙事。不能编造事实或实验数字。"},{"role":"user","content":user}]
+        }),"语义动画计划").await?;
+        if data["choices"][0]["finish_reason"]=="length" {return Err(ProviderError::invalid("导演计划被截断，请缩减当前镜头的对象和事件。"));}
+        let text=content_text(&data["choices"][0]["message"]["content"]).unwrap_or_default();
+        crate::metrics::visual_source("scene-plan","semantic-json",&text)?;
+        extract_json(&text).ok_or_else(||ProviderError::invalid("导演计划不是完整 JSON。"))
+    }
+
     /// 使用 OpenAI tool_calls 驱动 50 个 Quercus 工具，返回最终剪辑指令。
 
     async fn chat_agent(
@@ -335,6 +356,8 @@ fn text_or(value: &Value, key: &str, default: &str) -> String {
 /// 风格 ID 对应的中文描述，写进提示词。
 fn style_text(style_id: &str) -> &'static str {
     match style_id {
+        "scientific" => "科学编辑式动态图形：深色、暖金与象牙白，精细矢量轮廓，图形与数据为主体，平滑的教学事件",
+        "custom" => "严格遵守 CreativeBrief 中用户原始风格要求，不用固定主题覆盖",
         "cinematic" => "电影质感，画面开阔，光影对比强",
         "minimal" => "简约高级，构图干净，留白克制",
         "energetic" => "活力轻快，色彩明亮，节奏明快",
@@ -594,25 +617,9 @@ impl ScriptModel for GlmScript {
              设计每个镜头前先在心里回答：这一镜让学生理解什么？画面里有哪些知识实体（对象/变量/角色）？\
              它们之间是什么关系（包含、比较、依赖、作用、传递）？随着解说推进，哪个实体的位置、数值、状态或关系会改变？\
              这一镜对应推理链的第几步？观众看完最终应该理解什么？答案落进 title、labels、states 与 conclusion，不要写成说明文字。\n\
-             visual_prompt 是受约束的图解规格，不是自由画面描述：\n\
-             {{\"kind\":\"hook|comparison|mechanism|cycle|conclusion\",\"title\":\"不超过22字的准确标题\",\
-             \"labels\":[\"节点1\",\"节点2\"],\"note\":\"示意或来源\",\"visual\":{{...}}}}\n\
-             visual.type 只能取两种：\n\
-             1) \"search\"：在有序空间里查找某个值（二分/折半）时使用。\
-             {{\"type\":\"search\",\"domain\":{{\"from\":起始整数,\"to\":结束整数}},\"target\":目标整数,\"conclusion\":\"结论\"}}；\
-             只提供真实区间与目标，宿主会本地计算每一步中点与排除区间，禁止自己编造比较过程。\n\
-             2) \"states\"：一般知识机制。每个状态是一条真实推理步骤。\
-             {{\"type\":\"states\",\"states\":[{{\"caption\":\"这一步的推理\",\
-             \"objects\":[{{\"text\":\"对象\",\"emphasis\":\"accent|plain|dim\"}}]}}],\"conclusion\":\"最终结论\"}}；\
-             规则：\n\
-             - 每个镜头用 3～5 个状态，至少 3 个。参考节奏：每 1～3 秒要有一处有效变化。\n\
-             - 相邻状态之间必须有实质推进：对象出现、消失、位置调整、emphasis 由 plain 变 accent 再变 dim，\
-             或 caption 反映新的推理。相邻状态完全一样等于没有教学信息，会被画面检查判为无效。\n\
-             - objects 只放知识实体（如 客户端、服务端、SYN、加速度），不放整句话；\
-             禁止把解说的每个分句做成一个矩形文字卡片依次出现。\n\
-             - caption 用一句话概括这一步的推理，不要复述解说词。\n\
-             - 状态推进对应解说顺序；最后一个状态用 conclusion 呈现观众应获得的最终理解。\n\
-             没有合适的图解时省略 visual 字段（画面改由模型自由绘制，但仍须体现实体与随时间推进的变化）。",
+             visual_prompt 用 JSON 对象描述教学目标、具体知识对象、对象关系、事件顺序、结论、应核实的事实和数据。\n\
+             仅真正的有序二分搜索可以使用 {{\"visual\":{{\"type\":\"search\",\"domain\":{{\"from\":1,\"to\":100}},\"target\":74}}}} 这种可本地计算规格，数值必须来自旁白。\n\
+             其他主题不要生成 states 文字框；写清具体图形与数据如何随时间演进，后续逐镜头导演阶段会展开结构化 scene_plan。",
             request.brief.subject,
             request.brief.style,
             settings.aspect_ratio,
@@ -1092,13 +1099,46 @@ fn validate_ops(ops: &[EditOp], plan: &EditPlan) -> Result<(), String> {
 
 #[async_trait]
 impl VisualModel for GlmScript {
+    async fn plan_scene(&self, request: VisualRequest) -> ProviderResult<Option<crate::scene_plan::ScenePlan>> {
+        let protocol=include_str!("../../skills/scene-plan.md");
+        let user=format!("{protocol}\n当前镜头时长：{}ms；比例：{}；风格：{}\n旁白：{}\n已有分镜：{}\n完整创作要求：{}",request.shot.duration_ms,request.ctx.settings.aspect_ratio,style_text(&request.ctx.settings.style_id),request.shot.narration,request.shot.visual_prompt,request.ctx.user_text);
+        let value=self.client.scene_json(&self.access,&user,request.shot.duration_ms).await?;
+        let mut plan:crate::scene_plan::ScenePlan=serde_json::from_value(value).map_err(|e|ProviderError::invalid(format!("导演计划字段不符合协议：{e}")))?;
+        plan.aspect_ratio=request.ctx.settings.aspect_ratio.clone();
+        if request.ctx.settings.style_id!="custom" {plan.style=request.ctx.settings.style_id.clone();}
+        plan.validate(request.shot.duration_ms)?;
+        Ok(Some(plan))
+    }
+
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
-        let (width, height) = crate::util::dimensions(&request.ctx.settings.aspect_ratio);
+        if let Some(mut plan)=crate::scene_plan::from_prompt(&request.shot.visual_prompt) {
+            // 第二阶段只生成实体矢量代码；时间、真实数据和布局由宿主掌管，避免代码偏离导演计划。
+            let design=self.client.chat_json(&self.access,
+                "你是离线SVG矢量设计师，只输出JSON。为path实体提供精细而准确的复合路径，保持知识对象的具体轮廓。",
+                &format!("导演计划：{}\n完整用户要求：{}\n输出 {{\"paths\":[{{\"id\":已有path实体ID,\"d\":SVG路径字符串，局部坐标0到100}}],\"palette\":{{\"background\":\"#RRGGBB\",\"foreground\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"muted\":\"#RRGGBB\"}}}}。只给已有path实体生成轮廓。不改坐标、数据、文字、事件。不能包含XML、外链、脚本；纯SVG path代码。风格遵从用户，科学编辑式默认深色暖金。",serde_json::to_string(&plan).unwrap_or_default(),request.ctx.user_text),2500).await?;
+            let paths=design["paths"].as_array().ok_or_else(||ProviderError::invalid("实体矢量代码缺少 paths 数组。"))?;
+            let mut changed=std::collections::HashSet::new();
+            for shape in paths {
+                let id=shape["id"].as_str().unwrap_or("");
+                let e=plan.entities.iter_mut().find(|e|e.id==id&&e.kind=="path").ok_or_else(||ProviderError::invalid("矢量代码引用了未知实体。"))?;
+                if !changed.insert(id.to_string()) {return Err(ProviderError::invalid("实体矢量代码重复。"));}
+                e.path=shape["d"].as_str().unwrap_or("").to_string();
+            }
+            if let Ok(palette)=serde_json::from_value(design["palette"].clone()) {plan.palette=Some(palette);}
+            plan.aspect_ratio=request.ctx.settings.aspect_ratio.clone();
+            plan.validate(request.shot.duration_ms)?;
+            let(w,h)=crate::util::output_dimensions(&request.ctx.settings.aspect_ratio,&request.ctx.settings.output_resolution);
+            let svg=plan.svg(request.shot.duration_ms,w as u32,h as u32)?;
+            crate::metrics::visual_source(&request.shot.id,"compiled-scene",&json!({"plan":plan,"svg":svg}).to_string())?;
+            return if request.ctx.settings.visual_format=="html" {crate::html_animation::render(&svg,request.shot.duration_ms,w as u32,h as u32,request.shot_index).await}
+                else {crate::svg_animation::render(&svg,request.shot.duration_ms,w as u32,h as u32,request.shot_index).await};
+        }
+        let (width, height) = crate::util::output_dimensions(&request.ctx.settings.aspect_ratio,&request.ctx.settings.output_resolution);
         if request.ctx.settings.visual_format == "html" {
             let prompt = format!(
                 "为这一个镜头撰写离线 HTML/CSS 动画：{width}×{height}，{ms} 毫秒。\n\
                  解说词：{narration}\n\
-                 画面规格：{visual}\n\
+                 画面规格（已校验的 scene_plan 为导演依据）：{visual}\n完整用户约束与修复意见：{creative}\n\
                  画面目标：让观众看到知识实体（对象/变量/角色）之间的关系在解说推进中真实改变，\
                  而不是依次换掉几块文字卡片。\n\
                  要求：\n\
@@ -1114,6 +1154,7 @@ impl VisualModel for GlmScript {
                 ms = request.shot.duration_ms,
                 narration = request.shot.narration,
                 visual = request.shot.visual_prompt,
+                creative = request.ctx.user_text,
                 style = request.ctx.settings.style_id,
                 recipe = crate::skills::template_recipe(&request.ctx.user_text),
             );
@@ -1136,17 +1177,17 @@ impl VisualModel for GlmScript {
         let prompt = format!(
             "为这一个镜头绘制 {width}×{height} 的 SVG 动画，时长 {ms} 毫秒。\n\
              解说词：{narration}\n\
-             画面规格：{visual}\n\
+             画面规格（已校验的 scene_plan 为导演依据）：{visual}\n完整用户约束与修复意见：{creative}\n\
              画面目标：让观众看到知识实体（对象/变量/角色）之间的关系在解说推进中真实改变，\
              而不是依次换掉几块文字卡片。\n\
              要求：\n\
              - 开头呈现初始状态，中段按解说顺序推进，结尾落在结论；每 1～3 秒至少一处有效变化。\n\
              - 变化必须是教学信息：位置移动、数值改变、关系线连接/断开、状态切换、强调转移。\
-             用 animateTransform 移动对象，用 animate 改变数值文本、颜色、透明度或线段属性。\n\
+             用 animateTransform 移动对象，用 animate 改变颜色、透明度、线段、points 或 stroke-dashoffset；数值文本用多份 text 加 set/opacity 按真实数据离散切换，不使用不支持的 textContent。\n\
              - 禁止用装饰性粒子、无意义缩放、闪烁、随机运动或转场铺满时间来制造「动画感」。\n\
              - 文字只放标签、数值与结论，不堆砌整段句子；字号统一，颜色与背景对比清晰，四周留安全边距。\n\
              - 动画时间轴用 begin/dur/fill 明确写出，总时长 = {ms} 毫秒。\n\
-             - 只输出完整 SVG，不要 Markdown；使用 rect/circle/ellipse/path/line/polygon/text 和 SMIL \
+             - 只输出完整 SVG，width、height 与 viewBox 必须均为当前 {width}×{height}，使用整个画幅重新构图，禁止竖屏内容嵌在横屏中央；不要 Markdown；使用 rect/circle/ellipse/path/line/polygon/text 和 SMIL \
              子元素 animate/animateTransform/animate 或 set；禁止 script、foreignObject、image、\
              animateMotion、外链和 CSS 动画。\n\
              风格：{style}。镜头配方：{recipe}",
@@ -1155,6 +1196,7 @@ impl VisualModel for GlmScript {
             ms = request.shot.duration_ms,
             narration = request.shot.narration,
             visual = request.shot.visual_prompt,
+                creative = request.ctx.user_text,
             style = request
                 .ctx
                 .brief
@@ -1168,7 +1210,7 @@ impl VisualModel for GlmScript {
             .client
             .chat(
                 &self.access,
-                "你同时负责短视频文案与 SVG 场景绘制，输出简洁、可循环的矢量动画，控制在6000字符以内且不超过60个元素。",
+                "你同时负责短视频文案与 SVG 场景绘制，根据已保存导演计划输出完整的矢量动画。可用路径、粒子群、坐标轴、曲线、数据标签、向量和消息轨迹；控制在24000字符以内。",
                 &prompt,
                 12000,
             )

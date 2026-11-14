@@ -301,7 +301,23 @@ pub struct Script {
 
 /// 项目草稿：一次生成所需的全部输入与中间结果。
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CreativeBrief {
+    /// 原始需求完整保存，含重点、禁忌、指定图形及自定义风格，不由后续模板摘要替代。
+    pub original_input: String,
+    /// 修改意见按顺序追加，重试不能丢失。
+    pub revisions: Vec<String>,
+    /// 当前真实参数与明确确认，分别保存，避免把推荐当成授权。
+    pub settings: Settings,
+    pub audio: AudioSettings,
+    pub confirmed_answers: Vec<Answer>,
+    pub referenced_assets: Vec<String>,
+}
+
+/// 项目草稿：创作约束与中间结果一起持久化，旧数据库缺字段可正常恢复。
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Draft {
+    #[serde(default)]
+    pub creative_brief: Option<CreativeBrief>,
     /// 创作方案，选题完成前为 `null`。
     pub brief: Option<Brief>,
     /// 基础设置。
@@ -584,7 +600,7 @@ pub struct VideoVersion {
 // ---------- 任务内部输入（不直接暴露） ----------
 
 /// 用户对追问的一次回答。
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Answer {
     /// 回答的问题 ID。
     pub question_id: String,
@@ -657,6 +673,9 @@ pub struct JobInput {
 /// 项目内部的制作产物（检查点），供后续阶段和后续版本复用，不对前端暴露。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Artifacts {
+    /// 单镜头视觉审计独立保存；冻结和待核实事实不被技术质检的 passed 覆盖。
+    #[serde(default)]
+    pub visual_reviews: std::collections::BTreeMap<String, serde_json::Value>,
     /// 每个镜头的配音，键为 shot_id。
     #[serde(default)]
     pub narration: std::collections::BTreeMap<String, NarrationArtifact>,

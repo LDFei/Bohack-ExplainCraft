@@ -46,7 +46,11 @@ const voiceChoices = computed(() =>
 /** 背景音乐候选只列已就绪的上传音频，避免选中处理中或失败的素材。 */
 const audioAssets = computed(() =>
   props.assets.filter(
-    (asset) => asset.kind === 'audio' && asset.source !== 'generated' && asset.status === 'ready',
+    (asset) =>
+      asset.kind === 'audio' &&
+      asset.source === 'upload' &&
+      asset.status === 'ready' &&
+      (asset.duration_ms ?? 0) > 0,
   ),
 );
 
@@ -121,6 +125,17 @@ const readOnly = computed(() => !!props.version && props.version.id !== props.la
 const displayedDraft = computed(() =>
   readOnly.value ? props.version!.snapshot : (props.draft ?? emptyDraft()),
 );
+const appliedRatio = computed(() =>
+  props.version
+    ? props.version.width === props.version.height
+      ? '1:1'
+      : props.version.width > props.version.height
+        ? '16:9'
+        : '9:16'
+    : '',
+);
+// 历史预览期间暂存当前草稿表单；返回当前版本时恢复未保存输入和修订起点。
+const unsavedForms = new Map<string, { draft: Draft; revision: number }>();
 const tabs = [
   { id: 'script', name: '脚本', icon: 'file' },
   { id: 'audio', name: '声音', icon: 'music' },
@@ -145,8 +160,23 @@ function resetForm() {
 // 换项目或成片版本时，清空旧播放与试听状态，并重新建立表单副本。
 watch(
   () => [props.projectId, props.version?.id],
-  () => {
-    resetForm();
+  (_, previous) => {
+    const previousProject = previous?.[0];
+    const previousVersion = previous?.[1];
+    if (
+      previousProject &&
+      formDirty.value &&
+      (!previousVersion || previousVersion === props.latestVersionId)
+    ) {
+      unsavedForms.set(previousProject, { draft: copy(form.value), revision: formRevision.value });
+    }
+    const cached = unsavedForms.get(props.projectId);
+    if (!readOnly.value && cached) {
+      form.value = copy(cached.draft);
+      formRevision.value = cached.revision;
+      formDirty.value = true;
+      unsavedForms.delete(props.projectId);
+    } else resetForm();
     mediaError.value = false;
     currentTime.value = 0;
     playing.value = false;
@@ -155,6 +185,10 @@ watch(
     // 文件位置必须跟随当前选中版本；切换后旧路径立即失效。
     fileLocation.value = null;
     locationError.value = '';
+    if (previousProject !== props.projectId) {
+      detailsOpen.value = false;
+      locationOpen.value = false;
+    }
     if (locationOpen.value) void loadVideoLocation();
   },
   { immediate: true },
@@ -164,19 +198,22 @@ watch(
  */
 async function loadVideoLocation() {
   const version = props.version;
+  const owner = props.projectId;
   if (!version) return;
   locationLoading.value = true;
   locationError.value = '';
   try {
     const location = await api.videoLocation(props.projectId, version.id);
     // 异步返回时版本可能已经切换，丢弃旧结果。
-    if (props.version?.id === version.id) fileLocation.value = location;
+    if (props.projectId === owner && props.version?.id === version.id)
+      fileLocation.value = location;
   } catch (error) {
-    if (props.version?.id === version.id) {
+    if (props.projectId === owner && props.version?.id === version.id) {
       locationError.value = error instanceof Error ? error.message : '无法定位当前版本的成片文件。';
     }
   } finally {
-    locationLoading.value = false;
+    if (props.projectId === owner && props.version?.id === version.id)
+      locationLoading.value = false;
   }
 }
 async function toggleVideoLocation() {
@@ -232,6 +269,13 @@ function stopAudition() {
 watch(detailsOpen, (open) => {
   if (!open) stopAudition();
 });
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) stopAudition();
+  },
+);
+watch(tab, () => stopAudition());
 /**
  * 切换示例背景音乐的播放状态；只播放服务提供的 sample_url，不在前端生成配音。
  */
@@ -387,6 +431,16 @@ function changeRatio(event: Event) {
   form.value.settings.aspect_ratio = (event.target as HTMLSelectElement).value;
   formDirty.value = true;
   openTab('settings');
+}
+/** 分镜展示教学目标与视觉概念；结构化导演数据保持在草稿中，不挤进产品标题。 */
+function visualSummary(raw: string) {
+  try {
+    const value = JSON.parse(raw);
+    const plan = value.scene_plan;
+    return plan ? `${plan.objective} · ${plan.visual_concept}` : value.title || raw;
+  } catch {
+    return raw;
+  }
 }
 /** 全屏操作交给浏览器原生播放器，不伪造成导出或新的渲染。 */
 async function fullscreen() {
@@ -547,6 +601,15 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
           </option>
         </select>
       </label>
+      <span
+        v-if="version"
+        class="ratio-status"
+      >
+        当前成片 {{ appliedRatio }}
+        <template v-if="form.settings.aspect_ratio !== appliedRatio">
+          · 待应用 {{ form.settings.aspect_ratio }}（保存并更新视频后生效）
+        </template>
+      </span>
     </div>
     <div class="preview-content">
       <div class="canvas-area">
@@ -870,13 +933,13 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                 <div class="shot-image">
                   <img
                     :src="shot.thumbnail_url || imagePath('coffee-cup')"
-                    :alt="shot.visual_prompt"
+                    :alt="visualSummary(shot.visual_prompt)"
                   />
                   <span>{{ String(index + 1).padStart(2, '0') }}</span>
                 </div>
                 <div class="shot-description">
                   <div>
-                    <strong>{{ shot.visual_prompt.split('，')[0] }}</strong>
+                    <strong>{{ visualSummary(shot.visual_prompt) }}</strong>
                     <span>{{ shot.duration_ms / 1000 }}s</span>
                   </div>
                   <p>{{ shot.narration || '纯画面镜头' }}</p>
@@ -1345,3 +1408,11 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
     </footer>
   </aside>
 </template>
+<style scoped>
+.ratio-status {
+  max-width: 42ch;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+</style>

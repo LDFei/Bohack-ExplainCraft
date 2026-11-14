@@ -70,6 +70,20 @@ const scroller = ref<HTMLElement | null>(null),
   fileInput = ref<HTMLInputElement | null>(null);
 const nearBottom = ref(true),
   dragging = ref(false);
+const progressOpen = ref<Record<string, boolean>>({});
+const waitingQuestion = computed(() =>
+  Object.values(props.jobs).find((job) => job.status === 'waiting_input' && job.question),
+);
+/** 用户收起进度后保留其选择，日志刷新不能重新强行展开。 */
+function rememberProgress(id: string, event: Event) {
+  progressOpen.value[id] = (event.target as HTMLDetailsElement).open;
+}
+/** 返回服务器当前等待的问题，不依赖最后一条聊天消息的位置。 */
+function returnToQuestion() {
+  scroller.value
+    ?.querySelector('.question-card:has(.question-step)')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 // 计算属性只派生展示内容；没有消息时展示欢迎页，有消息时展示对话。
 const hasMessages = computed(() => props.messages.length > 0);
 // 输入框附件是已上传素材的选中子集；移除选择不等于删除历史素材。
@@ -501,7 +515,11 @@ defineExpose({
                 <details
                   v-else-if="block.type === 'progress' && block.job_id && jobs[block.job_id]"
                   class="progress-card"
-                  :open="!['succeeded', 'cancelled'].includes(jobs[block.job_id]!.status)"
+                  :open="
+                    progressOpen[block.job_id] ??
+                    !['succeeded', 'cancelled'].includes(jobs[block.job_id]!.status)
+                  "
+                  @toggle="rememberProgress(block.job_id!, $event)"
                 >
                   <summary>
                     <span class="progress-title">
@@ -794,6 +812,13 @@ defineExpose({
     </button>
     <!-- 输入区固定底部；制作中仍可输入下一条草稿，但不允许并发发送。 -->
     <div class="composer-region">
+      <button
+        v-if="waitingQuestion"
+        class="text-button"
+        @click="returnToQuestion"
+      >
+        返回当前创作问题（{{ waitingQuestion.question?.step }} / 12）
+      </button>
       <div
         v-if="historical"
         class="historical-notice"

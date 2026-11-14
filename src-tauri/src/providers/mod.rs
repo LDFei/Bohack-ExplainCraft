@@ -347,6 +347,10 @@ pub struct VisualRequest {
 /// llm1 复用：为镜头生成或检索画面。
 #[async_trait]
 pub trait VisualModel: Send + Sync {
+    /// 语义导演阶段；不支持规划的旧供应商保持原行为，宿主负责持久化与本地校验。
+    async fn plan_scene(&self, _request: VisualRequest) -> ProviderResult<Option<crate::scene_plan::ScenePlan>> {
+        Ok(None)
+    }
     /// 为一个镜头生成（或从素材库检索）画面，图片或视频片段均可。
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput>;
 }

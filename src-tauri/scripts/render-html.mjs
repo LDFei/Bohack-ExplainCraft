@@ -56,6 +56,15 @@ const validateDocument = `(() => {
     if (rule.cssRules) checkRules(rule.cssRules);
   }};
   for (const sheet of document.styleSheets) checkRules(sheet.cssRules);
+  // 画布不能用错误 viewBox 的竖屏 SVG 嵌入横屏；小图标不受全画布契约限制。
+  for (const svg of document.querySelectorAll('body > svg')) {
+    const r=svg.getBoundingClientRect(), box=svg.viewBox.baseVal;
+    if (r.width>=innerWidth*0.85 && r.height>=innerHeight*0.85 && box.width>0 && box.height>0 && Math.abs(box.width/box.height-innerWidth/innerHeight)>0.003) throw new Error('CANVAS_ASPECT_MISMATCH');
+  }
+  for (const element of document.querySelectorAll('text,p,h1,h2,h3,span')) {
+    const r=element.getBoundingClientRect();
+    if (r.width && r.height && (r.left < -2 || r.top < -2 || r.right > innerWidth+2 || r.bottom > innerHeight+2)) throw new Error('TEXT_OUTSIDE_CANVAS');
+  }
   return true;
 })()`;
 

@@ -767,7 +767,7 @@ mod tests {
     /// SVG 镜头可直接进入 Quercus 时间线并输出 MP4。
     #[tokio::test]
     async fn renders_an_svg_shot_through_quercus() {
-        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eeeeee"/><rect x="4" y="4" width="16" height="16" fill="#337799"><animate attributeName="x" values="4;40;4" dur="1s"/></rect></svg>"##;
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eeeeee"/><rect x="4" y="4" width="16" height="16" fill="#337799"><animate attributeName="x" values="4;40;4" dur="1s"/></rect></svg>"##;
         let shot = crate::svg_animation::render(svg, 1000, 64, 64, 0)
             .await
             .expect("SVG 镜头");
@@ -806,7 +806,7 @@ mod tests {
     async fn mixes_every_narration_and_overlays_subtitles_without_black_frames() {
         let root = std::env::temp_dir().join(format!("quercus-multi-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("测试目录");
-        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 568"><rect width="320" height="568" fill="#eeeeee"/></svg>"##;
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="320" height="568" viewBox="0 0 320 568"><rect width="320" height="568" fill="#eeeeee"/></svg>"##;
         let shot = crate::svg_animation::render(svg, 3000, 320, 568, 0)
             .await
             .expect("测试画面");
@@ -891,7 +891,7 @@ mod tests {
 
         let root = std::env::temp_dir().join(format!("quercus-bundle-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("测试目录");
-        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#345678"/></svg>"##;
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#345678"/></svg>"##;
         let shot = crate::svg_animation::render(svg, 1000, 64, 64, 0)
             .await
             .expect("测试画面");

@@ -1,0 +1,17 @@
+{
+  "freeze_scan_verified": true,
+  "freeze_intervals": ["[Parsed_freezedetect_0 @ 0xc98c45440] lavfi.freezedetect.freeze_start: 0"],
+  "subject_span_fraction": 0.85625,
+  "suspected_pillarbox": false,
+  "planned_events": 4,
+  "event_semantics": "requires human review of sampled frames and narration",
+  "claims": [
+    {
+      "statement": "F=12N，m=3kg，a=4m/s²，v0=0，4s后v=16m/s，s=32m",
+      "evidence": "a=F/m；v=at；s=at²/2；不计摩擦，合外力恒定",
+      "status": "unverified"
+    }
+  ],
+  "text_bounds_and_overlap": "requires source or human review",
+  "visual_review_required": true
+}

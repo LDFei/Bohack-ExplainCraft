@@ -1,0 +1,378 @@
+[
+  {
+    "step": "style",
+    "choice": "scientific",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_80228500cf784d348ed41e6cd8d1a9c9:question_8d86d56a94244ed79c17a3a75833c412",
+    "recoverable": true
+  },
+  {
+    "step": "style",
+    "choice": "warm",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_97b285da6ee041cc948d34f93e3d3eb6:question_83304c9232a04414a049b2a129cf7c22",
+    "recoverable": true
+  },
+  {
+    "step": "style",
+    "choice": "minimal",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_14bf7cdd17a04fa5be0d9d495cef7244:question_961d3b1dde4a40d78c95455aff4fb03a",
+    "recoverable": true
+  },
+  {
+    "step": "style",
+    "choice": "cinematic",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_b26c54f879cc4ebc8fb50316ff5f3ae7:question_f4b8c564f50549e1a6210d6eb80d6593",
+    "recoverable": true
+  },
+  {
+    "step": "style",
+    "choice": "energetic",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_bcad112da1f34fc3bcd6262a51c8c365:question_692444b8bb3a4b5bab86db414372582d",
+    "recoverable": true
+  },
+  {
+    "step": "style",
+    "choice": "custom",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_d18c1b9b0de64ea098fbc6847c25409d:question_f9a7ea6bbd3e44bf99818ca74604c846",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "15",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_a820c4efdaa1437bb7a971f18f1a0255:question_436ddad836894040856688b4aab47471",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "30",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_26acf395093048808474066c7fac4ca0:question_b932a6c8d3034af8a435b80ff9d7579b",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "60",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_9732ba0cdacb4569ab860b9c70440d0c:question_13e0036af7074ecea91a59c351f1e85f",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "120",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_210b07d214d944b8b64e578c4bde8ce9:question_e147721866c04b9ea47c7eceb64fccf1",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "auto",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_8cd348ddda2b425d826ff4e2be3340c3:question_fd2fe9d3ef80413f99fb684305069392",
+    "recoverable": true
+  },
+  {
+    "step": "duration",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "style",
+    "next_question": "skill:style:1:job_6eeb0292716e4f9db2e903ec566e7ec8:question_1c855f590e134f0ea432e33e364f5597",
+    "recoverable": true
+  },
+  {
+    "step": "visual",
+    "choice": "svg",
+    "status": "waiting_input",
+    "next_step": "voice",
+    "next_question": "skill:voice:1:job_3ee28dcc126649209e3f3993d32376ad:question_2d761cbdd2044cfdbe356a483060cc71",
+    "recoverable": true
+  },
+  {
+    "step": "visual",
+    "choice": "html",
+    "status": "waiting_input",
+    "next_step": "voice",
+    "next_question": "skill:voice:1:job_a2eb442c695a430bbb4402e68dece02b:question_8bfd464e6f334d30b48253d043670a84",
+    "recoverable": true
+  },
+  {
+    "step": "visual",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "duration",
+    "next_question": "skill:duration:1:job_a6ee49e94c524b198439c75b2033465d:question_d4da696bde3e4c7da0a9690b6f6fdffe",
+    "recoverable": true
+  },
+  {
+    "step": "voice",
+    "choice": "api",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music:1:job_ee8d2e4dcef94a45a0b189f42d184a6e:question_9f81a0595fe44c29bd1686e1a0edd686",
+    "recoverable": true
+  },
+  {
+    "step": "voice",
+    "choice": "breeze",
+    "status": "waiting_input",
+    "next_step": "voice",
+    "next_question": "skill:breeze_install:1:job_eb58ddd9bcc34849ab1912524fc0c875:question_37e1a12522f9428ea9840016ee66927f",
+    "recoverable": true
+  },
+  {
+    "step": "voice",
+    "choice": "bgm",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music:1:job_ab9c424509084b4da3478145706ace9a:question_08da127b0d784959bb07e334814dce6e",
+    "recoverable": true
+  },
+  {
+    "step": "voice",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "visual",
+    "next_question": "skill:visual:1:job_e7e995f4c1a94bd98c277d1e78986061:question_e283d454a28a450d8d33cdd477180da4",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "upload",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music_asset:1:job_1c0ceee72335445e8ce53b1e953efc01:question_6e6f6cd2059c4113885a0511de909aa3",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "ai",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music_setup:1:job_2ca30ac61f19462f8c737370f972201b:question_34756b3f7d334d17b2fabd9dd4a9537a",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "fixed",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_f61a92e2456d44d8bd3b4bda15379d4e:question_ed7f80f028a84ef889ec95bbfc1bfed6",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "auto",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_e6dcd61e93424eac8619aca000a76d6b:question_a4c117a1a2ef4a49872b77780ad73a7b",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "none",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_6d5577e8b49947768c86e6ce09769bc2:question_866e606200884cf1a72dedc0b6c31a5e",
+    "recoverable": true
+  },
+  {
+    "step": "music",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "voice",
+    "next_question": "skill:voice:1:job_20ed5f53717f4e1dae06d0a3e14ce66d:question_e712649b8d9446ba9fddec9d1b903ab9",
+    "recoverable": true
+  },
+  {
+    "step": "plan",
+    "choice": "continue",
+    "status": "waiting_input",
+    "next_step": "script",
+    "next_question": "skill:script:1:job_608061dd5e7743c9ba59302c78c7616b:question_a7f9f77b399a4a1492a8a4e8438c0c82",
+    "recoverable": true
+  },
+  {
+    "step": "plan",
+    "choice": "edit",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_9adc3eb08f314dce832ebef99e223ca0:question_98d74c19d6544c58b33d53b41c531a34",
+    "recoverable": true
+  },
+  {
+    "step": "plan",
+    "choice": "regenerate",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_86e5c21461d546edb8e8ee0765311471:question_10102bfd68c4434b9bb02c64de4fb637",
+    "recoverable": true
+  },
+  {
+    "step": "plan",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music:1:job_9f4e6925256a4e8e97f0a5dfd5d2b325:question_52d4150496b64ed3b60cdd008deae7cc",
+    "recoverable": true
+  },
+  {
+    "step": "script",
+    "choice": "continue",
+    "status": "waiting_input",
+    "next_step": "storyboard",
+    "next_question": "skill:storyboard:1:job_63ef28e1698348d29da3ecfa270c7f31:question_a1e3a0436c4d497fa276b01a8daaf772",
+    "recoverable": true
+  },
+  {
+    "step": "script",
+    "choice": "edit",
+    "status": "waiting_input",
+    "next_step": "script",
+    "next_question": "skill:script:1:job_110246e34d35408b9951d1d152e9df6b:question_75c66eb965db4d69995334922eef4d14",
+    "recoverable": true
+  },
+  {
+    "step": "script",
+    "choice": "regenerate",
+    "status": "waiting_input",
+    "next_step": "script",
+    "next_question": "skill:script:1:job_95c8f4cc712d4031bc46ec7d38de8edb:question_27389300a3414c4fa179eb68a7f6c9b2",
+    "recoverable": true
+  },
+  {
+    "step": "script",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "plan",
+    "next_question": "skill:plan:1:job_741f9bcb4cea4c57af7954e6c6ce46af:question_8e4aacb81f8c48639d503df29ab4f5a0",
+    "recoverable": true
+  },
+  {
+    "step": "storyboard",
+    "choice": "continue",
+    "status": "waiting_input",
+    "next_step": "production",
+    "next_question": "skill:production:1:job_f44956e03a1040c3be7c49b190565960:question_0cb42029e4394609a4b9e8a2cfe22bf7",
+    "recoverable": true
+  },
+  {
+    "step": "storyboard",
+    "choice": "save_shots",
+    "status": "waiting_input",
+    "next_step": "storyboard",
+    "next_question": "skill:storyboard:1:job_11ced85b58eb4b55bd07463ff3222c83:question_8a7c35a12fe94d418ac63cbf95b51c72",
+    "recoverable": true
+  },
+  {
+    "step": "storyboard",
+    "choice": "edit",
+    "status": "waiting_input",
+    "next_step": "storyboard",
+    "next_question": "skill:storyboard:1:job_c3556ac2f009408aa09f1adaa0c1d1e8:question_8087c218a6d847569c7a9ee99075727e",
+    "recoverable": true
+  },
+  {
+    "step": "storyboard",
+    "choice": "regenerate",
+    "status": "waiting_input",
+    "next_step": "storyboard",
+    "next_question": "skill:storyboard:1:job_f24b07e2a73544b285286bea347b0aac:question_c872f088a9cf4d46a50232cdbbe5cfea",
+    "recoverable": true
+  },
+  {
+    "step": "storyboard",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "script",
+    "next_question": "skill:script:1:job_86b566c9952e4d2188e2d641b39f475e:question_ec7268835f7440e0aec07199b6b97ee5",
+    "recoverable": true
+  },
+  {
+    "step": "production",
+    "choice": "continue",
+    "status": "waiting_input",
+    "next_step": "post_edit",
+    "next_question": "skill:post_edit:1:job_21b4bec5177c4a0f98098e01caf64003:question_bdf0438dfcaa47619cca472c4a08203f",
+    "recoverable": true
+  },
+  {
+    "step": "production",
+    "choice": "publish",
+    "status": "waiting_input",
+    "next_step": "post_edit",
+    "next_question": "skill:post_edit:1:job_eb15c812a3de423b959b847122967fce:question_1591c2df55be4b8a9ee9a1d320d30591",
+    "recoverable": true
+  },
+  {
+    "step": "production",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "storyboard",
+    "next_question": "skill:storyboard:1:job_879f35724c8e469c8957cd3529db4267:question_ac843f05388d43439bf9195e8b31275b",
+    "recoverable": true
+  },
+  {
+    "step": "post_edit",
+    "choice": "skip",
+    "status": "waiting_input",
+    "next_step": "delivery",
+    "next_question": "skill:delivery:1:job_8078a61cbbfa4da0a5c9e34f2d12b5d2:question_7e32967c9ebe437b8964cc3a5b3cc1f5",
+    "recoverable": true
+  },
+  {
+    "step": "post_edit",
+    "choice": "quercus",
+    "status": "waiting_input",
+    "next_step": "delivery",
+    "next_question": "skill:delivery:1:job_f298927909a549c2bbded92f5baf7c0a:question_ea4c64071e6a4b889fea794dbc467b11",
+    "recoverable": true
+  },
+  {
+    "step": "post_edit",
+    "choice": "back",
+    "status": "waiting_input",
+    "next_step": "music",
+    "next_question": "skill:music:1:job_24982aba8f5844f2842bb7f2cb1d4150:question_7287667005114147a8bc5939c10a02c7",
+    "recoverable": true
+  },
+  {
+    "step": "delivery",
+    "choice": "continue",
+    "status": "succeeded",
+    "next_step": null,
+    "next_question": null,
+    "recoverable": true
+  },
+  {
+    "step": "delivery",
+    "choice": "regenerate",
+    "status": "waiting_input",
+    "next_step": "post_edit",
+    "next_question": "skill:post_edit:1:job_f8e8b2d7f6c94a9194c54a0923e4897c:question_f76f08e3b9ce4801b4447681983f00da",
+    "recoverable": true
+  },
+  {
+    "step": "delivery",
+    "choice": "voice_retry",
+    "status": "waiting_input",
+    "next_step": "voice",
+    "next_question": "skill:voice:1:job_a44458edcd8e4b2f88c7a5258831880f:question_626764525d86484785cfb71c5a9eb070",
+    "recoverable": true
+  }
+]

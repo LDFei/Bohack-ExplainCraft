@@ -1,0 +1,477 @@
+{
+  "aspect_ratio": "16:9",
+  "claims": [
+    {
+      "evidence": "RFC 9293 §3.5，基本三次握手，不覆盖重传与同时打开",
+      "statement": "本图展示无丢包的基本三次握手；服务端收到ACK后进入ESTABLISHED"
+    }
+  ],
+  "entities": [
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.62,
+      "id": "client",
+      "kind": "path",
+      "label": "客户端",
+      "path": "M8,10 L8,90 L38,90 L38,10 Z M14,18 L32,18 L32,34 L14,34 Z M14,42 L32,42 L32,58 L14,58 Z M14,66 L32,66 L32,82 L14,82 Z",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.3,
+      "x": 0.06,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.16,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.62,
+      "id": "server",
+      "kind": "path",
+      "label": "服务器",
+      "path": "M62,10 L62,90 L92,90 L92,10 Z M68,18 L86,18 L86,34 L68,34 Z M68,42 L86,42 L86,58 L68,58 Z M68,66 L86,66 L86,82 L68,82 Z",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.3,
+      "x": 0.64,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.16,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#F5EFE0",
+      "count": 0,
+      "height": 0.05,
+      "id": "syn_msg",
+      "kind": "text",
+      "label": "SYN",
+      "path": "",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.1,
+      "x": 0.4,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.24,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#F5EFE0",
+      "count": 0,
+      "height": 0.05,
+      "id": "synack_msg",
+      "kind": "text",
+      "label": "SYN+ACK",
+      "path": "",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.12,
+      "x": 0.44,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.44,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#F5EFE0",
+      "count": 0,
+      "height": 0.05,
+      "id": "ack_msg",
+      "kind": "text",
+      "label": "ACK",
+      "path": "",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.1,
+      "x": 0.4,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.64,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.04,
+      "id": "client_state",
+      "kind": "text",
+      "label": "状态：SYN_SENT",
+      "path": "",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.24,
+      "x": 0.06,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.84,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.04,
+      "id": "server_state",
+      "kind": "text",
+      "label": "状态：LISTEN",
+      "path": "",
+      "points": [],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.24,
+      "x": 0.64,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.84,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.04,
+      "id": "arrow1",
+      "kind": "vector",
+      "label": "",
+      "path": "",
+      "points": [
+        [0.36, 0.26],
+        [0.6, 0.26]
+      ],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.24,
+      "x": 0.36,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.26,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.04,
+      "id": "arrow2",
+      "kind": "vector",
+      "label": "",
+      "path": "",
+      "points": [
+        [0.6, 0.46],
+        [0.36, 0.46]
+      ],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.24,
+      "x": 0.36,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.46,
+      "y_label": "",
+      "y_range": [0, 0]
+    },
+    {
+      "color": "#E8C36A",
+      "count": 0,
+      "height": 0.04,
+      "id": "arrow3",
+      "kind": "vector",
+      "label": "",
+      "path": "",
+      "points": [
+        [0.36, 0.66],
+        [0.6, 0.66]
+      ],
+      "region": "primary",
+      "sample_from": "",
+      "seed": 0,
+      "unit": "",
+      "value": 0,
+      "width": 0.24,
+      "x": 0.36,
+      "x_label": "",
+      "x_range": [0, 0],
+      "y": 0.66,
+      "y_label": "",
+      "y_range": [0, 0]
+    }
+  ],
+  "events": [
+    {
+      "action": "draw",
+      "duration_ms": 800,
+      "entity_id": "arrow1",
+      "reasoning": "客户端发出SYN，箭头逐段绘制表示消息传递",
+      "start_ms": 0,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "move",
+      "duration_ms": 800,
+      "entity_id": "syn_msg",
+      "reasoning": "SYN消息沿箭头从客户端移向服务器",
+      "start_ms": 0,
+      "to": {
+        "color": "#F5EFE0",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": 0.56,
+        "y": 0.24
+      }
+    },
+    {
+      "action": "set_value",
+      "duration_ms": 200,
+      "entity_id": "client_state",
+      "reasoning": "客户端发送SYN后进入SYN_SENT状态",
+      "start_ms": 800,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "draw",
+      "duration_ms": 800,
+      "entity_id": "arrow2",
+      "reasoning": "服务器回复SYN+ACK，箭头反向绘制",
+      "start_ms": 1200,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "move",
+      "duration_ms": 800,
+      "entity_id": "synack_msg",
+      "reasoning": "SYN+ACK消息从服务器移向客户端",
+      "start_ms": 1200,
+      "to": {
+        "color": "#F5EFE0",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": 0.4,
+        "y": 0.44
+      }
+    },
+    {
+      "action": "set_value",
+      "duration_ms": 200,
+      "entity_id": "server_state",
+      "reasoning": "服务器收到SYN后进入SYN_RCVD状态",
+      "start_ms": 2000,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "draw",
+      "duration_ms": 800,
+      "entity_id": "arrow3",
+      "reasoning": "客户端确认ACK，箭头再次正向绘制",
+      "start_ms": 2400,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "move",
+      "duration_ms": 800,
+      "entity_id": "ack_msg",
+      "reasoning": "ACK消息从客户端移向服务器",
+      "start_ms": 2400,
+      "to": {
+        "color": "#F5EFE0",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": 0.56,
+        "y": 0.64
+      }
+    },
+    {
+      "action": "set_value",
+      "duration_ms": 200,
+      "entity_id": "client_state",
+      "reasoning": "客户端收到SYN+ACK后进入ESTABLISHED状态",
+      "start_ms": 3200,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "set_value",
+      "duration_ms": 200,
+      "entity_id": "server_state",
+      "reasoning": "服务器收到ACK后进入ESTABLISHED状态",
+      "start_ms": 3200,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "connect",
+      "duration_ms": 600,
+      "entity_id": "client",
+      "reasoning": "双方状态同步后建立连接，用连接线表示",
+      "start_ms": 3600,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "reveal",
+      "duration_ms": 400,
+      "entity_id": "client_state",
+      "reasoning": "最终状态标签显示ESTABLISHED",
+      "start_ms": 4200,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    },
+    {
+      "action": "reveal",
+      "duration_ms": 400,
+      "entity_id": "server_state",
+      "reasoning": "最终状态标签显示ESTABLISHED",
+      "start_ms": 4200,
+      "to": {
+        "color": "#E8C36A",
+        "easing": "linear",
+        "opacity": 1,
+        "scale": 1,
+        "value": null,
+        "x": null,
+        "y": null
+      }
+    }
+  ],
+  "final_state": "双方进入ESTABLISHED，连接建立",
+  "objective": "TCP 三次握手：消息与状态同步",
+  "palette": {
+    "accent": "#E8C36A",
+    "background": "#121212",
+    "foreground": "#F5EFE0",
+    "muted": "#8A7A5A"
+  },
+  "relationships": [
+    {
+      "from": "client",
+      "label": "发送SYN",
+      "to": "server"
+    },
+    {
+      "from": "server",
+      "label": "回复SYN+ACK",
+      "to": "client"
+    },
+    {
+      "from": "client",
+      "label": "确认ACK",
+      "to": "server"
+    }
+  ],
+  "style": "科学编辑式动态图形：深色、暖金与象牙白，精细矢量轮廓，图形与数据为主体，平滑的教学事件",
+  "visual_concept": "两端设备轮廓、定向消息与协议状态。使用具体终端轮廓、定向消息传递与协议状态变化。"
+}

@@ -1,0 +1,41 @@
+48f98ea feat: improve AI video generation and cross-platform file location（生成视频过程细节动态优化）
+
+## codex/vibe-workflow-fixes-666...origin/codex/vibe-workflow-fixes-666
+ M front/package.json
+ M front/scripts/verify-guided-workflow.mjs
+ M front/src/App.vue
+ M front/src/components/Conversation.vue
+ M front/src/components/PreviewPanel.vue
+ M front/src/components/QuestionCard.vue
+ M front/src/composables/useStudio.ts
+ M front/src/domain/content.ts
+ M src-tauri/scripts/render-html.mjs
+ M src-tauri/skills/manifest.json
+ M src-tauri/skills/style.md
+ M src-tauri/skills/vibe.md
+ M src-tauri/src/api/jobs.rs
+ M src-tauri/src/catalog.rs
+ M src-tauri/src/html_animation.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/metrics.rs
+ M src-tauri/src/models.rs
+ M src-tauri/src/pipeline.rs
+ M src-tauri/src/providers/mod.rs
+ M src-tauri/src/providers/quercus.rs
+ M src-tauri/src/providers/siliconflow.rs
+ M src-tauri/src/quality.rs
+ M src-tauri/src/skills.rs
+ M src-tauri/src/svg_animation.rs
+ M src-tauri/src/vibe.rs
+ M src-tauri/src/visual_plan.rs
+ M src-tauri/src/worker.rs
+ M src-tauri/src/workflow_tests.rs
+?? front/docs/validation/
+?? front/scripts/verify-workflow-contract.mjs
+?? src-tauri/skills/scene-plan.md
+?? src-tauri/src/scene_plan.rs
+?? src-tauri/tests/
+
+暂存区：空，无暂存修改
+
+本轮未 Commit、未 Push。

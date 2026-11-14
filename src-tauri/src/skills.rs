@@ -23,6 +23,7 @@ pub fn version() -> String {
     }
     hash.update(include_str!("../skills/shotcraft/recipes.json"));
     hash.update(include_str!("../skills/vibe.md"));
+    hash.update(include_str!("../skills/scene-plan.md"));
     format!(
         "{}+{}",
         manifest["version"].as_str().unwrap_or("1.0.0"),
@@ -57,6 +58,16 @@ pub fn voice_mode(input: &JobInput) -> &str {
         Some("bgm") => "bgm",
         _ => choice(input, "voice").unwrap_or("api"),
     }
+}
+
+/// 音乐卡、实时回答校验与恢复使用同一候选规则；生成音轨不会冒充用户上传。
+pub fn usable_music(asset: &crate::db::AssetRow, project: &str) -> bool {
+    asset.asset.project_id == project
+        && asset.asset.source == "upload"
+        && asset.asset.kind == "audio"
+        && asset.asset.status == "ready"
+        && asset.asset.duration_ms.is_some_and(|d| d > 0)
+        && std::path::Path::new(&asset.storage_path).is_file()
 }
 /// 构造技能问题；没有登记的步骤拒绝运行。
 pub fn question(step: &str, prompt: String, ttl: i64) -> Question {
@@ -172,6 +183,7 @@ pub fn rewind(input: &mut JobInput, step: &str) {
             && (a.question_id.contains("breeze_install") || a.question_id.contains("voice_failed")))
             && !(at <= 4
                 && (a.question_id.contains("music_asset")
+                    || a.question_id.contains("music_setup")
                     || a.question_id.contains("music_failed")))
     });
     input.awaiting_post_edit = false;

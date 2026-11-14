@@ -1,0 +1,22 @@
+{
+  "freeze_scan_verified": true,
+  "freeze_intervals": ["[Parsed_freezedetect_0 @ 0x95f04d440] lavfi.freezedetect.freeze_start: 0"],
+  "subject_span_fraction": 0.85625,
+  "suspected_pillarbox": false,
+  "planned_events": 66,
+  "event_semantics": "requires human review of sampled frames and narration",
+  "claims": [
+    {
+      "statement": "64个固定样本中正面28次，频率0.4375",
+      "evidence": "LCG seed=20261115；位取高字节最低位；样本序列：0011001001001010000100001111111010100101010011110110000001011000",
+      "status": "unverified"
+    },
+    {
+      "statement": "独立同分布伯努利试验的样本频率依概率收敛",
+      "evidence": "弱大数定律；图中仅为可复现实例，不构成证明",
+      "status": "unverified"
+    }
+  ],
+  "text_bounds_and_overlap": "requires source or human review",
+  "visual_review_required": true
+}

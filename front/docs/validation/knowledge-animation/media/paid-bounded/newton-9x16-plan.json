@@ -1,0 +1,204 @@
+{
+  "objective": "恒力如何改变运动：F = ma",
+  "visual_concept": "物块运动、力向量与速度数据同时呈现",
+  "entities": [
+    {
+      "id": "track",
+      "kind": "path",
+      "label": "位移 s = 2t²（米）",
+      "region": "primary",
+      "x": 0.02,
+      "y": 0.69,
+      "width": 0.96,
+      "height": 0.08,
+      "path": "M0 0 H100 M0 100 H100",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    },
+    {
+      "id": "block",
+      "kind": "path",
+      "label": "m = 3 kg",
+      "region": "primary",
+      "x": 0.04,
+      "y": 0.29,
+      "width": 0.23,
+      "height": 0.31,
+      "path": "M0 16 L16 0 H100 V84 L84 100 H0 Z M0 16 H84 V100 M84 16 L100 0",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    },
+    {
+      "id": "force",
+      "kind": "vector",
+      "label": "F = 12 N",
+      "region": "primary",
+      "x": 0.3,
+      "y": 0.38,
+      "width": 0.14,
+      "height": 0.06,
+      "path": "",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    },
+    {
+      "id": "velocity",
+      "kind": "plot",
+      "label": "",
+      "region": "secondary",
+      "x": 0.02,
+      "y": 0.05,
+      "width": 0.96,
+      "height": 0.69,
+      "path": "",
+      "points": [
+        [0.0, 0.0],
+        [1.0, 4.0],
+        [2.0, 8.0],
+        [3.0, 12.0],
+        [4.0, 16.0]
+      ],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 4.0],
+      "y_range": [0.0, 16.0],
+      "x_label": "时间 t / s",
+      "y_label": "速度 v / (m/s)",
+      "sample_from": ""
+    },
+    {
+      "id": "accel",
+      "kind": "number",
+      "label": "",
+      "region": "secondary",
+      "x": 0.14,
+      "y": 0.81,
+      "width": 0.8,
+      "height": 0.13,
+      "path": "",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 4.0,
+      "unit": "m/s²",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    }
+  ],
+  "relationships": [],
+  "events": [
+    {
+      "entity_id": "block",
+      "action": "move",
+      "start_ms": 300,
+      "duration_ms": 4000,
+      "to": {
+        "x": 0.55,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": "accelerate"
+      },
+      "reasoning": "合外力12N、质量3kg，加速度4m/s²，初速度0，位移随时间平方"
+    },
+    {
+      "entity_id": "velocity",
+      "action": "trace",
+      "start_ms": 300,
+      "duration_ms": 4000,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "v=at=4t，四秒后速度16m/s"
+    },
+    {
+      "entity_id": "force",
+      "action": "reveal",
+      "start_ms": 300,
+      "duration_ms": 200,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "恒定合外力保持不变"
+    },
+    {
+      "entity_id": "force",
+      "action": "move",
+      "start_ms": 300,
+      "duration_ms": 4000,
+      "to": {
+        "x": 0.81,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": "accelerate"
+      },
+      "reasoning": "力箭头跟随受力物体，方向与大小保持恒定"
+    }
+  ],
+  "final_state": "12 N ÷ 3 kg = 4 m/s²",
+  "style": "scientific",
+  "aspect_ratio": "9:16",
+  "claims": [
+    {
+      "statement": "F=12N，m=3kg，a=4m/s²，v0=0，4s后v=16m/s，s=32m",
+      "evidence": "a=F/m；v=at；s=at²/2；不计摩擦，合外力恒定"
+    }
+  ],
+  "palette": {
+    "background": "#14110C",
+    "foreground": "#F2E6CE",
+    "accent": "#D9A441",
+    "muted": "#7A6A4F"
+  }
+}

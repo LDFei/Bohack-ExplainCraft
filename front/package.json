@@ -26,7 +26,8 @@
     "format:check": "npm run format:check:web && npm run format:check:python",
     "format:check:web": "prettier --check .",
     "format:check:python": "uv run --frozen --only-dev ruff format --check .",
-    "test:workflow-ui": "node scripts/verify-guided-workflow.mjs"
+    "test:workflow-ui": "node scripts/verify-guided-workflow.mjs",
+    "test:workflow-contract": "node scripts/verify-workflow-contract.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

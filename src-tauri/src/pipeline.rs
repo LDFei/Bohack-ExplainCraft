@@ -266,14 +266,18 @@ fn fit_draft_narration(draft: &mut Draft) {
 
 /// 由当前草稿和任务输入组装供应商使用的制作上下文。
 fn context(draft: &Draft, input: &JobInput) -> ProductionContext {
+    // 自动时长建议、音乐解析等会在确认后更新实际参数，上下文中的 Brief 同步当前事实。
+    let mut creative=draft.creative_brief.clone();
+    if let Some(brief)=&mut creative {brief.settings=draft.settings.clone();brief.audio=draft.audio.clone();brief.confirmed_answers=input.answers.clone();}
     ProductionContext {
         brief: draft.brief.clone(),
         settings: draft.settings.clone(),
         user_text: format!(
-            "{}\n{}\n{}",
+            "{}\n{}\n{}\n持久创作约束（原话和明确选择优先于模板）：{}",
             format!("{}\n{}", input.text, input.feedback.join("\n")),
             crate::skills::policy("production"),
-            crate::skills::template_recipe(&input.text)
+            crate::skills::template_recipe(&input.text),
+            serde_json::to_string(&creative).unwrap_or_default()
         ),
         answers: input.answers.clone(),
         speech_rate: draft.audio.speech_rate,
@@ -464,6 +468,7 @@ impl Runner {
         draft: &Draft,
     ) -> Result<(), ApiError> {
         project.draft = draft.clone();
+        if let Some(brief)=&mut project.draft.creative_brief {brief.settings=draft.settings.clone();brief.audio=draft.audio.clone();brief.confirmed_answers=job.input.answers.clone();}
         project.project.draft_revision += 1;
         project.project.draft_dirty = true;
         job.checkpoint_revision = project.project.draft_revision;
@@ -578,18 +583,6 @@ impl Runner {
             return Ok("continue".into());
         }
         let mut q = crate::skills::question(step, prompt, self.state.config.question_ttl_seconds);
-        if step == "style" && !input.text.contains("[template:shotcraft-") {
-            q.prompt = "Vibe 知识大赏：深色背景、大字、几何图解。选择强调色与动效节奏。".into();
-            for o in &mut q.options {
-                o.label = match o.value.as_str() {
-                    "warm" => "深色几何 · 暖金强调",
-                    "cinematic" => "深色几何 · 紫色叙事",
-                    "energetic" => "深色几何 · 珊瑚高能",
-                    _ => "深色几何 · 青绿极简",
-                }
-                .into();
-            }
-        }
         if step == "duration" {
             if let Some(seconds) = requested_duration_seconds(&input.text) {
                 if !q.options.iter().any(|o| o.value == seconds.to_string()) {
@@ -680,23 +673,11 @@ impl Runner {
         let mut music = if let Some(value) = crate::skills::choice(input, "music") {
             value.to_string()
         } else {
-            let mut q = crate::skills::question(
+            let q = crate::skills::question(
                 "music",
                 "选择背景音乐来源。上传音频可先进入素材库；等待选择期间可以上传。".into(),
                 self.state.config.question_ttl_seconds,
             );
-            if !draft.audio.narration_enabled {
-                q.options.retain(|o| o.value != "none");
-            }
-            if false {
-                q.options.insert(
-                    0,
-                    QuestionOption {
-                        value: "fixed".into(),
-                        label: "使用 Vibe 模板示例 BGM（可选）".into(),
-                    },
-                );
-            }
             return self.pause_choice(q);
         };
         for key in ["music_setup", "music_failed"] {
@@ -719,6 +700,8 @@ impl Runner {
                     ("fixed", "改用原版示例音乐"),
                     ("upload", "从本地上传音乐"),
                     ("auto", "改用本地程序化配乐"),
+                    ("none", "不使用背景音乐"),
+                    ("back", "返回音乐来源"),
                 ]
                 .into_iter()
                 .map(|(value, label)| QuestionOption {
@@ -729,12 +712,7 @@ impl Runner {
                 return self.pause_choice(q);
             }
         }
-        draft.audio.music_mode = if music == "none" && !draft.audio.narration_enabled {
-            "auto"
-        } else {
-            &music
-        }
-        .into();
+        draft.audio.music_mode = music.clone();
         if music == "upload" {
             let project_id = self.project_id().map_err(Stop::from)?;
             let (assets, _) = self
@@ -744,7 +722,7 @@ impl Runner {
                 .map_err(Stop::from)?;
             let audio: Vec<_> = assets
                 .into_iter()
-                .filter(|a| a.asset.kind == "audio" && a.asset.status == "ready")
+                .filter(|a| crate::skills::usable_music(a, &project_id))
                 .collect();
             let selected = crate::skills::choice(input, "music_asset");
             if let Some(asset) = audio.iter().find(|a| Some(a.asset.id.as_str()) == selected) {
@@ -753,7 +731,7 @@ impl Runner {
                 let mut q = crate::skills::question(
                     "music",
                     if audio.is_empty() {
-                        "请先在素材库上传一份音频，再点“已上传，刷新音频列表”。"
+                        "上传一份音频并试听确认；也可以返回音乐来源选择其他配乐。"
                     } else {
                         "选择用哪份已上传音频作为 BGM。"
                     }
@@ -768,12 +746,13 @@ impl Runner {
                         label: a.asset.file_name.clone(),
                     })
                     .collect();
-                if q.options.is_empty() {
-                    q.options.push(QuestionOption {
+                q.options.extend([
+                    QuestionOption {
                         value: "ready".into(),
                         label: "已上传，刷新音频列表".into(),
-                    });
-                }
+                    },
+                    QuestionOption { value: "back".into(), label: "返回音乐来源".into() },
+                ]);
                 return self.pause_choice(q);
             }
         } else {
@@ -1075,6 +1054,16 @@ impl Runner {
             })?;
         }
         self.guided_setup(&mut input, &mut draft)?;
+        let original = draft.creative_brief.as_ref().map(|b| b.original_input.clone()).unwrap_or_else(|| input.text.clone());
+        let mut revisions = draft.creative_brief.as_ref().map(|b| b.revisions.clone()).unwrap_or_default();
+        if input.text != original && !revisions.contains(&input.text) { revisions.push(input.text.clone()); }
+        for feedback in &input.feedback { if !revisions.contains(feedback) { revisions.push(feedback.clone()); } }
+        draft.creative_brief = Some(CreativeBrief {
+            original_input: original, revisions, settings: draft.settings.clone(), audio: draft.audio.clone(),
+            confirmed_answers: input.answers.clone(), referenced_assets: input.asset_ids.clone(),
+        });
+        let saved = draft.clone();
+        self.guarded(|t, job, project| Self::save_draft(t, job, project, &saved))?;
 
         // 开场白（恢复执行时不重复）。
         let opening = match &job.assistant_message_id {
@@ -1180,7 +1169,7 @@ impl Runner {
                         if project.project.title == "新的创作" {
                             project.project.title = title;
                         }
-                        project.artifacts = saved_artifacts;
+                        let mut preserved=saved_artifacts;preserved.visual_reviews.extend(project.artifacts.visual_reviews.clone());project.artifacts=preserved;
                         Self::complete_stage(job, StageKey::Planning);
                         if let Some(id) = job.assistant_message_id.clone() {
                             let block = json!({ "type": "plan", "summary": summary, "draft_revision": project.project.draft_revision + 1 });
@@ -1405,6 +1394,7 @@ impl Runner {
         }).map_err(Stop::from)?;
 
         // 4. SVG 画面（llm1）与 5. 音频（llm3 + llm4）并行
+        self.prepare_scene_plans(&mut draft, &input).await?;
         let ctx = context(&draft, &input);
         // 有失效标记，或有镜头还没有画面，才需要准备画面。
         let need_visuals = draft.invalidated_stages.contains(&StageKey::Visuals)
@@ -1476,7 +1466,7 @@ impl Runner {
                         visuals.into_iter().map(|(_, asset)| asset).collect();
                     self.guarded(move |t, job, project| {
                         for asset in &assets {
-                            db::insert_asset(t, asset)?;
+                            if db::load_asset(t,&asset.asset.id)?.is_none() {db::insert_asset(t, asset)?;}
                         }
                         Self::save_draft(t, job, project, &saved_draft)?;
                         ops::emit_job_updated(t, &job.job, "画面已保存")
@@ -1544,9 +1534,9 @@ impl Runner {
             let (saved_draft, saved_artifacts) = (draft.clone(), artifacts.clone());
             self.guarded(move |t, job, project| {
                 for asset in &new_assets {
-                    db::insert_asset(t, asset)?;
+                    if db::load_asset(t,&asset.asset.id)?.is_none() {db::insert_asset(t, asset)?;}
                 }
-                project.artifacts = saved_artifacts;
+                let mut preserved=saved_artifacts;preserved.visual_reviews.extend(project.artifacts.visual_reviews.clone());project.artifacts=preserved;
                 Self::save_draft(t, job, project, &saved_draft)?;
                 ops::emit_job_updated(t, &job.job, "画面与声音已就绪")
             })?;
@@ -1696,7 +1686,7 @@ impl Runner {
         let note = message.clone();
         self.guarded(move |t, job, project| {
             Self::complete_stage(job, key);
-            project.artifacts = saved_artifacts;
+            let mut preserved=saved_artifacts;preserved.visual_reviews.extend(project.artifacts.visual_reviews.clone());project.artifacts=preserved;
             project.draft = saved_draft;
             ops::emit_job_updated(t, &job.job, &message)
         })?;
@@ -1796,6 +1786,46 @@ impl Runner {
         Ok(())
     }
 
+    /// 导演计划在画面代码调用前逐镜头保存，失败重试只补缺少的计划，不重做整片。
+    async fn prepare_scene_plans(&self, draft: &mut Draft, input: &JobInput) -> Step<()> {
+        if !crate::vibe::enabled(&draft.settings,&input.text) {return Ok(());}
+        for index in 0..draft.shots.len() {
+            let shot = &draft.shots[index];
+            let saved_plan=crate::scene_plan::from_prompt(&shot.visual_prompt);
+            let envelope:serde_json::Value=serde_json::from_str(&shot.visual_prompt).unwrap_or_default();
+            let creative_key=hex::encode(Sha256::digest(serde_json::to_vec(&json!({"brief":draft.creative_brief,"settings":draft.settings,"audio":draft.audio})).unwrap_or_default()));
+            let reusable=saved_plan.as_ref().is_some_and(|p|p.validate(shot.duration_ms).is_ok()) && envelope["narration"]==shot.narration && envelope["creative_key"]==creative_key;
+            if !shot.asset_ids.is_empty() || reusable
+                || crate::visual_plan::route(&shot.visual_prompt, shot.duration_ms, crate::vibe::enabled(&draft.settings,&input.text)) != crate::visual_plan::VisualRoute::Generate { continue; }
+            let original=envelope["source_description"].as_str().unwrap_or(&shot.visual_prompt).to_string();
+            let mut ctx=context(draft,input);let mut result=None;let mut repair_used=false;
+            for attempt in 0..=1 {
+                let request=VisualRequest{ctx:ctx.clone(),shot:shot.clone(),shot_index:index,shot_count:draft.shots.len()};
+                match self.call(StageKey::Visuals,&format!("镜头 {} 语义动画导演计划 {}",index+1,attempt+1),self.state.providers.load().visual.plan_scene(request)).await {
+                    Ok(plan)=>{result=Some(plan);break;},
+                    Err(Stop::Failed(error))=>{
+                        repair_used=true;
+                        ctx.user_text.push_str(&format!("\n仅修复当前镜头的导演计划。上次协议错误：{}。不要改变用户知识数据。",error.message));
+                        self.feedback(Some(StageKey::Visuals),"warn",format!("镜头 {} 计划校验失败：{}{}",index+1,error.message,if attempt==0{"；仅修复这一镜。"}else{"；记录质量降级。"}))?;
+                    },
+                    Err(other)=>return Err(other),
+                }
+            }
+            match result {
+                Some(Some(mut plan))=>{
+                    plan.aspect_ratio=draft.settings.aspect_ratio.clone();
+                    plan.validate(shot.duration_ms).map_err(|e|provider_error(StageKey::Visuals,e))?;
+                    draft.shots[index].visual_prompt=json!({"scene_plan":plan,"source_description":original,"narration":shot.narration,"creative_key":creative_key,"plan_repair_used":repair_used}).to_string();
+                },
+                Some(None)=>continue,
+                None=>{draft.shots[index].visual_prompt=json!({"scene_plan_failed":true,"source_description":original}).to_string();},
+            }
+            let saved=draft.clone();
+            self.guarded(|t,job,project|Self::save_draft(t,job,project,&saved))?;
+        }
+        Ok(())
+    }
+
     /// llm1：为没有画面的镜头准备动画（用户上传的素材保留）。
     ///
     /// 每个镜头独立路由：可计算的搜索轨迹与充分的状态演变用受控渲染；
@@ -1850,7 +1880,8 @@ impl Runner {
                                 Some(media) => media,
                                 None => {
                                     // 模型失败、返回内容不完整或画面几乎不变：回退受控渲染。
-                                    // 没有可用图解时会退回固定布局，日志里能看出这次是兜底。
+                                    // 有有效计划时使用通用原语编译，完全无计划才降级固定布局。
+                                    self.feedback(Some(StageKey::Visuals),"warn",format!("质量降级：镜头 {} 使用{}兜底。",index+1,if crate::scene_plan::from_prompt(&shot.visual_prompt).is_some(){"已保存计划的本地矢量编译"}else{"固定图解卡片"}))?;
                                     self.call(
                                         StageKey::Visuals,
                                         &format!("回退受控画面（镜头 {}/{}）", index + 1, count),
@@ -1885,7 +1916,15 @@ impl Runner {
                             .await?
                         }
                     };
-                    Ok::<_, Stop>((shot.id.clone(), self.store_asset(project_id, &media).await?))
+                    let asset=self.store_asset(project_id, &media).await?;
+                    // 成功镜头马上保存；其他镜头失败或应用退出后，重试只补尚未完成的镜头。
+                    self.guarded(|t,job,project| {
+                        db::insert_asset(t,&asset)?;
+                        if let Some(saved)=project.draft.shots.iter_mut().find(|s|s.id==shot.id) {saved.asset_ids=vec![asset.asset.id.clone()];}
+                        let saved=project.draft.clone();
+                        Self::save_draft(t,job,project,&saved)
+                    })?;
+                    Ok::<_, Stop>((shot.id.clone(), asset))
                 }
             });
         futures::future::join_all(jobs).await.into_iter().collect()
@@ -1904,6 +1943,9 @@ impl Runner {
         count: usize,
         format: &str,
     ) -> Step<Option<MediaOutput>> {
+        let envelope:serde_json::Value=serde_json::from_str(&request.shot.visual_prompt).unwrap_or_default();
+        if envelope["scene_plan_failed"]==true {return Ok(None);}
+        let attempts=if envelope["plan_repair_used"]==true {1}else{2};
         let label = |attempt: usize| {
             format!(
                 "模型生成 {} 动画（镜头 {}/{}，第 {} 次）",
@@ -1914,7 +1956,9 @@ impl Runner {
             )
         };
         let mut last: Option<String> = None;
-        for attempt in 1..=2 {
+        for attempt in 1..=attempts {
+            let mut ctx = request.ctx.clone();
+            if let Some(reason) = &last {ctx.user_text.push_str(&format!("\n仅修复当前镜头，保留导演计划。上一次失败原因：{reason}"));}
             let result = self
                 .call(
                     StageKey::Visuals,
@@ -1924,7 +1968,7 @@ impl Runner {
                         .load()
                         .visual
                         .generate_shot(VisualRequest {
-                            ctx: request.ctx.clone(),
+                            ctx,
                             shot: request.shot.clone(),
                             shot_index: request.shot_index,
                             shot_count: request.shot_count,
@@ -1933,10 +1977,10 @@ impl Runner {
                 .await;
             let media = match result {
                 Ok(media) => media,
-                Err(Stop::Failed(_)) => return Ok(None),
+                Err(Stop::Failed(error)) => { last=Some(error.message); continue; },
                 Err(other) => return Err(other),
             };
-            match self.visual_problem(&media, shot).await {
+            match self.visual_problem(&media, shot, &request.ctx.settings).await {
                 None => return Ok(Some(media)),
                 Some(reason) => last = Some(reason),
             }
@@ -1957,7 +2001,7 @@ impl Runner {
     /// 检查模型生成的镜头成片；`None` 表示通过，否则返回可读的回退原因。
     ///
     /// 时长、画幅、音频和有效变化都来自真实文件，不依据模型自述。
-    async fn visual_problem(&self, media: &MediaOutput, shot: &Shot) -> Option<String> {
+    async fn visual_problem(&self, media: &MediaOutput, shot: &Shot, settings:&Settings) -> Option<String> {
         if media.kind != "video" || media.mime_type != "video/mp4" {
             return Some("输出不是 MP4 视频。".into());
         }
@@ -1980,6 +2024,11 @@ impl Runner {
             return Some("无法暂存动画用于检查。".into());
         }
         let probe = self.state.media.probe(&path).await;
+        let plan = crate::scene_plan::from_prompt(&shot.visual_prompt);
+        let audit = crate::quality::visual_audit(&path,shot.duration_ms,plan.as_ref()).await;
+        let review=audit.clone();
+        if self.guarded(|_,_,project| {project.artifacts.visual_reviews.insert(shot.id.clone(),review);Ok(())}).is_err() {let _=tokio::fs::remove_file(&path).await;return Some("无法保存镜头审计，任务可能已取消。".into());}
+        if audit["suspected_pillarbox"]==true {let _=tokio::fs::remove_file(&path).await;return Some("抽帧发现疑似柱状黑边，请重新布局当前画幅。".into());}
         let duration = probe.duration_ms.unwrap_or_default();
         let problem = if !probe.ok {
             Some("动画无法解码。".into())
@@ -1988,8 +2037,8 @@ impl Runner {
                 "动画时长 {duration}ms 与镜头 {}ms 不一致。",
                 shot.duration_ms
             ))
-        } else if probe.width.is_none() || probe.height.is_none() {
-            Some("动画缺少视频画面。".into())
+        } else if (probe.width,probe.height) != {let (w,h)=crate::util::output_dimensions(&settings.aspect_ratio,&settings.output_resolution);(Some(w),Some(h))} {
+            Some("动画尺寸或画幅不符合当前确认参数。".into())
         } else {
             match crate::visual_plan::media_has_motion(&path, shot.duration_ms).await {
                 Some(true) => None,
@@ -2092,6 +2141,8 @@ impl Runner {
                             ("fixed", "使用原版示例音乐"),
                             ("upload", "上传本地音乐"),
                             ("auto", "本地程序化配乐"),
+                            ("none", "不使用背景音乐"),
+                            ("back", "返回音乐来源"),
                         ]
                         .into_iter()
                         .map(|(value, label)| QuestionOption {
@@ -2167,7 +2218,7 @@ impl Runner {
         let saved = draft.clone();
         let a = artifacts.clone();
         self.guarded(|t, job, project| {
-            project.artifacts = a;
+            let mut preserved=a;preserved.visual_reviews.extend(project.artifacts.visual_reviews.clone());project.artifacts=preserved;
             Self::save_draft(t, job, project, &saved)
         })?;
         Ok(())

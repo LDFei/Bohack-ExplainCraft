@@ -1,0 +1,265 @@
+{
+  "objective": "TCP 三次握手：消息与状态同步",
+  "visual_concept": "两端设备轮廓、定向消息与协议状态",
+  "entities": [
+    {
+      "id": "client",
+      "kind": "path",
+      "region": "primary",
+      "x": 0.02,
+      "y": 0.11,
+      "width": 0.22,
+      "height": 0.42,
+      "path": "M0 0 H100 V76 H0 Z M50 76 V96 M25 100 H75",
+      "label": "客户端"
+    },
+    {
+      "id": "server",
+      "kind": "path",
+      "region": "primary",
+      "x": 0.76,
+      "y": 0.06,
+      "width": 0.22,
+      "height": 0.53,
+      "path": "M8 0 H92 V100 H8 Z M18 15 H82 M18 35 H82 M18 55 H82 M18 75 H82",
+      "label": "服务器"
+    },
+    {
+      "id": "syn",
+      "kind": "path",
+      "region": "primary",
+      "x": 0.26,
+      "y": 0.18,
+      "width": 0.13,
+      "height": 0.1,
+      "path": "M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0",
+      "label": "SYN"
+    },
+    {
+      "id": "synack",
+      "kind": "path",
+      "region": "primary",
+      "x": 0.61,
+      "y": 0.41,
+      "width": 0.13,
+      "height": 0.1,
+      "path": "M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0",
+      "label": "SYN + ACK"
+    },
+    {
+      "id": "ack",
+      "kind": "path",
+      "region": "primary",
+      "x": 0.26,
+      "y": 0.66,
+      "width": 0.13,
+      "height": 0.1,
+      "path": "M0 0 H100 V100 H0 Z M0 0 L50 60 L100 0",
+      "label": "ACK"
+    },
+    {
+      "id": "initial",
+      "kind": "text",
+      "region": "secondary",
+      "x": 0.04,
+      "y": 0.1,
+      "width": 0.9,
+      "height": 0.12,
+      "label": "CLOSED / LISTEN"
+    },
+    {
+      "id": "wait",
+      "kind": "text",
+      "region": "secondary",
+      "x": 0.04,
+      "y": 0.36,
+      "width": 0.9,
+      "height": 0.12,
+      "label": "SYN-SENT / SYN-RCVD"
+    },
+    {
+      "id": "established",
+      "kind": "text",
+      "region": "secondary",
+      "x": 0.04,
+      "y": 0.64,
+      "width": 0.9,
+      "height": 0.12,
+      "label": "ESTABLISHED / ESTABLISHED"
+    },
+    {
+      "id": "sent",
+      "kind": "text",
+      "region": "secondary",
+      "x": 0.04,
+      "y": 0.36,
+      "width": 0.9,
+      "height": 0.12,
+      "label": "SYN-SENT / LISTEN"
+    },
+    {
+      "id": "client_ready",
+      "kind": "text",
+      "region": "secondary",
+      "x": 0.04,
+      "y": 0.36,
+      "width": 0.9,
+      "height": 0.12,
+      "label": "ESTABLISHED / SYN-RCVD"
+    }
+  ],
+  "relationships": [],
+  "events": [
+    {
+      "entity_id": "syn",
+      "action": "spawn",
+      "start_ms": 200,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "SYN进入传输路径"
+    },
+    {
+      "entity_id": "initial",
+      "action": "remove",
+      "start_ms": 200,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "发送SYN时客户端离开CLOSED"
+    },
+    {
+      "entity_id": "sent",
+      "action": "reveal",
+      "start_ms": 200,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "SYN在途，客户端SYN-SENT，服务器仍LISTEN"
+    },
+    {
+      "entity_id": "syn",
+      "action": "flow",
+      "start_ms": 300,
+      "duration_ms": 1100,
+      "to": {
+        "x": 0.61
+      },
+      "reasoning": "SYN从发送端到接收端"
+    },
+    {
+      "entity_id": "sent",
+      "action": "remove",
+      "start_ms": 1400,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "SYN在途，客户端SYN-SENT，服务器仍LISTEN"
+    },
+    {
+      "entity_id": "wait",
+      "action": "reveal",
+      "start_ms": 1400,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "服务器收到SYN后进入SYN-RCVD"
+    },
+    {
+      "entity_id": "syn",
+      "action": "remove",
+      "start_ms": 1500,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "接收端处理SYN"
+    },
+    {
+      "entity_id": "synack",
+      "action": "spawn",
+      "start_ms": 1800,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "SYN + ACK进入传输路径"
+    },
+    {
+      "entity_id": "synack",
+      "action": "flow",
+      "start_ms": 1900,
+      "duration_ms": 1100,
+      "to": {
+        "x": 0.26
+      },
+      "reasoning": "SYN + ACK从发送端到接收端"
+    },
+    {
+      "entity_id": "wait",
+      "action": "remove",
+      "start_ms": 3000,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "服务器收到SYN后进入SYN-RCVD"
+    },
+    {
+      "entity_id": "client_ready",
+      "action": "reveal",
+      "start_ms": 3000,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "客户端收到SYN+ACK即进入ESTABLISHED，服务器等待最终ACK"
+    },
+    {
+      "entity_id": "synack",
+      "action": "remove",
+      "start_ms": 3100,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "接收端处理SYN + ACK"
+    },
+    {
+      "entity_id": "ack",
+      "action": "spawn",
+      "start_ms": 3400,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "ACK进入传输路径"
+    },
+    {
+      "entity_id": "ack",
+      "action": "flow",
+      "start_ms": 3500,
+      "duration_ms": 1100,
+      "to": {
+        "x": 0.61
+      },
+      "reasoning": "ACK从发送端到接收端"
+    },
+    {
+      "entity_id": "client_ready",
+      "action": "remove",
+      "start_ms": 4600,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "客户端收到SYN+ACK即进入ESTABLISHED，服务器等待最终ACK"
+    },
+    {
+      "entity_id": "established",
+      "action": "reveal",
+      "start_ms": 4600,
+      "duration_ms": 1,
+      "to": {},
+      "reasoning": "服务器收到最终ACK，双方均ESTABLISHED"
+    },
+    {
+      "entity_id": "ack",
+      "action": "remove",
+      "start_ms": 4700,
+      "duration_ms": 80,
+      "to": {},
+      "reasoning": "接收端处理ACK"
+    }
+  ],
+  "final_state": "SYN → SYN + ACK → ACK",
+  "style": "scientific",
+  "aspect_ratio": "16:9",
+  "claims": [
+    {
+      "statement": "本图展示无丢包的基本三次握手；服务端收到ACK后进入ESTABLISHED",
+      "evidence": "RFC 9293 §3.5，基本三次握手，不覆盖重传与同时打开"
+    }
+  ]
+}

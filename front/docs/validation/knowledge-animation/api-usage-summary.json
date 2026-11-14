@@ -1,0 +1,13 @@
+{
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+  "calls": 19,
+  "input_tokens": 31964,
+  "output_tokens": 30964,
+  "total_tokens": 62928,
+  "estimated_cny_at_high_public_rate": 0.31164,
+  "budget_cny": 3,
+  "api_calls_stopped": true,
+  "json_schema_endpoint_probe": true,
+  "price_source": "https://www.siliconflow.cn/pricing",
+  "note": "非供应商账单；按未缓存输入2元/百万、输出8元/百万上档估算。未再次调用TTS/音乐/视频模型。"
+}

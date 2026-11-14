@@ -111,7 +111,7 @@ fn schedule(state: &AppState) -> ApiResult<()> {
                 };
                 let error = JobError {
                     code: "INPUT_TIMEOUT".into(),
-                    message: "这次提问已过期，可以重新开始创作。".into(),
+                    message: "这次提问已过期，点击重试可在当前创作中恢复选择。".into(),
                     retryable: true,
                     failed_stage: Some(StageKey::Planning),
                 };

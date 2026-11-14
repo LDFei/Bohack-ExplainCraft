@@ -50,6 +50,8 @@ struct RoutingVisual {
     target: Option<i64>,
     /// 状态数量。
     states: Vec<RoutingState>,
+    /// 仅用户明确要文字状态演示时保留旧路线，不能由状态数量自动选中。
+    presentation: String,
 }
 
 /// 仅解析状态数量与对象数量。
@@ -78,8 +80,8 @@ pub fn sufficient(prompt: &str, duration_ms: i64) -> bool {
     };
     let expected = expected_events(duration_ms);
     match visual.kind.as_str() {
-        "search" => visual.target.is_some(),
-        "states" => {
+        "search" => crate::vibe::valid_search(prompt),
+        "states" if visual.presentation == "explicit_text" => {
             let usable: Vec<Vec<String>> = visual
                 .states
                 .iter()
@@ -120,7 +122,7 @@ pub fn route(prompt: &str, duration_ms: i64, vibe: bool) -> VisualRoute {
         return VisualRoute::Generate;
     };
     match visual.kind.as_str() {
-        "search" if visual.target.is_some() => VisualRoute::Search,
+        "search" if visual.target.is_some() && crate::vibe::valid_search(prompt) => VisualRoute::Search,
         "states" if sufficient(prompt, duration_ms) => VisualRoute::States,
         _ => VisualRoute::Generate,
     }
@@ -331,7 +333,7 @@ mod tests {
         assert_eq!(route(&states(2, true), long, true), VisualRoute::Generate);
         assert_eq!(route(&states(4, false), long, true), VisualRoute::Generate);
         // 足够多且有推进的状态保留受控渲染。
-        assert_eq!(route(&states(5, true), long, true), VisualRoute::States);
+        assert_eq!(route(&states(5, true), long, true), VisualRoute::Generate);
     }
 
     #[test]
@@ -383,7 +385,7 @@ mod tests {
     async fn rendered_states_shot_has_measurable_motion() {
         use crate::providers::MediaData;
         let prompt = r#"{"kind":"mechanism","title":"TCP 三次握手","labels":[],"note":"",
-            "visual":{"type":"states","conclusion":"连接建立，双方状态同步","states":[
+            "visual":{"type":"states","presentation":"explicit_text","conclusion":"连接建立，双方状态同步","states":[
             {"caption":"客户端请求建连","objects":[{"text":"客户端","emphasis":"accent"},{"text":"服务端","emphasis":"plain"},{"text":"CLOSED","emphasis":"dim"}]},
             {"caption":"发送 SYN","objects":[{"text":"客户端","emphasis":"accent"},{"text":"SYN","emphasis":"accent"},{"text":"服务端","emphasis":"plain"}]},
             {"caption":"服务端回复 SYN+ACK","objects":[{"text":"客户端","emphasis":"plain"},{"text":"SYN+ACK","emphasis":"accent"},{"text":"服务端","emphasis":"accent"}]},
@@ -431,7 +433,7 @@ mod tests {
     async fn rendered_newton_states_shot_has_measurable_motion() {
         use crate::providers::MediaData;
         let prompt = r#"{"kind":"mechanism","title":"牛顿第二定律 F=ma","labels":[],"note":"恒力 12N",
-            "visual":{"type":"states","conclusion":"合外力不变时，质量越大加速度越小","states":[
+            "visual":{"type":"states","presentation":"explicit_text","conclusion":"合外力不变时，质量越大加速度越小","states":[
             {"caption":"初始静止，合外力为零","objects":[{"text":"物块 m","emphasis":"plain"},{"text":"F = 0 N","emphasis":"plain"},{"text":"a = 0","emphasis":"dim"}]},
             {"caption":"施加恒力 12N","objects":[{"text":"物块 m=3kg","emphasis":"accent"},{"text":"F = 12 N","emphasis":"accent"},{"text":"a = 4 m/s²","emphasis":"plain"}]},
             {"caption":"质量增大到 6kg","objects":[{"text":"物块 m=6kg","emphasis":"plain"},{"text":"F = 12 N","emphasis":"plain"},{"text":"a = 2 m/s²","emphasis":"accent"}]},

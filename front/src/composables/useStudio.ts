@@ -71,6 +71,7 @@ export function useStudio() {
   let reconnectAttempts = 0;
   // 导出可能没有聊天消息；单独保存任务归属，任务结束后仍能查询最终素材 ID。
   const trackedJobs = new Map<string, string>();
+  let versionSequence = 0;
   // 页面内临时保存每个项目尚未发送的输入；这是内存 Map，不会在整页刷新后保留。
   const localInputs = new Map<string, { text: string; ids: string[]; intent: Intent }>();
   let previousRoute = '';
@@ -352,9 +353,12 @@ export function useStudio() {
     if (!projectId.value || pending.value) return false;
     pending.value = true;
     try {
-      await api.patchDraft(projectId.value, changes, revision);
-      await refresh(projectId.value);
-      Object.assign(settings, current.value?.draft.settings);
+      const id = projectId.value;
+      await api.patchDraft(id, changes, revision);
+      if (projectId.value === id) {
+        await refresh(id);
+        Object.assign(settings, current.value?.draft.settings);
+      }
       notify('修改已保存，更新视频后生效。');
       return true;
     } catch (error) {
@@ -428,6 +432,8 @@ export function useStudio() {
       if (projectId.value === id) await refresh(id);
     } catch (error) {
       notify(errorText(error), 'error');
+      // 冲突或过期问题也刷新，用户能立即回到服务器实际等待的步骤。
+      if (projectId.value === id) await refresh(id);
     } finally {
       pending.value = false;
     }
@@ -436,9 +442,11 @@ export function useStudio() {
    * 加载指定成片快照并切换播放器；再次核对项目归属，避免切路由后展示旧结果。
    */
   async function selectVersion(id: string) {
+    const owner = projectId.value;
+    const sequence = ++versionSequence;
     try {
-      const version = await api.getVersion(projectId.value, id);
-      if (version.project_id === projectId.value) {
+      const version = await api.getVersion(owner, id);
+      if (sequence === versionSequence && version.project_id === projectId.value) {
         selectedVersion.value = version;
         playing.value = false;
       }

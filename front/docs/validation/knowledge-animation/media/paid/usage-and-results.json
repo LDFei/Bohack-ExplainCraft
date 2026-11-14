@@ -1,0 +1,598 @@
+{
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+  "budget_cny": 3,
+  "max_calls": 19,
+  "scenes": [
+    {
+      "scene": "probability-16x9",
+      "technical_pass": true,
+      "audit": {
+        "freeze_scan_verified": true,
+        "freeze_intervals": [
+          "[Parsed_freezedetect_0 @ 0x7e6c452c0] lavfi.freezedetect.freeze_start: 0",
+          "[Parsed_freezedetect_0 @ 0x7e6c452c0] lavfi.freezedetect.freeze_duration: 4.833333",
+          "[Parsed_freezedetect_0 @ 0x7e6c452c0] lavfi.freezedetect.freeze_end: 4.833333"
+        ],
+        "subject_span_fraction": 0.63125,
+        "suspected_pillarbox": false,
+        "planned_events": 3,
+        "event_semantics": "requires human review of sampled frames and narration",
+        "claims": [
+          {
+            "statement": "固定样本中，累计频率会波动，一次实验不能保证每次都接近概率。",
+            "evidence": "用户提供",
+            "status": "unverified"
+          },
+          {
+            "statement": "累计频率数据点来自用户提供的64个样本值。",
+            "evidence": "用户提供",
+            "status": "unverified"
+          }
+        ],
+        "text_bounds_and_overlap": "requires source or human review",
+        "visual_review_required": true
+      },
+      "video": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid/probability-16x9.mp4",
+      "visual_review_required": true
+    },
+    {
+      "scene": "probability-9x16",
+      "passed": false,
+      "reason": "invalid director plan after one repair"
+    },
+    {
+      "scene": "tcp-16x9",
+      "passed": false,
+      "reason": "invalid director plan after one repair"
+    },
+    {
+      "scene": "tcp-9x16",
+      "passed": false,
+      "reason": "invalid director plan after one repair"
+    },
+    {
+      "scene": "newton-16x9",
+      "technical_pass": true,
+      "audit": {
+        "freeze_scan_verified": true,
+        "freeze_intervals": [],
+        "subject_span_fraction": 0.9,
+        "suspected_pillarbox": false,
+        "planned_events": 6,
+        "event_semantics": "requires human review of sampled frames and narration",
+        "claims": [
+          {
+            "statement": "F=12N，m=3kg，a=4m/s²，v0=0，4s后v=16m/s，s=32m",
+            "evidence": "用户提供：a=F/m；v=at；s=at²/2；不计摩擦，合外力恒定",
+            "status": "unverified"
+          }
+        ],
+        "text_bounds_and_overlap": "requires source or human review",
+        "visual_review_required": true
+      },
+      "video": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid/newton-16x9.mp4",
+      "visual_review_required": true
+    },
+    {
+      "scene": "newton-9x16",
+      "passed": false,
+      "reason": "invalid director plan after one repair"
+    }
+  ],
+  "json_schema_supported": true,
+  "calls": [
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "批准的Schema探针",
+      "started_at": "2026-11-14T18:48:36.639Z",
+      "finished_at": "2026-11-14T18:48:46.488Z",
+      "elapsed_ms": 9845,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 15,
+        "output_tokens": 5,
+        "total_tokens": 20,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 15,
+          "completion_tokens": 5,
+          "total_tokens": 20,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 15
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_e02ae848dd0042399baf3dd6338e7e4b"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "probability-16x9 导演计划 1",
+      "started_at": "2026-11-14T18:48:46.491Z",
+      "finished_at": "2026-11-14T18:48:57.127Z",
+      "elapsed_ms": 10634,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 1646,
+        "output_tokens": 1665,
+        "total_tokens": 3311,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 1646,
+          "completion_tokens": 1665,
+          "total_tokens": 3311,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 1646
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_7f7a9698f04f4489a8cfae928027b47d"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "probability-16x9 导演计划 2",
+      "started_at": "2026-11-14T18:48:57.129Z",
+      "finished_at": "2026-11-14T18:49:07.468Z",
+      "elapsed_ms": 10338,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 1675,
+        "output_tokens": 1640,
+        "total_tokens": 3315,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 1675,
+          "completion_tokens": 1640,
+          "total_tokens": 3315,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 1675
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_fb0258a0cf204dd5bb3b691e93b940c7"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "probability-16x9 画面代码 1",
+      "started_at": "2026-11-14T18:49:07.472Z",
+      "finished_at": "2026-11-14T18:49:48.437Z",
+      "elapsed_ms": 40965,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 3549,
+        "output_tokens": 6516,
+        "total_tokens": 10065,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 3549,
+          "completion_tokens": 6516,
+          "total_tokens": 10065,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 3549
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_bee6fe3df02244f39055e8335218bfc6"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "probability-9x16 导演计划 1",
+      "started_at": "2026-11-14T18:49:59.097Z",
+      "finished_at": "2026-11-14T18:50:09.588Z",
+      "elapsed_ms": 10491,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 1646,
+        "output_tokens": 1642,
+        "total_tokens": 3288,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 1646,
+          "completion_tokens": 1642,
+          "total_tokens": 3288,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 1646
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_f29c1b0abf3842ae8d53d5dc14fba1e0"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "probability-9x16 导演计划 2",
+      "started_at": "2026-11-14T18:50:09.591Z",
+      "finished_at": "2026-11-14T18:50:19.247Z",
+      "elapsed_ms": 9657,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 1675,
+        "output_tokens": 1633,
+        "total_tokens": 3308,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 1675,
+          "completion_tokens": 1633,
+          "total_tokens": 3308,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 1675
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_bba580acd8454cea83be8f5a126dad9b"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "tcp-16x9 导演计划 1",
+      "started_at": "2026-11-14T18:50:19.250Z",
+      "finished_at": "2026-11-14T18:50:27.349Z",
+      "elapsed_ms": 8099,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 930,
+        "output_tokens": 1246,
+        "total_tokens": 2176,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 930,
+          "completion_tokens": 1246,
+          "total_tokens": 2176,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 930
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_36282cb7c29a455dab3fc3bcc998e035"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "tcp-16x9 导演计划 2",
+      "started_at": "2026-11-14T18:50:27.351Z",
+      "finished_at": "2026-11-14T18:50:34.099Z",
+      "elapsed_ms": 6747,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 958,
+        "output_tokens": 1001,
+        "total_tokens": 1959,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 958,
+          "completion_tokens": 1001,
+          "total_tokens": 1959,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 958
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_a828c6afab894897aa2f15543039e4e7"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "tcp-9x16 导演计划 1",
+      "started_at": "2026-11-14T18:50:34.102Z",
+      "finished_at": "2026-11-14T18:50:44.753Z",
+      "elapsed_ms": 10651,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 930,
+        "output_tokens": 1475,
+        "total_tokens": 2405,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 930,
+          "completion_tokens": 1475,
+          "total_tokens": 2405,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 930
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_2ccc45fcbefc44e683ede76824591ebe"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "tcp-9x16 导演计划 2",
+      "started_at": "2026-11-14T18:50:44.755Z",
+      "finished_at": "2026-11-14T18:50:53.259Z",
+      "elapsed_ms": 8504,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 958,
+        "output_tokens": 1150,
+        "total_tokens": 2108,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 958,
+          "completion_tokens": 1150,
+          "total_tokens": 2108,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 958
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_662d4b3ac529431fac9d116c7340a5ac"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "newton-16x9 导演计划 1",
+      "started_at": "2026-11-14T18:50:53.263Z",
+      "finished_at": "2026-11-14T18:51:01.031Z",
+      "elapsed_ms": 7768,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 944,
+        "output_tokens": 992,
+        "total_tokens": 1936,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 944,
+          "completion_tokens": 992,
+          "total_tokens": 1936,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 944
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_9d1f5098d913402e82f143d9dc98d086"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "newton-16x9 导演计划 2",
+      "started_at": "2026-11-14T18:51:01.033Z",
+      "finished_at": "2026-11-14T18:51:09.331Z",
+      "elapsed_ms": 8298,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 973,
+        "output_tokens": 1107,
+        "total_tokens": 2080,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 973,
+          "completion_tokens": 1107,
+          "total_tokens": 2080,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 973
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_b5b2d9d334ed4753831da2cfc2772355"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "newton-16x9 画面代码 1",
+      "started_at": "2026-11-14T18:51:09.335Z",
+      "finished_at": "2026-11-14T18:51:42.991Z",
+      "elapsed_ms": 33657,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 2934,
+        "output_tokens": 5532,
+        "total_tokens": 8466,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 2934,
+          "completion_tokens": 5532,
+          "total_tokens": 8466,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 2934
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_5fd5b8fad38b4fbda99cac996eacf22c"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "newton-9x16 导演计划 1",
+      "started_at": "2026-11-14T18:51:51.905Z",
+      "finished_at": "2026-11-14T18:52:01.647Z",
+      "elapsed_ms": 9742,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 944,
+        "output_tokens": 1119,
+        "total_tokens": 2063,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 944,
+          "completion_tokens": 1119,
+          "total_tokens": 2063,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 944
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_d086ff55e4f44a12bf14c76432519350"
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "kind": "text",
+      "stage": "visuals",
+      "label": "newton-9x16 导演计划 2",
+      "started_at": "2026-11-14T18:52:01.649Z",
+      "finished_at": "2026-11-14T18:52:08.894Z",
+      "elapsed_ms": 7245,
+      "status": "succeeded",
+      "http_status": 200,
+      "usage": {
+        "input_tokens": 973,
+        "output_tokens": 904,
+        "total_tokens": 1877,
+        "cached_input_tokens": 0,
+        "raw": {
+          "prompt_tokens": 973,
+          "completion_tokens": 904,
+          "total_tokens": 1877,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "prompt_cache_hit_tokens": 0,
+          "prompt_cache_miss_tokens": 973
+        }
+      },
+      "provider_request_id": null,
+      "attempt": 1,
+      "id": "call_f76013d0a74f47f7868728fa6fbe96df"
+    }
+  ],
+  "input_tokens": 20750,
+  "output_tokens": 27627,
+  "estimated_cost_cny_upper_rate": 0.26251599999999997
+}

@@ -1,0 +1,17 @@
+{
+  "freeze_scan_verified": true,
+  "freeze_intervals": ["[Parsed_freezedetect_0 @ 0xa9f009b00] lavfi.freezedetect.freeze_start: 0"],
+  "subject_span_fraction": 0.74375,
+  "suspected_pillarbox": false,
+  "planned_events": 13,
+  "event_semantics": "requires human review of sampled frames and narration",
+  "claims": [
+    {
+      "statement": "本图展示无丢包的基本三次握手；服务端收到ACK后进入ESTABLISHED",
+      "evidence": "RFC 9293 §3.5.1，基本三次握手，不覆盖重传与同时打开",
+      "status": "unverified"
+    }
+  ],
+  "text_bounds_and_overlap": "requires source or human review",
+  "visual_review_required": true
+}

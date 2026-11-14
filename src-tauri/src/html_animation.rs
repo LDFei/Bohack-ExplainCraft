@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// 同时至多两个浏览器，避免多镜头占满桌面内存。
-static BROWSERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+static BROWSERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 /// 本次工作目录和专属进程组，取消、失败、成功使用相同的清理路径。
 struct Scratch {
     dir: PathBuf,

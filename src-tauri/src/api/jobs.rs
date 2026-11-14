@@ -89,13 +89,20 @@ pub async fn answer(
                 "这个问题已失效，请刷新当前创作。",
             ));
         }
+        let music_asset_question = input.question_id.starts_with(&(crate::skills::question_id("music_asset") + ":"));
+        // 上传后当前问题 ID 仍然有效。实时校验新音频，不用提问时的旧列表拒绝合法素材。
+        let live_music = music_asset_question && !["ready", "back"].contains(&value.as_str());
         if let Some(q)=&job.job.question {
-            if !q.options.is_empty() && !q.options.iter().any(|option|option.value==value) {
+            if !live_music && !q.options.is_empty() && !q.options.iter().any(|option|option.value==value) {
                 return Err(ApiError::validation("请选择当前步骤提供的有效选项。"));
             }
         }
         let step=job.job.question.as_ref().and_then(|q|q.skill_id.clone()).unwrap_or_default();
         let mut project=db::project_for(t,&job.job.project_id,&user)?;
+        if live_music {
+            let asset=db::load_asset(t,&value)?.ok_or_else(||ApiError::not_found("音频已不可用，请上传或返回音乐来源。"))?;
+            if !crate::skills::usable_music(&asset,&project.project.id) {return Err(ApiError::validation("请选择本项目已就绪的上传音频，或返回音乐来源。"));}
+        }
         if step=="rules_update" {
             if value=="cancel" {
                 job.job.status=JobStatus::Cancelled;job.job.question=None;job.job.finished_at=Some(crate::util::now_iso());
@@ -115,7 +122,7 @@ pub async fn answer(
         if let Some(id)=&input.asset_id {
             if step!="music" || value!="upload" {return Err(ApiError::validation("素材选择不属于当前音乐步骤。"));}
             let asset=db::load_asset(t,id)?.ok_or_else(||ApiError::not_found("未找到选择的音频。"))?;
-            if asset.asset.project_id!=project.project.id||asset.asset.kind!="audio"||asset.asset.status!="ready" {return Err(ApiError::not_found("未找到可使用的音频。"));}
+            if !crate::skills::usable_music(&asset,&project.project.id) {return Err(ApiError::not_found("未找到本项目可使用的上传音频。"));}
             job.input.answers.push(Answer{question_id:format!("{}:{}:selected",crate::skills::question_id("music_asset"),job.job.id),value:id.clone()});
         }
         if value=="save_shots" {
@@ -124,7 +131,7 @@ pub async fn answer(
             if shots.is_empty()||shots.len()>100{return Err(ApiError::validation("分镜数量应为1至100。"));}
             let mut ids=std::collections::HashSet::new();
             for shot in &mut shots {
-                if !ids.insert(shot.id.clone()) || !project.draft.shots.iter().any(|s|s.id==shot.id) || !(1000..=60000).contains(&shot.duration_ms) || shot.source_in_ms<0 || shot.narration.chars().count()>1000 || shot.visual_prompt.chars().count()>5000 {return Err(ApiError::validation("镜头编号、时长或文字长度无效。"));}
+                if !ids.insert(shot.id.clone()) || !project.draft.shots.iter().any(|s|s.id==shot.id) || !(1000..=60000).contains(&shot.duration_ms) || shot.source_in_ms<0 || shot.narration.chars().count()>1000 || shot.visual_prompt.chars().count()>60000 {return Err(ApiError::validation("镜头编号、时长或文字长度无效。"));}
                 for id in &shot.asset_ids {let a=db::load_asset(t,id)?.ok_or_else(||ApiError::not_found("镜头素材不存在。"))?;if a.asset.project_id!=project.project.id|| !["image","video"].contains(&a.asset.kind.as_str()) {return Err(ApiError::not_found("无法使用这份镜头素材。"));}if a.asset.kind=="video"&&a.asset.duration_ms.is_some_and(|d|shot.source_in_ms>=d){return Err(ApiError::validation("视频入点超出原素材时长。"));}}
                 let old=project.draft.shots.iter().find(|s|s.id==shot.id).unwrap();if (old.narration!=shot.narration||old.visual_prompt!=shot.visual_prompt)&&old.asset_ids==shot.asset_ids {shot.asset_ids.retain(|id|db::load_asset(t,id).ok().flatten().is_some_and(|a|a.asset.source=="upload"));}
                 if shot.asset_ids.iter().any(|id|db::load_asset(t,id).ok().flatten().is_some_and(|a|a.asset.source=="upload")){shot.camera_motion="reference".into();}
@@ -136,7 +143,7 @@ pub async fn answer(
         }
         let workflow_action=matches!(value.as_str(),"edit"|"regenerate"|"back"|"voice_retry");
         if workflow_action {
-            let target=if value=="voice_retry" {"voice"}else if value=="back" {match step.as_str(){"plan"=>"music","script"=>"plan","storyboard"=>"script","production"=>"storyboard","post_edit"=>"music",_=>"style"}}else{step.as_str()};
+            let target=if value=="voice_retry" {"voice"}else if value=="back" {if music_asset_question || input.question_id.contains("music_setup") || input.question_id.contains("music_failed") {"music"} else {match step.as_str(){"duration"=>"style","visual"=>"duration","voice"=>"visual","music"=>"voice","plan"=>"music","script"=>"plan","storyboard"=>"script","production"=>"storyboard","post_edit"=>"music",_=>"style"}}}else{step.as_str()};
             if value=="edit" {
                 if input.instruction.trim().is_empty() || input.instruction.chars().count()>10000{return Err(ApiError::validation("请填写本步骤的修改意见（最多10000字）。"));}
                 job.input.feedback.push(format!("步骤 {target} 的修改要求：{}\n当前文案：{}",input.instruction.trim(),project.draft.script.as_ref().map(|s|s.text.as_str()).unwrap_or("")));

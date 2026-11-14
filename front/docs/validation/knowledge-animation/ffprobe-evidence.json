@@ -1,0 +1,84 @@
+[
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/newton-16x9.mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/newton-9x16.mp4",
+    "width": 720,
+    "height": 1280,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/probability-16x9.mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/probability-9x16.mp4",
+    "width": 720,
+    "height": 1280,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/tcp-16x9.mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/paid-bounded/tcp-9x16.mp4",
+    "width": 720,
+    "height": 1280,
+    "fps": "30/1",
+    "duration": "6.000000",
+    "audio_duration": "6.000000",
+    "has_audio": true
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/probability-16x9-1080p.mp4",
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1",
+    "duration": "6.000000"
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/probability-1x1.mp4",
+    "width": 720,
+    "height": 720,
+    "fps": "30/1",
+    "duration": "6.000000"
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/html-16x9.mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": "30/1",
+    "duration": "3.000000"
+  },
+  {
+    "path": "/Users/suckerhgz/Desktop/Bohack-ExplainCraft/front/docs/validation/knowledge-animation/media/html-9x16.mp4",
+    "width": 720,
+    "height": 1280,
+    "fps": "30/1",
+    "duration": "3.000000"
+  }
+]

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "mode": "guided",
   "name": "ExplainCraft guided production",
   "steps": [
@@ -9,6 +9,10 @@
       "skill": "style.md",
       "requires_confirmation": true,
       "options": [
+        {
+          "value": "scientific",
+          "label": "科学编辑式动态图形 · 暖金纪录片"
+        },
         {
           "value": "warm",
           "label": "温暖手绘"
@@ -24,6 +28,10 @@
         {
           "value": "energetic",
           "label": "高能卡点"
+        },
+        {
+          "value": "custom",
+          "label": "遵从我输入的自定义风格"
         }
       ]
     },
@@ -51,6 +59,10 @@
         {
           "value": "auto",
           "label": "根据内容推荐时长"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -66,6 +78,10 @@
         {
           "value": "html",
           "label": "HTML 动画 · 页面与排版"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -85,6 +101,10 @@
         {
           "value": "bgm",
           "label": "不用配音，只保留 BGM"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -112,6 +132,10 @@
         {
           "value": "none",
           "label": "不使用背景音乐"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },

@@ -46,6 +46,8 @@ export const capabilities: Capabilities = {
   aspect_ratios: ['9:16', '16:9', '1:1'],
   languages: ['zh-CN'],
   styles: [
+    { id: 'scientific', name: '科学编辑式动态图形' },
+    { id: 'custom', name: '遵从用户自定义风格' },
     { id: 'warm', name: '温暖治愈' },
     { id: 'cinematic', name: '电影质感' },
     { id: 'minimal', name: '简约高级' },

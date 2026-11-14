@@ -1,0 +1,1237 @@
+{
+  "objective": "从样本到频率：波动仍然存在",
+  "visual_concept": "容器中的样本与累计频率曲线并置",
+  "entities": [
+    {
+      "id": "vessel",
+      "kind": "path",
+      "label": "透明容器 · 固定样本演示",
+      "region": "primary",
+      "x": 0.08,
+      "y": 0.05,
+      "width": 0.72,
+      "height": 0.73,
+      "path": "M18 0 L18 14 L4 88 Q3 99 16 99 L84 99 Q97 99 96 88 L82 14 L82 0 M12 0 H88 M18 14 H82",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    },
+    {
+      "id": "samples",
+      "kind": "particles",
+      "label": "",
+      "region": "primary",
+      "x": 0.22,
+      "y": 0.29,
+      "width": 0.44,
+      "height": 0.43,
+      "path": "",
+      "points": [],
+      "count": 48,
+      "seed": 17,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": ""
+    },
+    {
+      "id": "curve",
+      "kind": "plot",
+      "label": "",
+      "region": "secondary",
+      "x": 0.02,
+      "y": 0.05,
+      "width": 0.96,
+      "height": 0.68,
+      "path": "",
+      "points": [
+        [1.0, 0.0],
+        [2.0, 0.0],
+        [3.0, 0.3333333333333333],
+        [4.0, 0.5],
+        [5.0, 0.4],
+        [6.0, 0.3333333333333333],
+        [7.0, 0.42857142857142855],
+        [8.0, 0.375],
+        [9.0, 0.3333333333333333],
+        [10.0, 0.4],
+        [11.0, 0.3636363636363637],
+        [12.0, 0.3333333333333333],
+        [13.0, 0.38461538461538464],
+        [14.0, 0.35714285714285715],
+        [15.0, 0.4],
+        [16.0, 0.375],
+        [17.0, 0.35294117647058826],
+        [18.0, 0.3333333333333333],
+        [19.0, 0.3157894736842105],
+        [20.0, 0.35],
+        [21.0, 0.3333333333333333],
+        [22.0, 0.3181818181818182],
+        [23.0, 0.30434782608695654],
+        [24.0, 0.2916666666666667],
+        [25.0, 0.32],
+        [26.0, 0.34615384615384615],
+        [27.0, 0.3703703703703703],
+        [28.0, 0.3928571428571429],
+        [29.0, 0.41379310344827586],
+        [30.0, 0.43333333333333335],
+        [31.0, 0.4516129032258064],
+        [32.0, 0.4375],
+        [33.0, 0.4545454545454546],
+        [34.0, 0.4411764705882353],
+        [35.0, 0.45714285714285713],
+        [36.0, 0.4444444444444444],
+        [37.0, 0.43243243243243246],
+        [38.0, 0.4473684210526316],
+        [39.0, 0.4358974358974359],
+        [40.0, 0.45],
+        [41.0, 0.4390243902439024],
+        [42.0, 0.4523809523809524],
+        [43.0, 0.4418604651162791],
+        [44.0, 0.4318181818181818],
+        [45.0, 0.4444444444444444],
+        [46.0, 0.4565217391304347],
+        [47.0, 0.46808510638297873],
+        [48.0, 0.4791666666666667],
+        [49.0, 0.4693877551020408],
+        [50.0, 0.48],
+        [51.0, 0.4901960784313726],
+        [52.0, 0.4807692307692308],
+        [53.0, 0.4716981132075472],
+        [54.0, 0.46296296296296297],
+        [55.0, 0.4545454545454546],
+        [56.0, 0.44642857142857145],
+        [57.0, 0.43859649122807015],
+        [58.0, 0.4482758620689655],
+        [59.0, 0.4406779661016949],
+        [60.0, 0.45],
+        [61.0, 0.45901639344262296],
+        [62.0, 0.4516129032258064],
+        [63.0, 0.4444444444444444],
+        [64.0, 0.4375]
+      ],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "",
+      "color": "",
+      "x_range": [0.0, 64.0],
+      "y_range": [0.0, 1.0],
+      "x_label": "样本数量 n",
+      "y_label": "累计频率",
+      "sample_from": ""
+    },
+    {
+      "id": "frequency",
+      "kind": "number",
+      "label": "",
+      "region": "secondary",
+      "x": 0.28,
+      "y": 0.8,
+      "width": 0.68,
+      "height": 0.13,
+      "path": "",
+      "points": [],
+      "count": 0,
+      "seed": 0,
+      "value": 0.0,
+      "unit": "频率",
+      "color": "",
+      "x_range": [0.0, 0.0],
+      "y_range": [0.0, 0.0],
+      "x_label": "",
+      "y_label": "",
+      "sample_from": "curve"
+    }
+  ],
+  "relationships": [],
+  "events": [
+    {
+      "entity_id": "samples",
+      "action": "flow",
+      "start_ms": 0,
+      "duration_ms": 5200,
+      "to": {
+        "x": 0.24,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "容器内部组成可见，运动仅表达混合而非统计结果"
+    },
+    {
+      "entity_id": "curve",
+      "action": "trace",
+      "start_ms": 0,
+      "duration_ms": 5200,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": null,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "按固定样本的累计频率绘制曲线"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 81,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.0,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前1次的正面数量除以1"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 162,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.0,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前2次的正面数量除以2"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 244,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前3次的正面数量除以3"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 325,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.5,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前4次的正面数量除以4"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 406,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前5次的正面数量除以5"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 488,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前6次的正面数量除以6"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 569,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.42857142857142855,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前7次的正面数量除以7"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 650,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.375,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前8次的正面数量除以8"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 731,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前9次的正面数量除以9"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 812,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前10次的正面数量除以10"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 894,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3636363636363637,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前11次的正面数量除以11"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 975,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前12次的正面数量除以12"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1056,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.38461538461538464,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前13次的正面数量除以13"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1138,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.35714285714285715,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前14次的正面数量除以14"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1219,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前15次的正面数量除以15"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1300,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.375,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前16次的正面数量除以16"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1381,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.35294117647058826,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前17次的正面数量除以17"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1462,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前18次的正面数量除以18"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1544,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3157894736842105,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前19次的正面数量除以19"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1625,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.35,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前20次的正面数量除以20"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1706,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3333333333333333,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前21次的正面数量除以21"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1788,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3181818181818182,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前22次的正面数量除以22"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1869,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.30434782608695654,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前23次的正面数量除以23"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 1950,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.2916666666666667,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前24次的正面数量除以24"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2031,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.32,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前25次的正面数量除以25"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2112,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.34615384615384615,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前26次的正面数量除以26"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2194,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3703703703703703,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前27次的正面数量除以27"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2275,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.3928571428571429,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前28次的正面数量除以28"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2356,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.41379310344827586,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前29次的正面数量除以29"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2438,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.43333333333333335,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前30次的正面数量除以30"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2519,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4516129032258064,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前31次的正面数量除以31"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2600,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4375,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前32次的正面数量除以32"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2681,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4545454545454546,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前33次的正面数量除以33"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2762,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4411764705882353,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前34次的正面数量除以34"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2844,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.45714285714285713,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前35次的正面数量除以35"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 2925,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4444444444444444,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前36次的正面数量除以36"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3006,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.43243243243243246,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前37次的正面数量除以37"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3088,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4473684210526316,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前38次的正面数量除以38"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3169,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4358974358974359,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前39次的正面数量除以39"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3250,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.45,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前40次的正面数量除以40"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3331,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4390243902439024,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前41次的正面数量除以41"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3412,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4523809523809524,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前42次的正面数量除以42"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3494,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4418604651162791,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前43次的正面数量除以43"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3575,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4318181818181818,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前44次的正面数量除以44"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3656,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4444444444444444,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前45次的正面数量除以45"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3738,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4565217391304347,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前46次的正面数量除以46"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3819,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.46808510638297873,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前47次的正面数量除以47"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3900,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4791666666666667,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前48次的正面数量除以48"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 3981,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4693877551020408,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前49次的正面数量除以49"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4062,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.48,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前50次的正面数量除以50"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4144,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4901960784313726,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前51次的正面数量除以51"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4225,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4807692307692308,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前52次的正面数量除以52"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4306,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4716981132075472,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前53次的正面数量除以53"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4388,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.46296296296296297,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前54次的正面数量除以54"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4469,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4545454545454546,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前55次的正面数量除以55"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4550,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.44642857142857145,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前56次的正面数量除以56"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4631,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.43859649122807015,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前57次的正面数量除以57"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4712,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4482758620689655,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前58次的正面数量除以58"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4794,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4406779661016949,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前59次的正面数量除以59"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4875,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.45,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前60次的正面数量除以60"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 4956,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.45901639344262296,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前61次的正面数量除以61"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 5038,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4516129032258064,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前62次的正面数量除以62"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 5119,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4444444444444444,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前63次的正面数量除以63"
+    },
+    {
+      "entity_id": "frequency",
+      "action": "set_value",
+      "start_ms": 5200,
+      "duration_ms": 1,
+      "to": {
+        "x": null,
+        "y": null,
+        "value": 0.4375,
+        "opacity": null,
+        "scale": null,
+        "color": null,
+        "easing": ""
+      },
+      "reasoning": "频率等于固定样本前64次的正面数量除以64"
+    }
+  ],
+  "final_state": "固定样本展示 · 趋近不等于每次保证",
+  "style": "scientific",
+  "aspect_ratio": "9:16",
+  "claims": [
+    {
+      "statement": "64个固定样本中正面28次，频率0.4375",
+      "evidence": "LCG seed=20261115；位取高字节最低位；样本序列：0011001001001010000100001111111010100101010011110110000001011000"
+    },
+    {
+      "statement": "独立同分布伯努利试验的样本频率依概率收敛",
+      "evidence": "弱大数定律；图中仅为可复现实例，不构成证明"
+    }
+  ],
+  "palette": {
+    "background": "#14110C",
+    "foreground": "#F2E3C6",
+    "accent": "#D9A441",
+    "muted": "#8A7A5C"
+  }
+}

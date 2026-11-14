@@ -69,6 +69,8 @@ impl Default for Catalog {
     fn default() -> Self {
         Self {
             styles: vec![
+                ("scientific", "科学编辑式动态图形"),
+                ("custom", "遵从用户自定义风格"),
                 ("warm", "温暖治愈"),
                 ("cinematic", "电影质感"),
                 ("minimal", "简约高级"),
@@ -185,6 +187,7 @@ impl Catalog {
 /// 新项目的初始草稿：默认设置，全部阶段待计算（文档 5.2）。
 pub fn empty_draft() -> Draft {
     Draft {
+        creative_brief: None,
         brief: None,
         settings: Settings {
             target_duration_seconds: 30,

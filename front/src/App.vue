@@ -139,6 +139,12 @@ watch(projectId, () => {
   previewOpen.value = false;
   sidebarOpen.value = false;
   moreOpen.value = false;
+  modal.value = null;
+  modalPending.value = false;
+  managedProject.value = null;
+  exportJobId.value = '';
+  exportedAsset.value = '';
+  exportError.value = '';
 });
 // 额外追踪导出任务的终态；成功之后把素材 ID 交给下载动作。
 watch(exportJob, (job) => {
@@ -205,7 +211,8 @@ async function setMusicAsset(assetId: string) {
   if (job && isActive(job)) {
     const q = job.question;
     if (job.status === 'waiting_input' && q?.skill_id === 'music') {
-      if (q.options.some((o) => o.value === assetId)) await answerQuestion(job.id, assetId, q.id);
+      if (q.id.startsWith('skill:music_asset:') || q.options.some((o) => o.value === assetId))
+        await answerQuestion(job.id, assetId, q.id);
       else if (q.options.some((o) => o.value === 'upload'))
         await answerQuestion(job.id, 'upload', q.id, '', assetId);
       else studio.notify('请在对话音乐步骤刷新已上传音频列表。', 'info');
@@ -257,15 +264,19 @@ function openExport() {
  */
 async function exportVideo() {
   if (!selectedVersion.value) return;
+  const owner = projectId.value;
+  const versionId = selectedVersion.value.id;
   modalPending.value = true;
   exportError.value = '';
   try {
     const result = await studio.api.exportVideo(
-      projectId.value,
-      selectedVersion.value.id,
+      owner,
+      versionId,
       exportResolution.value,
       exportProject.value,
     );
+    // 导出可能比项目导航慢；旧项目的结果不能打开新项目的弹窗或开始跟踪错误任务。
+    if (projectId.value !== owner) return;
     if (result.asset_id) {
       exportedAsset.value = result.asset_id;
       modalPending.value = false;
@@ -275,6 +286,7 @@ async function exportVideo() {
       await studio.refresh(projectId.value);
     }
   } catch (error) {
+    if (projectId.value !== owner) return;
     exportError.value = error instanceof Error ? error.message : '导出暂时失败。';
     modalPending.value = false;
   }

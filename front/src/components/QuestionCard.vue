@@ -46,7 +46,18 @@ let request = 0;
 const isMusic = computed(() => props.question.skill_id === 'music');
 const localAudio = computed(() =>
   props.assets.filter(
-    (a) => a.kind === 'audio' && a.source !== 'generated' && a.status === 'ready',
+    (a) =>
+      a.kind === 'audio' &&
+      a.source === 'upload' &&
+      a.status === 'ready' &&
+      (a.duration_ms ?? 0) > 0,
+  ),
+);
+const card = ref<HTMLElement | null>(null);
+const musicAssetQuestion = computed(() => props.question.id.startsWith('skill:music_asset:'));
+const musicOptions = computed(() =>
+  props.question.options.filter(
+    (o) => !musicAssetQuestion.value || ['ready', 'back'].includes(o.value),
   ),
 );
 const review = computed(() => props.question.input_type === 'review');
@@ -67,21 +78,23 @@ watch(
 );
 /** 检查真实依赖，模型本身的调用仍由后端控制。 */
 async function checkRuntime() {
+  const questionId = props.question.id;
   checking.value = true;
   runtimeError.value = '';
   try {
-    runtime.value = await api.runtimeStatus();
+    const result = await api.runtimeStatus();
+    if (questionId === props.question.id) runtime.value = result;
   } catch {
-    runtimeError.value = '依赖检查未完成，请重试。';
+    if (questionId === props.question.id) runtimeError.value = '依赖检查未完成，请重试。';
   } finally {
-    checking.value = false;
+    if (questionId === props.question.id) checking.value = false;
   }
 }
 /** 逐镜头修改在同一步骤保存并重新审阅，不隐式开始生成。 */
 function saveShots() {
   emit('answer', 'save_shots', JSON.stringify(localShots.value));
 }
-/** 素材选择只保存引用；无素材代表使用统一几何图解。 */
+/** 素材选择只保存引用；未绑定素材时由后端生成当前知识对象的动画。 */
 function bindAsset(index: number, event: Event) {
   const id = (event.target as HTMLSelectElement).value;
   localShots.value[index]!.asset_ids = id ? [id] : [];
@@ -116,7 +129,7 @@ async function audition(asset: Asset) {
 }
 /** 本地音频可从当前问题直接选定，后端仍校验归属和当前问题。 */
 function useAudio() {
-  if (!selected.value) return;
+  if (!localAudio.value.some((a) => a.id === selected.value) || props.pending) return;
   emit(
     'answer',
     uploadChoice.value ? 'upload' : selected.value,
@@ -126,29 +139,40 @@ function useAudio() {
 }
 /** 本地文件入口打开系统选择器，其余来源直接提交明确的选项。 */
 function act(value: string) {
-  if (value === 'upload') {
-    fileInput.value?.click();
-    return;
-  }
   if (value === 'save_shots') {
     saveShots();
     return;
   }
   emit('answer', value, value === 'edit' ? instruction.value : undefined);
 }
+/** 收起、换问题与离开卡片时停止原生试听，避免不可见控件继续播放。 */
+function stopAudio() {
+  card.value?.querySelectorAll('audio').forEach((audio) => audio.pause());
+}
+watch(() => props.question.id, stopAudio, { flush: 'sync' });
 onBeforeUnmount(() => {
   request++;
+  stopAudio();
 });
 </script>
 <template>
-  <section class="question-card">
+  <section
+    ref="card"
+    class="question-card"
+  >
     <span class="question-step">
       {{ review ? '审阅与决定' : '创作选择' }}
       <template v-if="question.step">· {{ question.step }} / {{ question.total_steps }}</template>
     </span>
     <p class="question-prompt">{{ question.prompt }}</p>
     <template v-if="isMusic">
-      <details>
+      <details
+        @toggle="
+          (event) => {
+            if (!(event.target as HTMLDetailsElement).open) stopAudio();
+          }
+        "
+      >
         <summary>试听原版 Vibe 示例音乐</summary>
         <audio
           src="media/vibe-knowledge-awards/we-never.mp3"
@@ -164,6 +188,20 @@ onBeforeUnmount(() => {
         hidden
         @change="chooseFile"
       />
+      <button
+        v-if="musicAssetQuestion"
+        class="button secondary"
+        :disabled="pending || !!uploading"
+        @click="fileInput?.click()"
+      >
+        上传新音频
+      </button>
+      <p
+        v-if="musicAssetQuestion && !localAudio.length && !uploading"
+        role="status"
+      >
+        暂无可用音频。上传后会自动更新，也可以返回音乐来源。
+      </p>
       <p
         v-if="uploading"
         role="status"
@@ -171,10 +209,10 @@ onBeforeUnmount(() => {
         正在上传 {{ uploading.name }} · {{ uploading.percent }}%
       </p>
       <div
-        v-if="localAudio.length"
+        v-if="localAudio.length && (musicAssetQuestion || uploadChoice)"
         class="local-music-list"
       >
-        <strong>可用音乐（本地上传与已生成）</strong>
+        <strong>本项目可用的上传音乐</strong>
         <button
           v-for="asset in localAudio"
           :key="asset.id"
@@ -243,7 +281,7 @@ onBeforeUnmount(() => {
             :value="shot.asset_ids[0] ?? ''"
             @change="bindAsset(index, $event)"
           >
-            <option value="">生成统一几何图解</option>
+            <option value="">生成知识动画</option>
             <option
               v-for="asset in assets.filter(
                 (a) => a.source === 'upload' && a.kind !== 'audio' && a.status === 'ready',
@@ -333,7 +371,7 @@ onBeforeUnmount(() => {
       class="question-actions"
     >
       <button
-        v-for="option in question.options"
+        v-for="option in isMusic ? musicOptions : question.options"
         :key="option.value"
         type="button"
         class="button"

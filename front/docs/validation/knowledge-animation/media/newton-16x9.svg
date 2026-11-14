@@ -1,0 +1,436 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1280"
+  height="720"
+  viewBox="0 0 1280 720"
+>
+  <rect
+    width="1280"
+    height="720"
+    fill="#0B1117"
+  />
+  <defs>
+    <marker
+      id="arrow"
+      markerWidth="8"
+      markerHeight="8"
+      refX="7"
+      refY="4"
+      orient="auto"
+    >
+      <path
+        d="M0 0 L8 4 L0 8"
+        fill="#D8B56E"
+      />
+    </marker>
+  </defs>
+  <g font-family="Arial,Hiragino Sans GB,Microsoft YaHei,Noto Sans CJK SC,sans-serif">
+    <text
+      x="43.199999999999996"
+      y="54"
+      font-size="14"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      EXPLAINCRAFT · 科学图解
+    </text>
+    <text
+      x="43.199999999999996"
+      y="104.39999999999999"
+      font-size="32"
+      fill="#F1E8D5"
+      text-anchor="start"
+    >
+      恒力如何改变运动：F = ma
+    </text>
+    <path
+      d="M76.8 152.79999999999998 H665.6"
+      stroke="#D8B56E"
+      stroke-opacity="0.35"
+    />
+    <text
+      x="76.8"
+      y="140.79999999999998"
+      font-size="15"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      01 / 观察对象
+    </text>
+    <clipPath id="panel0">
+      <rect
+        x="76.8"
+        y="168.79999999999998"
+        width="588.8000000000001"
+        height="405.2"
+      />
+    </clipPath>
+    <path
+      d="M755.1999999999999 152.79999999999998 H1203.1999999999998"
+      stroke="#D8B56E"
+      stroke-opacity="0.35"
+    />
+    <text
+      x="755.1999999999999"
+      y="140.79999999999998"
+      font-size="15"
+      fill="#9FAAAE"
+      text-anchor="start"
+    >
+      02 / 数据与推理
+    </text>
+    <clipPath id="panel1">
+      <rect
+        x="755.1999999999999"
+        y="168.79999999999998"
+        width="448"
+        height="405.2"
+      />
+    </clipPath>
+    <g
+      id="track"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <g transform="translate(371.20000000000005 440.85599999999994)">
+          <g transform="scale(1)">
+            <g transform="translate(-371.20000000000005 -440.85599999999994)">
+              <path
+                d="M0 0 H100 M0 100 H100"
+                transform="translate(88.576 426.16799999999995) scale(5.652480000000001 0.29376)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="0.35382699275362317"
+                stroke-dasharray="200"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="371.20000000000005"
+                y="480.5439999999999"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                位移 s = 2t²（米）
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="block"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;4.692000000000001 0;18.768000000000004 0;42.228 0;75.07200000000002 0;117.30000000000001 0;168.912 0;229.90800000000004 0;300.28800000000007 0"
+          begin="300ms"
+          dur="4000ms"
+          fill="freeze"
+        />
+        <g transform="translate(168.06400000000002 336.20399999999995)">
+          <g transform="scale(1)">
+            <g transform="translate(-168.06400000000002 -336.20399999999995)">
+              <path
+                d="M0 16 L16 0 H100 V84 L84 100 H0 Z M0 16 H84 V100 M84 16 L100 0"
+                transform="translate(100.352 279.28799999999995) scale(1.3542400000000003 1.13832)"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4768431001890356"
+                stroke-dasharray="571.8822509939085"
+                stroke-dashoffset="0"
+              ></path>
+              <text
+                x="168.06400000000002"
+                y="418.11999999999995"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                m = 3 kg
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="force"
+      clip-path="url(#panel0)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="0"
+      >
+        <animate
+          attributeName="opacity"
+          from="0"
+          to="1"
+          begin="300ms"
+          dur="200ms"
+          fill="freeze"
+        />
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;4.692000000000001 0;18.768000000000004 0;42.228 0;75.07200000000002 0;117.30000000000001 0;168.912 0;229.90800000000004 0;300.28800000000007 0"
+          begin="300ms"
+          dur="4000ms"
+          fill="freeze"
+        />
+        <g transform="translate(294.656 323.35200000000003)">
+          <g transform="scale(1)">
+            <g transform="translate(-294.656 -323.35200000000003)">
+              <path
+                d="M253.44 323.35200000000003 H335.872"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-dasharray="82.43200000000002"
+                stroke-dashoffset="0"
+                marker-end="url(#arrow)"
+              ></path>
+              <text
+                x="294.656"
+                y="359.368"
+                font-size="19"
+                fill="#F1E8D5"
+                text-anchor="middle"
+              >
+                F = 12 N
+              </text>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="velocity"
+      clip-path="url(#panel1)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <g transform="translate(979.1999999999999 317.84399999999994)">
+          <g transform="scale(1)">
+            <g transform="translate(-979.1999999999999 -317.84399999999994)">
+              <path
+                d="M824.3711999999999 211.42943999999997 V398.92175999999995 H1177.0367999999999"
+                fill="none"
+                stroke="#9FAAAE"
+                stroke-width="1.5"
+              />
+              <path
+                d="M824.3711999999999 398.92175999999995 H1177.0367999999999"
+                stroke="#9FAAAE"
+                stroke-opacity="0.15"
+              />
+              <text
+                x="816.3711999999999"
+                y="403.92175999999995"
+                font-size="14"
+                fill="#9FAAAE"
+                text-anchor="end"
+              >
+                0.00
+              </text>
+              <path
+                d="M824.3711999999999 352.04868 H1177.0367999999999"
+                stroke="#9FAAAE"
+                stroke-opacity="0.15"
+              />
+              <text
+                x="816.3711999999999"
+                y="357.04868"
+                font-size="14"
+                fill="#9FAAAE"
+                text-anchor="end"
+              >
+                4.00
+              </text>
+              <path
+                d="M824.3711999999999 305.1756 H1177.0367999999999"
+                stroke="#9FAAAE"
+                stroke-opacity="0.15"
+              />
+              <text
+                x="816.3711999999999"
+                y="310.1756"
+                font-size="14"
+                fill="#9FAAAE"
+                text-anchor="end"
+              >
+                8.00
+              </text>
+              <path
+                d="M824.3711999999999 258.30251999999996 H1177.0367999999999"
+                stroke="#9FAAAE"
+                stroke-opacity="0.15"
+              />
+              <text
+                x="816.3711999999999"
+                y="263.30251999999996"
+                font-size="14"
+                fill="#9FAAAE"
+                text-anchor="end"
+              >
+                12.00
+              </text>
+              <path
+                d="M824.3711999999999 211.42943999999997 H1177.0367999999999"
+                stroke="#9FAAAE"
+                stroke-opacity="0.15"
+              />
+              <text
+                x="816.3711999999999"
+                y="216.42943999999997"
+                font-size="14"
+                fill="#9FAAAE"
+                text-anchor="end"
+              >
+                16.00
+              </text>
+              <text
+                x="824.3711999999999"
+                y="418.92175999999995"
+                font-size="13"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                0
+              </text>
+              <text
+                x="912.5375999999999"
+                y="418.92175999999995"
+                font-size="13"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                1
+              </text>
+              <text
+                x="1000.704"
+                y="418.92175999999995"
+                font-size="13"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                2
+              </text>
+              <text
+                x="1088.8703999999998"
+                y="418.92175999999995"
+                font-size="13"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                3
+              </text>
+              <text
+                x="1177.0367999999999"
+                y="418.92175999999995"
+                font-size="13"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                4
+              </text>
+              <text
+                x="1000.704"
+                y="443.92175999999995"
+                font-size="16"
+                fill="#9FAAAE"
+                text-anchor="middle"
+              >
+                时间 t / s
+              </text>
+              <text
+                x="824.3711999999999"
+                y="203.42943999999997"
+                font-size="16"
+                fill="#9FAAAE"
+                text-anchor="start"
+              >
+                速度 v / (m/s)
+              </text>
+              <polyline
+                points="824.3711999999999,398.92175999999995 912.5375999999999,352.04867999999993 1000.704,305.1756 1088.8703999999998,258.30251999999996 1177.0367999999999,211.42943999999997"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-linejoin="round"
+                stroke-dasharray="399.4075556149912"
+                stroke-dashoffset="399.4075556149912"
+              >
+                <animate
+                  attributeName="stroke-dashoffset"
+                  values="399.4075556149912;299.5556667112434;199.70377780749556;99.85188890374786;0"
+                  keyTimes="0;0.25;0.5;0.75;1"
+                  begin="300ms"
+                  dur="4000ms"
+                  fill="freeze"
+                />
+              </polyline>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <g
+      id="accel"
+      clip-path="url(#panel1)"
+    >
+      <g
+        color="#D8B56E"
+        opacity="1"
+      >
+        <g transform="translate(997.12 494.09999999999997)">
+          <g transform="scale(1)">
+            <g transform="translate(-997.12 -494.09999999999997)">
+              <g opacity="0">
+                <set
+                  attributeName="opacity"
+                  to="1"
+                  begin="0ms"
+                />
+                <text
+                  x="817.92"
+                  y="501.26039999999995"
+                  font-size="48"
+                  fill="#D8B56E"
+                  text-anchor="start"
+                >
+                  4.00 m/s²
+                </text>
+                <set
+                  attributeName="opacity"
+                  to="0"
+                  begin="6000ms"
+                />
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+    <text
+      x="640"
+      y="547.2"
+      font-size="24"
+      fill="#F1E8D5"
+      text-anchor="middle"
+    >
+      12 N ÷ 3 kg = 4 m/s²
+    </text>
+  </g>
+</svg>
