@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   build:
