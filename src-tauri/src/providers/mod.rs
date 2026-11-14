@@ -86,6 +86,9 @@ impl ProviderError {
 /// 供应商调用的结果类型。
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
+/// 每句旁白结束后保留的呼吸时间；配音对齐与剪辑时间线共用同一个预算。
+pub const NARRATION_PAUSE_MS: i64 = 400;
+
 /// 供应商产出的媒体文件。编排层负责把它保存为项目素材（Asset）。
 #[derive(Debug, Clone)]
 pub struct MediaOutput {

@@ -1132,6 +1132,13 @@ impl Runner {
                         self.state.providers.load().voice.synthesize(request),
                     )
                     .await?;
+                let media = self
+                    .call(
+                        StageKey::Audio,
+                        "配音对齐镜头时长",
+                        self.state.media.fit_narration(media, shot.duration_ms),
+                    )
+                    .await?;
                 narrations.push((
                     shot.id.clone(),
                     key,

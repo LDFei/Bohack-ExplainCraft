@@ -908,7 +908,7 @@ fn timeline(request: &EditRequest) -> EditPlan {
             let narration = request.narration.get(&shot.id);
             // 配音比镜头长时延长镜头，并在句尾留 0.4 秒呼吸。
             let duration = narration
-                .map(|(_, ms)| (*ms + 400).max(shot.duration_ms))
+                .map(|(_, ms)| (*ms + NARRATION_PAUSE_MS).max(shot.duration_ms))
                 .unwrap_or(shot.duration_ms);
             let clip = Clip {
                 shot_id: shot.id.clone(),

@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::db::{self, AssetRow, VersionRow};
 use crate::error::ApiResult;
 use crate::models::{Asset, Draft, VideoVersion};
-use crate::providers::{MediaData, MediaOutput};
+use crate::providers::{MediaData, MediaOutput, ProviderError, ProviderResult, NARRATION_PAUSE_MS};
 use crate::util::{iso, now};
 
 /// 媒体服务：负责项目文件的存储、签名访问地址和元数据解析。
@@ -40,6 +40,15 @@ pub struct Probe {
     pub duration_ms: Option<i64>,
     /// 文件能否被解码。ffprobe 不可用时也为 `true`（跳过校验，不阻塞上传）。
     pub ok: bool,
+}
+
+/// 配音对齐的临时目录；失败或取消时同样清理，避免遗留半成品音频。
+struct VoiceScratch(PathBuf);
+
+impl Drop for VoiceScratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 impl Media {
@@ -140,6 +149,89 @@ impl Media {
         }
         let size = tokio::fs::metadata(&path).await?.len() as i64;
         Ok((path, size))
+    }
+
+    /// 将实际过长的 TTS 音频变速到镜头预算内，保留完整语句与音高。
+    ///
+    /// 字数只能预估时长，部分供应商也会忽略 speed；必须以真实音频再次校验。
+    /// 不截掉句尾，不修改上传文件，短配音保持原样。
+    pub async fn fit_narration(
+        &self,
+        output: MediaOutput,
+        shot_duration_ms: i64,
+    ) -> ProviderResult<MediaOutput> {
+        let fit = async {
+            let dir = self
+                .storage_dir
+                .join("_render")
+                .join(crate::util::make_id("voice-fit"));
+            tokio::fs::create_dir_all(&dir).await?;
+            let _scratch = VoiceScratch(dir.clone());
+            let input = dir.join("input.audio");
+            match &output.data {
+                MediaData::Bytes(bytes) => tokio::fs::write(&input, bytes).await?,
+                MediaData::Path(path) => {
+                    tokio::fs::copy(path, &input).await?;
+                }
+            }
+            let actual = self
+                .probe(&input)
+                .await
+                .duration_ms
+                .filter(|duration| *duration > 0)
+                .ok_or_else(|| anyhow::anyhow!("无法测量配音时长"))?;
+            // 额外预留 20ms，吸收 atempo 和采样边界的毫秒取整误差。
+            let budget = (shot_duration_ms - NARRATION_PAUSE_MS - 20).max(200);
+            if actual <= budget {
+                return Ok(output);
+            }
+            let mut factor = actual as f64 / budget as f64;
+            let mut filters = Vec::new();
+            // 每级 atempo 不超过 2，避免大倍率时跳过音频采样；所有文字仍完整保留。
+            while factor > 2.0 {
+                filters.push("atempo=2".to_string());
+                factor /= 2.0;
+            }
+            filters.push(format!("atempo={factor:.8}"));
+            let path = dir.join("aligned.wav");
+            let result = tokio::time::timeout(
+                Duration::from_secs(60),
+                tokio::process::Command::new(
+                    std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
+                )
+                .args(["-v", "error", "-nostdin", "-y", "-i"])
+                .arg(&input)
+                .args(["-vn", "-af", &filters.join(","), "-c:a", "pcm_s16le"])
+                .arg(&path)
+                .kill_on_drop(true)
+                .output(),
+            )
+            .await??;
+            if !result.status.success() {
+                anyhow::bail!(
+                    "FFmpeg 配音对齐失败：{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+            let duration = self
+                .probe(&path)
+                .await
+                .duration_ms
+                .filter(|duration| *duration > 0 && *duration <= budget + 40)
+                .ok_or_else(|| anyhow::anyhow!("配音对齐结果不在镜头预算内"))?;
+            tracing::info!(target: "job", "配音按镜头对齐：{actual}ms → {duration}ms，镜头 {shot_duration_ms}ms");
+            Ok(MediaOutput {
+                data: MediaData::Bytes(tokio::fs::read(path).await?),
+                file_name: "narration.wav".into(),
+                mime_type: "audio/wav".into(),
+                duration_ms: Some(duration),
+                ..output
+            })
+        };
+        fit.await.map_err(|error: anyhow::Error| {
+            tracing::warn!(target: "job", "配音时长对齐失败：{error:#}");
+            ProviderError::render_failed("配音未能对齐镜头时长，请检查 FFmpeg 后重试。")
+        })
     }
 
     /// 用 ffprobe 解析真实宽高与时长；ffprobe 不可用时返回 ok=false。
@@ -301,6 +393,63 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str, &'static str)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 使用真实音频验证超长配音会收敛到镜头预算，原始文件与短配音不被改写。
+    #[tokio::test]
+    async fn long_narration_fits_shot_without_mutating_source() {
+        let root = std::env::temp_dir().join(crate::util::make_id("voice-fit-test"));
+        let mut config = Config::from_env();
+        config.storage_dir = root.clone();
+        let media = Media::new(&config).unwrap();
+        let source = root.join("original.wav");
+        let result = tokio::process::Command::new(
+            std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
+        )
+        .args([
+            "-v",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=3",
+        ])
+        .arg(&source)
+        .output()
+        .await
+        .unwrap();
+        assert!(result.status.success());
+        let original = tokio::fs::read(&source).await.unwrap();
+        let fitted = media
+            .fit_narration(
+                MediaOutput {
+                    data: MediaData::Path(source.clone()),
+                    file_name: "original.wav".into(),
+                    mime_type: "audio/wav".into(),
+                    kind: "audio".into(),
+                    source: "generated".into(),
+                    width: None,
+                    height: None,
+                    duration_ms: None,
+                },
+                2000,
+            )
+            .await
+            .unwrap();
+        assert!(fitted.duration_ms.unwrap() <= 1620);
+        assert_eq!(tokio::fs::read(source).await.unwrap(), original);
+        let MediaData::Bytes(first) = &fitted.data else {
+            panic!("对齐后应返回音频字节")
+        };
+        assert!(first.len() > 1000);
+        let fitted_again = media.fit_narration(fitted.clone(), 2000).await.unwrap();
+        let MediaData::Bytes(second) = fitted_again.data else {
+            panic!("短配音应保持字节不变")
+        };
+        assert_eq!(*first, second);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn sniffs_common_types() {
