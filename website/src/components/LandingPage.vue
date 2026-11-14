@@ -12,10 +12,9 @@ import ThemeSwitcher from "./ThemeSwitcher.vue";
 const activePath = ref<"generic" | "vibe">("generic");
 /** 模板示例分镜：用现有成片静帧，说明这一系列的镜头结构。 */
 const vibeShots = [
-  { label: "开场钩子", dur: "2s", img: "rel-thumb-1.jpg" },
-  { label: "机制拆解", dur: "8s", img: "rel-thumb-2.jpg" },
-  { label: "反差转折", dur: "6s", img: "rel-thumb-3.jpg" },
-  { label: "落点与引用", dur: "4s", img: "rel-thumb-4.jpg" },
+  { label: "选 Vibe 模板", dur: "新建", img: "vibe-step-1.jpg" },
+  { label: "AI 生成提示词", dur: "自动", img: "vibe-step-2.jpg" },
+  { label: "成品", dur: "30s", img: "vibe-step-3.jpg" },
 ];
 const previewOpen = ref(false),
   musicPlaying = ref(false),
