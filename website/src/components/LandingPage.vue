@@ -10,6 +10,13 @@ import { mediaUrl } from "../domain/assets.ts";
 import { DOWNLOAD_URL } from "../domain/links.ts";
 import ThemeSwitcher from "./ThemeSwitcher.vue";
 const activePath = ref<"generic" | "vibe">("generic");
+/** 模板示例分镜：用现有成片静帧，说明这一系列的镜头结构。 */
+const vibeShots = [
+  { label: "开场钩子", dur: "2s", img: "rel-thumb-1.jpg" },
+  { label: "机制拆解", dur: "8s", img: "rel-thumb-2.jpg" },
+  { label: "反差转折", dur: "6s", img: "rel-thumb-3.jpg" },
+  { label: "落点与引用", dur: "4s", img: "rel-thumb-4.jpg" },
+];
 const previewOpen = ref(false),
   musicPlaying = ref(false),
   mediaError = ref("");
@@ -349,6 +356,16 @@ onBeforeUnmount(() => {
                 </div>
               </li>
             </ol>
+            <div class="vibe-board">
+              <figure v-for="(shot, i) in vibeShots" :key="shot.label">
+                <img :src="mediaUrl(shot.img)" alt="" loading="lazy" />
+                <figcaption>
+                  <b>{{ String(i + 1).padStart(2, "0") }}</b>
+                  {{ shot.label }}
+                  <span>{{ shot.dur }}</span>
+                </figcaption>
+              </figure>
+            </div>
             <p class="workflow-lock">
               <Icon name="lock" :size="13" />
               背景音乐已锁定 · 这一系列每期都是同一首
