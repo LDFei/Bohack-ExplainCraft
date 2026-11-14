@@ -355,196 +355,172 @@ onBeforeUnmount(() => {
             </p>
           </div>
         </div>
-        <BentoGrid>
-          <BentoGridItem
-            title="讲清知识点"
-            description="说出知识点，生成分镜脚本；文案和镜头都能改。"
-            wide
-          >
-            <template #header>
-              <div class="feature-script">
-                <div class="script-prompt">
-                  <Icon name="sparkles" :size="14" />
-                  用一束光，讲清楚相对论。
-                  <span>↵</span>
-                </div>
-                <div class="script-result">
-                  <span>
-                    <Icon name="file" :size="14" />
-                    分镜脚本
-                    <small>4 个镜头</small>
-                  </span>
-                  <div
-                    v-for="(line, index) in [
-                      '光速对谁都不变。',
-                      '运动越快，时间走得越慢。',
-                      '引力，是时空的弯曲。',
-                    ]"
-                    :key="line"
-                  >
-                    <i>{{ String(index + 1).padStart(2, "0") }}</i>
-                    <p>{{ line }}</p>
-                    <small>{{ index ? "08" : "07" }}s</small>
+        <div v-show="activePath === 'generic'" class="features-cards">
+          <BentoGrid>
+            <BentoGridItem
+              title="讲清知识点"
+              description="说出知识点，生成分镜脚本；文案和镜头都能改。"
+              wide
+            >
+              <template #header>
+                <div class="feature-script">
+                  <div class="script-prompt">
+                    <Icon name="sparkles" :size="14" />
+                    用一束光，讲清楚相对论。
+                    <span>↵</span>
+                  </div>
+                  <div class="script-result">
+                    <span>
+                      <Icon name="file" :size="14" />
+                      分镜脚本
+                      <small>4 个镜头</small>
+                    </span>
+                    <div
+                      v-for="(line, index) in [
+                        '光速对谁都不变。',
+                        '运动越快，时间走得越慢。',
+                        '引力，是时空的弯曲。',
+                      ]"
+                      :key="line"
+                    >
+                      <i>{{ String(index + 1).padStart(2, "0") }}</i>
+                      <p>{{ line }}</p>
+                      <small>{{ index ? "08" : "07" }}s</small>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="file" :size="18" />
-            </template>
-            <template #action>
-              <a :href="DOWNLOAD_URL" class="bento-action">
-                立即下载
-                <Icon name="arrowRight" :size="13" />
-              </a>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="配好声音"
-            description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
-          >
-            <template #header>
-              <div class="feature-audio" :class="{ playing: musicPlaying }">
-                <div class="audio-avatar">
-                  <Icon name="mic" :size="23" />
-                </div>
-                <span>为讲解，配上合适的声音。</span>
-                <div class="feature-wave">
-                  <i
-                    v-for="bar in 42"
-                    :key="bar"
-                    :style="{
-                      height: `${8 + ((bar * 13) % 32)}px`,
-                      animationDelay: `${-bar / 9}s`,
-                    }"
-                  />
-                </div>
-                <small>示例配乐 · 非 TTS 音色</small>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="mic" :size="18" />
-            </template>
-            <template #action>
-              <button
-                class="bento-action"
-                :aria-pressed="musicPlaying"
-                @click="toggleMusic"
-              >
-                <Icon
-                  :name="musicPlaying ? 'pause' : 'headphones'"
-                  :size="13"
-                />
-                {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
-              </button>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="生成画面"
-            description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
-          >
-            <template #header>
-              <div class="feature-motion">
-                <video
-                  ref="motionVideo"
-                  :src="mediaUrl('relativity-card.mp4')"
-                  :poster="mediaUrl('relativity-spacetime.jpg')"
-                  :autoplay="!reducedMotion"
-                  muted
-                  loop
-                  playsinline
-                  preload="metadata"
-                  aria-hidden="true"
-                />
-                <span>
-                  <Icon name="video" :size="12" />
-                  本地动态示例
-                </span>
-                <small>一束光，讲清楚相对论</small>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="video" :size="18" />
-            </template>
-            <template #action>
-              <a :href="DOWNLOAD_URL" class="bento-action">
-                立即下载
-                <Icon name="arrowRight" :size="13" />
-              </a>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            title="预览导出"
-            description="按镜头预览、切换版本，满意后导出 MP4。"
-            wide
-          >
-            <template #header>
-              <div class="feature-preview">
-                <div class="preview-example">
-                  <img
-                    :src="mediaUrl('relativity-spacetime.jpg')"
-                    alt="相对论示例画面"
-                  />
-                  <button aria-label="播放预览示例" @click="openPreview">
-                    <Icon name="play" :size="18" />
-                  </button>
-                  <span>一束光，讲清楚相对论</span>
-                </div>
-                <div class="feature-export">
-                  <span>
-                    <i />
-                    作品已就绪
-                  </span>
-                  <strong>每个细节，都值得确认。</strong>
-                  <div>
-                    <span>MP4</span>
-                    <span>720p</span>
-                    <span>30 fps</span>
+              </template>
+              <template #icon>
+                <Icon name="file" :size="18" />
+              </template>
+              <template #action>
+                <a :href="DOWNLOAD_URL" class="bento-action">
+                  立即下载
+                  <Icon name="arrowRight" :size="13" />
+                </a>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="配好声音"
+              description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
+            >
+              <template #header>
+                <div class="feature-audio" :class="{ playing: musicPlaying }">
+                  <div class="audio-avatar">
+                    <Icon name="mic" :size="23" />
                   </div>
-                  <a :href="DOWNLOAD_URL">
-                    立即下载
-                    <Icon name="export" :size="14" />
-                  </a>
+                  <span>为讲解，配上合适的声音。</span>
+                  <div class="feature-wave">
+                    <i
+                      v-for="bar in 42"
+                      :key="bar"
+                      :style="{
+                        height: `${8 + ((bar * 13) % 32)}px`,
+                        animationDelay: `${-bar / 9}s`,
+                      }"
+                    />
+                  </div>
+                  <small>示例配乐 · 非 TTS 音色</small>
                 </div>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="play" :size="18" />
-            </template>
-            <template #action>
-              <button class="bento-action" @click="openPreview">
-                看看示例成片
-                <Icon name="arrowRight" :size="13" />
-              </button>
-            </template>
-          </BentoGridItem>
-          <BentoGridItem
-            class="bento-full"
-            title="Vibe 知识大赏模板"
-            description="选模板即锁定这一系列的 BGM 与节奏；AI 按它的语气写提示词，素材照着归位。"
-          >
-            <template #header>
-              <div class="vibe-mini">
-                <div class="vibe-mini-strip">
-                  <i v-for="n in 4" :key="n" />
+              </template>
+              <template #icon>
+                <Icon name="mic" :size="18" />
+              </template>
+              <template #action>
+                <button
+                  class="bento-action"
+                  :aria-pressed="musicPlaying"
+                  @click="toggleMusic"
+                >
+                  <Icon
+                    :name="musicPlaying ? 'pause' : 'headphones'"
+                    :size="13"
+                  />
+                  {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
+                </button>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="生成画面"
+              description="视觉模型绘制 SVG 动画，Quercus 完成剪辑与导出，并保留历史版本。"
+            >
+              <template #header>
+                <div class="feature-motion">
+                  <video
+                    ref="motionVideo"
+                    :src="mediaUrl('relativity-card.mp4')"
+                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :autoplay="!reducedMotion"
+                    muted
+                    loop
+                    playsinline
+                    preload="metadata"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <Icon name="video" :size="12" />
+                    本地动态示例
+                  </span>
+                  <small>一束光，讲清楚相对论</small>
                 </div>
-                <span class="vibe-mini-lock">
-                  <Icon name="lock" :size="12" />
-                  BGM 已锁定
-                </span>
-              </div>
-            </template>
-            <template #icon>
-              <Icon name="layers" :size="18" />
-            </template>
-            <template #action>
-              <a href="#workflow" class="bento-action">
-                看这个流程
-                <Icon name="arrowRight" :size="13" />
-              </a>
-            </template>
-          </BentoGridItem>
-        </BentoGrid>
+              </template>
+              <template #icon>
+                <Icon name="video" :size="18" />
+              </template>
+              <template #action>
+                <a :href="DOWNLOAD_URL" class="bento-action">
+                  立即下载
+                  <Icon name="arrowRight" :size="13" />
+                </a>
+              </template>
+            </BentoGridItem>
+            <BentoGridItem
+              title="预览导出"
+              description="按镜头预览、切换版本，满意后导出 MP4。"
+              wide
+            >
+              <template #header>
+                <div class="feature-preview">
+                  <div class="preview-example">
+                    <img
+                      :src="mediaUrl('relativity-spacetime.jpg')"
+                      alt="相对论示例画面"
+                    />
+                    <button aria-label="播放预览示例" @click="openPreview">
+                      <Icon name="play" :size="18" />
+                    </button>
+                    <span>一束光，讲清楚相对论</span>
+                  </div>
+                  <div class="feature-export">
+                    <span>
+                      <i />
+                      作品已就绪
+                    </span>
+                    <strong>每个细节，都值得确认。</strong>
+                    <div>
+                      <span>MP4</span>
+                      <span>720p</span>
+                      <span>30 fps</span>
+                    </div>
+                    <a :href="DOWNLOAD_URL">
+                      立即下载
+                      <Icon name="export" :size="14" />
+                    </a>
+                  </div>
+                </div>
+              </template>
+              <template #icon>
+                <Icon name="play" :size="18" />
+              </template>
+              <template #action>
+                <button class="bento-action" @click="openPreview">
+                  看看示例成片
+                  <Icon name="arrowRight" :size="13" />
+                </button>
+              </template>
+            </BentoGridItem>
+          </BentoGrid>
+        </div>
         <p v-if="mediaError" class="landing-media-error" role="status">
           {{ mediaError }}
         </p>
