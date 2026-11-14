@@ -357,7 +357,7 @@ onBeforeUnmount(() => {
             </ol>
             <div class="vibe-board">
               <figure v-for="(shot, i) in vibeShots" :key="shot.label">
-                <img :src="mediaUrl(shot.img)" alt="" loading="lazy" />
+                <img :src="mediaUrl(shot.img)" alt="" />
                 <figcaption>
                   <b>{{ String(i + 1).padStart(2, "0") }}</b>
                   {{ shot.label }}
