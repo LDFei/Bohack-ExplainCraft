@@ -260,7 +260,7 @@ impl Media {
             Ok(Err(error)) => {
                 tracing::warn!("ffprobe unavailable: {error}");
                 return Probe {
-                    ok: true,
+                    ok: false,
                     ..Default::default()
                 };
             }
@@ -379,6 +379,15 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str, &'static str)>
         Some(("image/webp", "image", "webp"))
     } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
         Some(("audio/wav", "audio", "wav"))
+    } else if starts(b"fLaC") {
+        Some(("audio/flac", "audio", "flac"))
+    } else if starts(b"OggS") {
+        Some(("audio/ogg", "audio", "ogg"))
+    } else if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && (&bytes[8..12] == b"M4A " || &bytes[8..12] == b"M4B ")
+    {
+        Some(("audio/mp4", "audio", "m4a"))
     } else if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
         Some(("video/mp4", "video", "mp4"))
     } else if starts(&[0x1A, 0x45, 0xDF, 0xA3]) {

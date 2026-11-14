@@ -741,7 +741,7 @@ pub fn list_assets(
             "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source = 'upload' ORDER BY seq DESC LIMIT ?3"
         }
         AssetScope::Library => {
-            "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source IN ('upload', 'rendered') ORDER BY seq DESC LIMIT ?3"
+            "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source IN ('upload', 'rendered', 'music_generated', 'music_procedural', 'library') ORDER BY seq DESC LIMIT ?3"
         }
     };
     let mut stmt = conn.prepare(sql)?;

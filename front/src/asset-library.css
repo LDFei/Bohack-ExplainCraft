@@ -466,3 +466,12 @@
   flex: 1;
   justify-content: center;
 }
+
+/* 上传视频在独立弹窗内按原比例展示，原生控件提供播放和拖动。 */
+.uploaded-video-player {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: 12px;
+}

@@ -3,6 +3,7 @@
  * 页面总装配：把左侧素材库、中央预览与时间轴、右侧对话和弹窗连接到 useStudio。业务数据由组合函数管理，此文件主要协调界面入口。
  */
 
+import { isActive } from './services/api.ts';
 import { computed, nextTick, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useStudio } from './composables/useStudio.ts';
@@ -28,11 +29,15 @@ const sidebarExpanded = ref(true);
 const workspaceRoot = ref<HTMLElement | null>(null),
   sidebar = ref<InstanceType<typeof Sidebar> | null>(null),
   settingsOpen = ref(false),
-  focusBreezeSettings = ref(false);
+  focusBreezeSettings = ref(false),
+  focusMusicSettings = ref(false);
 const { general } = useAppSettings();
 // 下载入口的定位仅持续到本次设置关闭，普通打开设置仍落在通用页。
 watch(settingsOpen, (open) => {
-  if (!open) focusBreezeSettings.value = false;
+  if (!open) {
+    focusBreezeSettings.value = false;
+    focusMusicSettings.value = false;
+  }
 });
 const {
   state: layoutState,
@@ -196,6 +201,20 @@ async function openVersion(id: string) {
 async function setMusicAsset(assetId: string) {
   const draft = current.value?.draft;
   if (!draft || historical.value) return;
+  const job = activeJob.value;
+  if (job && isActive(job)) {
+    const q = job.question;
+    if (job.status === 'waiting_input' && q?.skill_id === 'music') {
+      if (q.options.some((o) => o.value === assetId)) await answerQuestion(job.id, assetId, q.id);
+      else if (q.options.some((o) => o.value === 'upload'))
+        await answerQuestion(job.id, 'upload', q.id, '', assetId);
+      else studio.notify('请在对话音乐步骤刷新已上传音频列表。', 'info');
+      closeLibrary();
+      return;
+    }
+    studio.notify('音频已保存在素材库，请在背景音乐步骤选择使用。', 'info');
+    return;
+  }
   await studio.save(
     {
       audio: {
@@ -280,7 +299,18 @@ async function endTopic() {
   }
 }
 /** 缺少本地模型时打开明确的下载设置，完成下载后再回到当前问题确认继续。 */
-async function answerQuestion(jobId: string, value: string, questionId?: string) {
+async function answerQuestion(
+  jobId: string,
+  value: string,
+  questionId?: string,
+  instruction?: string,
+  assetId?: string,
+) {
+  if (value === 'open_settings') {
+    focusMusicSettings.value = true;
+    settingsOpen.value = true;
+    return;
+  }
   if (
     jobs.value[jobId]?.question?.skill_id === 'voice' &&
     (value === 'download' || value === 'ready')
@@ -304,7 +334,7 @@ async function answerQuestion(jobId: string, value: string, questionId?: string)
       return;
     }
   }
-  await studio.jobAction('answer', jobId, value, questionId);
+  await studio.jobAction('answer', jobId, value, questionId, instruction, assetId);
 }
 /**
  * 在空白创作中填入可编辑的模板提示词，仅填输入框，不自动启动生成。
@@ -743,6 +773,7 @@ function closeModal() {
     <SettingsPanel
       :open="settingsOpen"
       :focus-breeze="focusBreezeSettings"
+      :focus-music="focusMusicSettings"
       @close="settingsOpen = false"
       @reset-layout="resetLayout"
       @saved="

@@ -7,6 +7,8 @@ import { computed, onUnmounted, ref } from 'vue';
 import type { Asset, VideoVersion } from '../domain/types.ts';
 import { api } from '../services/api.ts';
 import Icon from './Icon.vue';
+import Modal from './Modal.vue';
+import { useSignedPlayback } from '../composables/useSignedPlayback.ts';
 
 const props = defineProps<{
   assets: Asset[];
@@ -31,7 +33,9 @@ const fileInput = ref<HTMLInputElement | null>(null);
 
 /** 隐藏 SVG、配音等中间文件，保留上传素材和可以回看的最终成片。 */
 const uploadAssets = computed(() =>
-  props.assets.filter((asset) => asset.source === 'upload' || asset.source === 'rendered'),
+  props.assets.filter((asset) =>
+    ['upload', 'rendered', 'music_generated', 'music_procedural', 'library'].includes(asset.source),
+  ),
 );
 const counts = computed(() => ({
   image: uploadAssets.value.filter((asset) => asset.kind === 'image').length,
@@ -63,11 +67,62 @@ function assetVersion(asset: Asset) {
   return props.versions.find((version) => version.video_asset_id === asset.id);
 }
 
-/** 点击成片卡片后交给工作台切回对应历史版本。 */
-function openVideo(asset: Asset) {
-  const version = assetVersion(asset);
-  if (version) emit('view', version.id);
+const videoAsset = ref<Asset | null>(null),
+  videoInitialUrl = ref(''),
+  videoExpires = ref(''),
+  videoError = ref(''),
+  videoLoading = ref(false),
+  videoPlayer = ref<HTMLVideoElement | null>(null);
+let videoRequest = 0;
+const { url: videoUrl } = useSignedPlayback(
+  videoPlayer,
+  () => videoAsset.value?.id,
+  () => videoInitialUrl.value,
+  () => videoExpires.value,
+);
+
+/** 关闭时停止声音并作废迟到的签名地址，切换素材不会串播。 */
+function closeVideo() {
+  videoRequest += 1;
+  videoPlayer.value?.pause();
+  videoAsset.value = null;
+  videoInitialUrl.value = '';
+  videoExpires.value = '';
+  videoError.value = '';
+  videoLoading.value = false;
 }
+
+/** 成片仍打开历史版本；上传视频用所属素材的签名地址独立播放。 */
+async function openVideo(asset: Asset) {
+  const version = assetVersion(asset);
+  if (version) {
+    emit('view', version.id);
+    return;
+  }
+  if (asset.status !== 'ready') return;
+  closeVideo();
+  stopAudition();
+  const request = videoRequest;
+  videoAsset.value = asset;
+  videoLoading.value = true;
+  try {
+    const result = await api.preview(asset.id);
+    if (request !== videoRequest) return;
+    videoInitialUrl.value = result.playback_url;
+    videoExpires.value = result.expires_at;
+  } catch {
+    if (request === videoRequest) videoError.value = '无法获取视频地址，请关闭后重新打开。';
+  } finally {
+    if (request === videoRequest) videoLoading.value = false;
+  }
+}
+
+/** 文件通过解析仍可能采用当前系统无法播放的编码，明确反馈而不是空白。 */
+function videoPlaybackError() {
+  videoError.value =
+    '当前视频无法播放，可能是编码不受系统支持或地址已过期。请重新打开；仍失败可将视频转为 H.264 / AAC 的 MP4。';
+}
+onUnmounted(closeVideo);
 
 /** 拖入文件时只接收文件类型，保持文本拖放的默认行为。 */
 function dragOver(event: DragEvent) {
@@ -283,7 +338,7 @@ function assetMeta(asset: Asset) {
           >
             <button
               class="asset-video-preview"
-              :disabled="!assetVersion(asset)"
+              :disabled="asset.status !== 'ready'"
               :aria-label="`预览 ${asset.file_name}`"
               @click="openVideo(asset)"
             >
@@ -382,4 +437,34 @@ function assetMeta(asset: Asset) {
       </div>
     </div>
   </section>
+  <Modal
+    :open="!!videoAsset"
+    :title="videoAsset?.file_name ?? '视频预览'"
+    wide
+    @close="closeVideo"
+  >
+    <p
+      v-if="videoLoading"
+      role="status"
+    >
+      正在加载视频…
+    </p>
+    <p
+      v-if="videoError"
+      role="alert"
+    >
+      {{ videoError }}
+    </p>
+    <video
+      v-if="videoUrl"
+      ref="videoPlayer"
+      :src="videoUrl"
+      controls
+      playsinline
+      preload="metadata"
+      class="uploaded-video-player"
+      aria-label="上传视频播放器"
+      @error="videoPlaybackError"
+    />
+  </Modal>
 </template>

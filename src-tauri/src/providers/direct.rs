@@ -13,6 +13,8 @@ use super::*;
 pub struct DirectRenderer {
     /// 输出和临时目录均放在应用媒体目录内，方便后续原子移动入库。
     work_dir: PathBuf,
+    /// 输出规格一致时复用源文件，避免不必要的有损重编码。
+    ffprobe: String,
 }
 
 /// 未完成的媒体文件随 future 取消一并清理。
@@ -29,6 +31,7 @@ impl DirectRenderer {
     pub fn new(config: &crate::config::Config) -> Self {
         Self {
             work_dir: config.storage_dir.join("_render"),
+            ffprobe: config.ffprobe.clone(),
         }
     }
 }
@@ -147,8 +150,13 @@ fn input<'a>(request: &'a RenderRequest, id: &str) -> ProviderResult<&'a Path> {
 }
 
 /// 成片输出的统一元信息。
-fn video_output(path: PathBuf, aspect_ratio: &str, duration_ms: i64) -> MediaOutput {
-    let (width, height) = crate::util::dimensions(aspect_ratio);
+fn video_output(
+    path: PathBuf,
+    aspect_ratio: &str,
+    duration_ms: i64,
+    resolution: &str,
+) -> MediaOutput {
+    let (width, height) = crate::util::output_dimensions(aspect_ratio, resolution);
     MediaOutput {
         data: MediaData::Path(path),
         file_name: "render.mp4".into(),
@@ -175,7 +183,10 @@ impl Renderer for DirectRenderer {
             .await
             .map_err(|error| failed("创建输出目录", error))?;
         let _scratch = Scratch(directory.clone());
-        let (width, height) = crate::util::dimensions(&request.plan.aspect_ratio);
+        let (width, height) = crate::util::output_dimensions(
+            &request.plan.aspect_ratio,
+            &request.plan.output_resolution,
+        );
         let mut files = Vec::new();
         let mut end = 0;
         for (index, clip) in request.plan.clips.iter().enumerate() {
@@ -199,7 +210,9 @@ impl Renderer for DirectRenderer {
                     .as_str(),
                 "png" | "jpg" | "jpeg" | "webp"
             );
-            let caption = if request.plan.subtitles_enabled {
+            let reference =
+                request.ctx.settings.render_profile == "vibe" && clip.camera_motion == "reference";
+            let caption = if request.plan.subtitles_enabled || reference {
                 clip.subtitle
                     .as_deref()
                     .map(str::trim)
@@ -207,9 +220,46 @@ impl Renderer for DirectRenderer {
             } else {
                 None
             };
-            let overlay = directory.join(format!("subtitle-{index}.png"));
-            if let Some(text) = caption {
-                subtitle_png(text, width as u32, height as u32, &overlay)?;
+            let mut overlays: Vec<(PathBuf, Option<(f64, f64)>)> = vec![];
+            if reference {
+                let overlay = directory.join(format!("reference-{index}.png"));
+                let svg = crate::vibe::reference_svg(
+                    caption.unwrap_or("参考素材"),
+                    width as u32,
+                    height as u32,
+                );
+                let tree = usvg::Tree::from_str(&svg, &crate::svg_animation::svg_options())
+                    .map_err(|e| failed("参考素材框架", e))?;
+                let mut pixmap = tiny_skia::Pixmap::new(width as u32, height as u32)
+                    .ok_or_else(|| failed("参考素材框架", "尺寸无效"))?;
+                resvg::render(
+                    &tree,
+                    tiny_skia::Transform::identity(),
+                    &mut pixmap.as_mut(),
+                );
+                pixmap
+                    .save_png(&overlay)
+                    .map_err(|e| failed("参考素材框架", e))?;
+                overlays.push((overlay, None));
+            }
+            if let Some(caption) = caption {
+                let font_size = (height as f32 * 0.034).clamp(24., 44.);
+                let columns = (width as f32 * 0.84 / font_size).floor().max(8.) as usize;
+                let chars = caption.chars().collect::<Vec<_>>();
+                let pages = chars.chunks(columns * 2).collect::<Vec<_>>();
+                for (page, chars) in pages.iter().enumerate() {
+                    let path = directory.join(format!("caption-{index}-{page}.png"));
+                    let value = chars.iter().collect::<String>();
+                    subtitle_png(&value, width as u32, height as u32, &path)?;
+                    overlays.push((
+                        path,
+                        Some((
+                            clip.duration_ms as f64 / 1000. * page as f64 / pages.len() as f64,
+                            clip.duration_ms as f64 / 1000. * (page + 1) as f64
+                                / pages.len() as f64,
+                        )),
+                    ));
+                }
             }
             let target = directory.join(format!("clip-{index}.mp4"));
             let duration = seconds(clip.duration_ms);
@@ -224,12 +274,15 @@ impl Renderer for DirectRenderer {
                 let mut command = ffmpeg();
                 if still { command.args(["-loop", "1", "-framerate", "30"]); }
                 else { command.args(["-stream_loop", "-1"]); }
+                if !still && clip.source_in_ms>0 {command.args(["-ss",&seconds(clip.source_in_ms)]);}
                 command.arg("-i").arg(source);
-                if caption.is_some() { command.args(["-loop", "1", "-i"]).arg(&overlay); }
-                let fit = format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30");
-                if caption.is_some() {
-                    command.args(["-filter_complex", &format!("[0:v]{fit}[base];[base][1:v]overlay=0:0:format=auto[v]"), "-map", "[v]"]);
-                } else { command.args(["-vf", &fit, "-map", "0:v:0"]); }
+                for (path,_) in &overlays {command.args(["-loop","1","-i"]).arg(path);}
+                let fit = if reference {format!("scale={}:{}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:oh*0.32+(oh*0.44-ih)/2:color=0x0B1120,setsar=1,fps=30",width*84/100,height*44/100)}else{format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x0B1120,setsar=1,fps=30")};
+                if !overlays.is_empty(){
+                    let mut graph=format!("[0:v]{fit}[base0]");
+                    for(i,(_,range))in overlays.iter().enumerate(){let enable=range.map(|(a,b)|format!(":enable='gte(t,{a:.4})*lt(t,{b:.4})'")).unwrap_or_default();graph.push_str(&format!(";[base{i}][{}:v]overlay=0:0:format=auto{enable}[base{}]",i+1,i+1));}
+                    command.args(["-filter_complex",&graph,"-map",&format!("[base{}]",overlays.len())]);
+                }else{command.args(["-vf",&fit,"-map","0:v:0"]);}
                 command.args(["-an", "-t", &duration]);
                 command
             }, &target, "镜头编码").await?;
@@ -309,11 +362,15 @@ impl Renderer for DirectRenderer {
             final_path,
             &request.plan.aspect_ratio,
             request.plan.total_ms,
+            &request.plan.output_resolution,
         ))
     }
 
     async fn export(&self, request: ExportRequest) -> ProviderResult<MediaOutput> {
-        if request.resolution != "720p" || request.format != "mp4" || request.fps != 30 {
+        if !["720p", "1080p"].contains(&request.resolution.as_str())
+            || request.format != "mp4"
+            || request.fps != 30
+        {
             return Err(ProviderError::invalid(
                 "当前直接输出支持 720p、30 FPS 的 MP4。",
             ));
@@ -324,13 +381,60 @@ impl Renderer for DirectRenderer {
         let path = self
             .work_dir
             .join(format!("{}.mp4", crate::util::make_id("export")));
-        tokio::fs::copy(request.source, &path)
-            .await
-            .map_err(|error| failed("导出成片", error))?;
+        let (w, h) = crate::util::output_dimensions(&request.aspect_ratio, &request.resolution);
+        let probe = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            tokio::process::Command::new(&self.ffprobe)
+                .args([
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=width,height,r_frame_rate",
+                    "-of",
+                    "json",
+                ])
+                .arg(&request.source)
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await;
+        let compatible = probe
+            .ok()
+            .and_then(Result::ok)
+            .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+            .is_some_and(|d| {
+                d["streams"][0]["width"] == w
+                    && d["streams"][0]["height"] == h
+                    && d["streams"][0]["r_frame_rate"] == "30/1"
+            });
+        if compatible {
+            tokio::fs::copy(&request.source, &path)
+                .await
+                .map_err(|e| failed("复制成片", e))?;
+        } else {
+            encode(
+                || {
+                    let mut cmd = ffmpeg();
+                    cmd.arg("-i").arg(&request.source).args([
+                        "-vf",
+                        &format!("scale={w}:{h}"),
+                        "-c:a",
+                        "aac",
+                    ]);
+                    cmd
+                },
+                &path,
+                "导出成片",
+            )
+            .await?;
+        }
         Ok(video_output(
             path,
             &request.aspect_ratio,
             request.duration_ms,
+            &request.resolution,
         ))
     }
 
@@ -460,6 +564,7 @@ mod tests {
         let clips = (0..2)
             .map(|index| Clip {
                 shot_id: format!("shot{index}"),
+                source_in_ms: 0,
                 start_ms: index * 1000,
                 duration_ms: 1000,
                 visual_asset_id: Some(if index == 0 { "first" } else { "second" }.into()),
@@ -535,6 +640,7 @@ mod tests {
             total_ms: 1000,
             clips: vec![Clip {
                 shot_id: "shot".into(),
+                source_in_ms: 0,
                 start_ms: 0,
                 duration_ms: 1000,
                 visual_asset_id: Some("visual".into()),

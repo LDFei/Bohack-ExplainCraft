@@ -557,7 +557,7 @@ impl ScriptModel for GlmScript {
             return Err(ProviderError::unavailable("文案生成结果为空，请重试。"));
         }
         // 模型经常忽略“共几句、每句多少字”；这里硬性限长，避免配音把 15 秒成片拖到 40 秒以上。
-        let lines = fit_narration_lines(model_lines, count, per_line);
+        let lines = model_lines;
         Ok(Script {
             title: crate::util::preview(&text_or(&value, "title", &brief.subject), 30),
             text: lines.join("\n"),
@@ -577,10 +577,8 @@ impl ScriptModel for GlmScript {
             return Err(ProviderError::invalid("脚本内容为空，无法规划分镜。"));
         }
         let settings = &request.ctx.settings;
-        let (count, per_line) =
-            narration_budget(settings.target_duration_seconds, request.ctx.speech_rate);
         // 无论文案来自本次生成、历史草稿还是手动编辑，分镜阶段都执行同一时长预算。
-        let lines = fit_narration_lines(model_lines, count, per_line);
+        let lines = model_lines;
         let total_ms = settings.target_duration_seconds as i64 * 1000;
         let numbered: Vec<String> = lines
             .iter()
@@ -601,7 +599,7 @@ impl ScriptModel for GlmScript {
         );
         let user = format!(
             "{}\n宿主已处理用户确认。只输出当前要求的JSON，遵守以下阶段规则：\n{}",
-            user,
+            format!("{}\n用户约束与当前修改：{}", user, request.ctx.user_text),
             crate::skills::policy("storyboard")
         );
         let value = self
@@ -628,11 +626,15 @@ impl ScriptModel for GlmScript {
                         .filter(|d| *d > 0)
                         .unwrap_or(estimate),
                     narration: line.to_string(),
-                    visual_prompt: text_or(
-                        &item,
-                        "visual_prompt",
-                        &format!("{}，{}", request.brief.subject, line),
-                    ),
+                    visual_prompt: if item["visual_prompt"].is_object() {
+                        item["visual_prompt"].to_string()
+                    } else {
+                        text_or(
+                            &item,
+                            "visual_prompt",
+                            &format!("{}，{}", request.brief.subject, line),
+                        )
+                    },
                     shot_size: text_or(&item, "shot_size", "中景"),
                     camera_motion: text_or(&item, "camera_motion", "缓慢推进"),
                 }
@@ -786,11 +788,7 @@ impl ScriptModel for GlmScript {
                 .as_str()
                 .filter(|n| !n.trim().is_empty())
             {
-                let (_, per_line) = narration_budget(
-                    draft.settings.target_duration_seconds,
-                    draft.audio.speech_rate,
-                );
-                shot.narration = clip_narration_line(narration.trim(), per_line);
+                shot.narration = narration.trim().into();
                 narration_changed = true;
                 invalidated.push(StageKey::Audio);
             }
@@ -927,6 +925,7 @@ pub(crate) fn timeline(request: &EditRequest) -> EditPlan {
                 .unwrap_or(shot.duration_ms);
             let clip = Clip {
                 shot_id: shot.id.clone(),
+                source_in_ms: shot.source_in_ms,
                 start_ms: start,
                 duration_ms: duration,
                 visual_asset_id: shot.asset_ids.first().cloned(),
@@ -943,6 +942,7 @@ pub(crate) fn timeline(request: &EditRequest) -> EditPlan {
         })
         .collect();
     EditPlan {
+        output_resolution: draft.settings.output_resolution.clone(),
         aspect_ratio: draft.settings.aspect_ratio.clone(),
         total_ms: start,
         clips,

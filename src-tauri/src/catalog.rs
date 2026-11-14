@@ -52,7 +52,13 @@ pub const VIDEO_LIMIT: UploadLimit = UploadLimit {
 /// 音频上传限制：50MB，MP3 / WAV。
 pub const AUDIO_LIMIT: UploadLimit = UploadLimit {
     max_bytes: 50 * 1024 * 1024,
-    mime_types: &["audio/mpeg", "audio/wav"],
+    mime_types: &[
+        "audio/mpeg",
+        "audio/wav",
+        "audio/mp4",
+        "audio/flac",
+        "audio/ogg",
+    ],
 };
 
 /// 示例曲库允许公开访问的文件（白名单，防止路径穿越）。
@@ -79,7 +85,7 @@ impl Default for Catalog {
             languages: vec!["zh-CN"],
             duration_min: 15,
             duration_max: 300,
-            export_resolutions: vec!["720p"],
+            export_resolutions: vec!["720p", "1080p"],
             max_uploaded_files: 20,
         }
     }
@@ -186,6 +192,8 @@ pub fn empty_draft() -> Draft {
             language: "zh-CN".into(),
             style_id: "warm".into(),
             visual_format: "svg".into(),
+            render_profile: "vibe".into(),
+            output_resolution: "720p".into(),
         },
         script: None,
         shots: vec![],

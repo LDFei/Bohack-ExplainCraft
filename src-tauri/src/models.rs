@@ -175,6 +175,21 @@ pub struct Settings {
     /// 用户在技能流程中明确选择的代码画面格式；旧草稿使用 SVG。
     #[serde(default = "default_visual_format")]
     pub visual_format: String,
+    /// 默认使用固定的 Vibe 深色几何视觉系统；其他模板显式选择。
+    #[serde(default = "default_render_profile")]
+    pub render_profile: String,
+    /// 实际原生画面分辨率，不通过放大预览冒充高清渲染。
+    #[serde(default = "default_output_resolution")]
+    pub output_resolution: String,
+}
+
+/// 新的创作默认采用国内知识短片的深色几何视觉规范。
+fn default_output_resolution() -> String {
+    "720p".into()
+}
+
+fn default_render_profile() -> String {
+    "vibe".into()
 }
 
 /// 旧项目沿用 SVG，不因升级改变视觉引擎。
@@ -254,6 +269,9 @@ pub struct Shot {
     /// 镜头使用的素材；无素材时为空数组。
     #[serde(default)]
     pub asset_ids: Vec<String>,
+    /// 本地视频从哪个位置取片，单位毫秒。
+    #[serde(default)]
+    pub source_in_ms: i64,
     /// 只在响应中填充的临时缩略图地址，不落库。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail_url: Option<String>,
@@ -625,6 +643,15 @@ pub struct JobInput {
     /// 配音超时后的持久化回退标记，恢复时不能再次调用超时的供应商。
     #[serde(default)]
     pub voice_fallback: bool,
+    /// 本轮审阅反馈，进入后续模型上下文，保留审计历史。
+    #[serde(default)]
+    pub feedback: Vec<String>,
+    /// 用户原话的明确选择只提取一次，返回上一步时不会强行重新填入。
+    #[serde(default)]
+    pub preferences_parsed: bool,
+    /// 修改作品时只复用一次原偏好，后续允许用户改选。
+    #[serde(default)]
+    pub preferences_applied: bool,
 }
 
 /// 项目内部的制作产物（检查点），供后续阶段和后续版本复用，不对前端暴露。
@@ -639,6 +666,18 @@ pub struct Artifacts {
     /// 最近一次的创作方案摘要。
     #[serde(default)]
     pub plan_summary: Option<String>,
+    /// 当前音乐的实际节奏分析。
+    #[serde(default)]
+    pub rhythm: Option<crate::rhythm::Rhythm>,
+    /// 已发布视频的技术质检结果。
+    #[serde(default)]
+    pub quality: Option<serde_json::Value>,
+    /// 已抓取的参考资料，抓取成功不等于每句事实已经核实。
+    #[serde(default)]
+    pub sources: Vec<serde_json::Value>,
+    /// 本轮已尝试检索，恢复时不重复请求外部检索服务。
+    #[serde(default)]
+    pub research_done: bool,
 }
 
 /// 单个镜头的配音产物。

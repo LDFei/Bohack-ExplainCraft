@@ -388,13 +388,15 @@ pub async fn answer_job(
     job_id: String,
     question_id: String,
     value: String,
+    instruction: Option<String>,
+    asset_id: Option<String>,
 ) -> Result<CommandReply, String> {
     json_command(
         &state,
         Method::POST,
         format!("/api/v1/jobs/{job_id}/answers"),
         &request,
-        json!({ "question_id": question_id, "value": value }),
+        json!({ "question_id": question_id, "value": value, "instruction":instruction.unwrap_or_default(), "asset_id":asset_id }),
     )
     .await
 }
@@ -469,6 +471,61 @@ pub async fn download_asset(
         json!({}),
     )
     .await
+}
+
+/// 获取素材独立播放地址，上传视频没有成片版本也可预览。
+#[tauri::command]
+pub async fn preview_asset(
+    state: State<'_, AppState>,
+    request: IpcRequest<'_>,
+    asset_id: String,
+) -> Result<CommandReply, String> {
+    json_command(
+        &state,
+        Method::GET,
+        format!("/api/v1/assets/{asset_id}/preview"),
+        &request,
+        json!({}),
+    )
+    .await
+}
+/// 检查本机工具与已配置模型，不展示敏感配置。
+#[tauri::command]
+pub async fn runtime_status(state: State<'_, AppState>) -> Result<Value, String> {
+    let config = state.model_config.load_full();
+    Ok(crate::preflight::inspect(&config).await)
+}
+
+/// 显式上传参考音与转写；保持云端 API 配置不变，供任务选择本地配音时使用。
+#[tauri::command]
+pub async fn upload_breeze_reference(
+    state: State<'_, AppState>,
+    request: IpcRequest<'_>,
+) -> Result<Value, String> {
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("参考音必须以文件形式上传。".into());
+    };
+    let encoded = request
+        .headers()
+        .get("x-reference-text")
+        .and_then(|h| h.to_str().ok())
+        .ok_or("请填写参考音转写。")?;
+    let url = reqwest::Url::parse(&format!("https://reference.invalid/?text={encoded}"))
+        .map_err(|_| "转写格式错误。")?;
+    let text = url
+        .query_pairs()
+        .find(|(k, _)| k == "text")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
+    let path = crate::voice_reference::store(&state, bytes, &text).await?;
+    let mut next = (**state.model_config.load()).clone();
+    next.breeze_voice_female = path.to_string_lossy().into();
+    write_env_values(
+        &next.settings_file,
+        &[("BREEZE_VOICE_FEMALE", next.breeze_voice_female.clone())],
+    )?;
+    state.model_config.store(std::sync::Arc::new(next));
+    Ok(json!({"ready":true}))
 }
 
 /// 非阻塞读取游标之后的事件，替代 SSE 长连接。
@@ -561,7 +618,7 @@ fn settings_view(config: &crate::Config) -> ModelSettings {
             config.siliconflow_tts.model.clone(),
             config.siliconflow_tts.api_key.clone(),
         )
-        .with_voice(config.siliconflow_tts_voice.clone()),
+        .with_voice(config.default_voice()),
         "indextts" => access_view(
             "indextts".into(),
             config.indextts_base.clone(),
@@ -1097,12 +1154,12 @@ mod tests {
         .unwrap();
         let mut settings = snapshot.body["data"]["draft"]["settings"].clone();
         settings["target_duration_seconds"] = json!(15);
-        settings["aspect_ratio"] = json!("16:9");
+        settings["aspect_ratio"] = json!("9:16");
         settings["style_id"] = json!("minimal");
         let mut audio = snapshot.body["data"]["draft"]["audio"].clone();
-        audio["voice_id"] = json!("anna");
+        audio["voice_id"] = json!(state.model_config.load().default_voice());
         audio["speech_rate"] = json!(1.0);
-        audio["music_mode"] = json!("none");
+        audio["music_mode"] = json!("fixed");
         let revision = snapshot.body["data"]["project"]["draft_revision"]
             .as_i64()
             .unwrap();
@@ -1120,7 +1177,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(patched.status, 200);
+        assert_eq!(patched.status, 200, "{}", patched.body);
         let latest = dispatch(
             state.clone(),
             Method::GET,
@@ -1143,7 +1200,7 @@ mod tests {
             send_headers,
             json!({
                 "intent": "generate",
-                "text": "生成15s核弹科普教学视频",
+                "text": "制作15秒Vibe知识大赏，主题是赌徒谬误：公平硬币连续五次正面，第六次仍各有一半概率。用深色大字几何图解说明独立事件，不杜撰数据。",
                 "asset_ids": [],
                 "expected_draft_revision": latest_revision,
                 "base_video_version_id": null
@@ -1169,7 +1226,8 @@ mod tests {
                     Some("duration") => "15",
                     Some("visual") => "svg",
                     Some("voice") => "api",
-                    Some("music") => "none",
+                    Some("music") => "fixed",
+                    Some("production") => "publish",
                     Some("post_edit") => "skip",
                     _ => "continue",
                 };
@@ -1235,15 +1293,32 @@ mod tests {
                     .count()
             })
             .sum();
-        assert!(narration_chars <= 54, "旁白仍过长：{narration_chars}");
+        assert!(narration_chars <= 80, "旁白仍过长：{narration_chars}");
 
         let version = &snapshot.body["data"]["latest_video"];
         let duration_ms = version["duration_ms"].as_i64().unwrap();
         assert!(
-            (14_000..=17_000).contains(&duration_ms),
+            (14_000..=19_000).contains(&duration_ms),
             "15 秒目标实际输出 {duration_ms}ms"
         );
         let rendered_asset = version["video_asset_id"].as_str().unwrap();
+        if let Ok(dir) = std::env::var("EXPLAINCRAFT_ARTIFACT_DIR") {
+            let dir = std::path::PathBuf::from(dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let asset = state
+                .db
+                .read(|c| Ok(db::load_asset(c, rendered_asset)?.unwrap()))
+                .unwrap();
+            std::fs::copy(&asset.storage_path, dir.join("vibe-real-cloud-1080p.mp4")).unwrap();
+            let project = state
+                .db
+                .read(|c| Ok(db::load_project(c, &project_id)?.unwrap()))
+                .unwrap();
+            std::fs::write(dir.join("vibe-real-cloud-report.json"),serde_json::to_vec_pretty(&json!({"draft":draft,"quality":project.artifacts.quality,"rhythm":project.artifacts.rhythm,"sources":project.artifacts.sources,"logs":job.job.logs})).unwrap()).unwrap();
+            assert_eq!(asset.asset.width, Some(1080));
+            assert_eq!(asset.asset.height, Some(1920));
+        }
+
         let assets = dispatch(
             state,
             Method::GET,

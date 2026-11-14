@@ -16,6 +16,7 @@ import type {
   VideoVersion,
 } from '../domain/types.ts';
 import Icon from './Icon.vue';
+import QuestionCard from './QuestionCard.vue';
 import PanelDragHandle from './PanelDragHandle.vue';
 import type { WorkspacePanel } from '../composables/useWorkspaceLayout.ts';
 import type { SendShortcut } from '../composables/useAppSettings.ts';
@@ -49,7 +50,13 @@ const emit = defineEmits<{
   removeAsset: [id: string];
   stop: [];
   retry: [jobId: string];
-  answer: [jobId: string, value: string, questionId: string];
+  answer: [
+    jobId: string,
+    value: string,
+    questionId: string,
+    instruction?: string,
+    assetId?: string,
+  ];
   example: [text: string];
   view: [versionId: string];
   panel: [tab: string];
@@ -62,7 +69,6 @@ const scroller = ref<HTMLElement | null>(null),
   textarea = ref<HTMLTextAreaElement | null>(null),
   fileInput = ref<HTMLInputElement | null>(null);
 const nearBottom = ref(true),
-  answers = ref<Record<string, string>>({}),
   dragging = ref(false);
 // 计算属性只派生展示内容；没有消息时展示欢迎页，有消息时展示对话。
 const hasMessages = computed(() => props.messages.length > 0);
@@ -619,10 +625,25 @@ defineExpose({
                     <span>
                       {{ videoDuration(version(block.video_version_id)!.duration_ms) }}
                       <span class="inline-dot">·</span>
-                      720p
+                      {{
+                        Math.min(
+                          version(block.video_version_id)!.width,
+                          version(block.video_version_id)!.height,
+                        )
+                      }}p
                       <span class="inline-dot">·</span>
                       MP4
                     </span>
+                    <small v-if="block.quality?.passed">
+                      ✓ 解码、音轨与规格检查通过 · 内容与风格待你审阅
+                    </small>
+                    <small v-if="block.rhythm">
+                      {{
+                        block.rhythm.bpm
+                          ? `节奏估计 ${block.rhythm.bpm.toFixed(1)} BPM`
+                          : block.rhythm.method
+                      }}
+                    </small>
                     <small>
                       {{
                         block.elapsed_ms == null
@@ -642,80 +663,53 @@ defineExpose({
                     v{{ version(block.video_version_id)!.version_number }}
                   </span>
                 </button>
-                <form
+                <section
+                  v-else-if="block.type === 'sources'"
+                  class="question-card"
+                >
+                  <strong>参考资料与事实核对</strong>
+                  <p>抓取资料不代表每句话已经核实，请在采用文案前核对结论、数据和适用条件。</p>
+                  <ol v-if="block.sources?.length">
+                    <li
+                      v-for="source in block.sources"
+                      :key="source.url"
+                    >
+                      <a
+                        :href="source.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {{ source.title }}
+                      </a>
+                    </li>
+                  </ol>
+                  <p v-else>
+                    自动检索没有返回可用来源。你可以在文案修改意见中补充参考资料；未经核实的断言应删除或标明待核实。
+                  </p>
+                </section>
+                <QuestionCard
                   v-else-if="
                     block.type === 'question' && activeQuestion(block.job_id, block.question_id)
                   "
                   :key="activeQuestion(block.job_id, block.question_id)!.id"
-                  class="question-card"
-                  @submit.prevent="
-                    emit(
-                      'answer',
-                      block.job_id!,
-                      answers[activeQuestion(block.job_id, block.question_id)!.id] ?? '',
-                      activeQuestion(block.job_id, block.question_id)!.id,
-                    )
+                  :question="activeQuestion(block.job_id, block.question_id)!"
+                  :assets="assets"
+                  :draft="draft"
+                  :pending="pending"
+                  :uploading="uploading"
+                  @answer="
+                    (value, instruction, assetId) =>
+                      emit(
+                        'answer',
+                        block.job_id!,
+                        value,
+                        activeQuestion(block.job_id, block.question_id)!.id,
+                        instruction,
+                        assetId,
+                      )
                   "
-                >
-                  <span
-                    class="question-step"
-                    v-if="activeQuestion(block.job_id, block.question_id)!.step"
-                  >
-                    创作选择 · {{ activeQuestion(block.job_id, block.question_id)!.step }} /
-                    {{ activeQuestion(block.job_id, block.question_id)!.total_steps ?? '—' }}
-                  </span>
-                  <strong>{{ activeQuestion(block.job_id, block.question_id)!.prompt }}</strong>
-                  <div
-                    v-if="
-                      activeQuestion(block.job_id, block.question_id)!.input_type ===
-                      'single_select'
-                    "
-                    class="question-options"
-                    role="radiogroup"
-                    :aria-label="activeQuestion(block.job_id, block.question_id)!.prompt"
-                  >
-                    <label
-                      v-for="option in activeQuestion(block.job_id, block.question_id)!.options"
-                      :key="option.value"
-                      class="question-option"
-                      :class="{
-                        selected:
-                          answers[activeQuestion(block.job_id, block.question_id)!.id] ===
-                          option.value,
-                      }"
-                    >
-                      <input
-                        type="radio"
-                        :name="activeQuestion(block.job_id, block.question_id)!.id"
-                        :value="option.value"
-                        v-model="answers[activeQuestion(block.job_id, block.question_id)!.id]"
-                        :disabled="pending"
-                      />
-                      <span>{{ option.label }}</span>
-                    </label>
-                  </div>
-                  <input
-                    v-else
-                    v-model="answers[activeQuestion(block.job_id, block.question_id)!.id]"
-                    aria-label="补充信息"
-                    placeholder="填写你的回答…"
-                    maxlength="5000"
-                    :disabled="pending"
-                  />
-                  <button
-                    class="button primary small"
-                    :disabled="
-                      pending ||
-                      !answers[activeQuestion(block.job_id, block.question_id)!.id]?.trim()
-                    "
-                  >
-                    确认选择并继续
-                    <Icon
-                      name="arrowRight"
-                      :size="14"
-                    />
-                  </button>
-                </form>
+                  @upload="(files) => emit('upload', files)"
+                />
                 <div
                   v-else-if="block.type === 'error' && block.job_id"
                   class="error-card"

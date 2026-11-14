@@ -80,6 +80,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/assets/{asset_id}", get(assets::get))
         .route("/assets/{asset_id}/download", get(assets::download))
+        .route("/assets/{asset_id}/preview", get(assets::preview))
         .route("/jobs/{job_id}", get(jobs::get))
         .route("/jobs/{job_id}/answers", post(jobs::answer))
         .route("/jobs/{job_id}/cancel", post(jobs::cancel))

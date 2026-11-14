@@ -15,6 +15,7 @@ import type {
   VideoVersion,
 } from '../domain/types.ts';
 import Icon from './Icon.vue';
+import { useSignedPlayback } from '../composables/useSignedPlayback.ts';
 import VideoTimeline from './VideoTimeline.vue';
 import PanelDragHandle from './PanelDragHandle.vue';
 import type { WorkspacePanel } from '../composables/useWorkspaceLayout.ts';
@@ -44,7 +45,7 @@ const voiceChoices = computed(() =>
 /** 背景音乐候选只列已就绪的上传音频，避免选中处理中或失败的素材。 */
 const audioAssets = computed(() =>
   props.assets.filter(
-    (asset) => asset.kind === 'audio' && asset.source === 'upload' && asset.status === 'ready',
+    (asset) => asset.kind === 'audio' && asset.source !== 'generated' && asset.status === 'ready',
   ),
 );
 
@@ -91,6 +92,12 @@ const tab = ref('script'),
   video = ref<HTMLVideoElement | null>(null),
   playing = ref(false),
   mediaError = ref(false);
+const { url: playbackUrl, renew: renewPlayback } = useSignedPlayback(
+  video,
+  () => props.version?.video_asset_id,
+  () => props.version?.playback_url,
+  () => props.version?.url_expires_at,
+);
 // 表单使用独立副本；formRevision 保留编辑起点，formDirty 防止后台刷新冲掉未保存输入。
 const form = ref<Draft>(emptyDraft()),
   formRevision = ref(1),
@@ -196,8 +203,8 @@ async function playMusic() {
  */
 function musicMode(event: Event) {
   const value = (event.target as HTMLSelectElement).value;
-  if (value === 'auto' || value === 'none') {
-    form.value.audio.music_mode = value;
+  if (['auto', 'none', 'ai', 'fixed'].includes(value)) {
+    form.value.audio.music_mode = value as typeof form.value.audio.music_mode;
     form.value.audio.music_id = null;
     form.value.audio.music_asset_id = null;
   } else if (value.startsWith('upload:')) {
@@ -249,6 +256,17 @@ async function save() {
 /**
  * 通过真实 video 元素切换播放或暂停，浏览器拒绝播放时给出提示。
  */
+/** 重新签发播放地址后再加载，避免重复使用已经过期的 URL。 */
+async function reloadMedia() {
+  if (!props.version) return;
+  try {
+    mediaError.value = false;
+    await nextTick();
+    await renewPlayback();
+  } catch {
+    emit('notify', '无法刷新播放地址，请稍后重试。');
+  }
+}
 async function togglePlay() {
   if (!video.value) return;
   if (video.value.paused) {
@@ -486,7 +504,7 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
               <video
                 :key="version.id"
                 ref="video"
-                :src="version.playback_url"
+                :src="playbackUrl"
                 :poster="version.thumbnail_url"
                 :muted="muted"
                 @timeupdate="currentTime = video?.currentTime ?? 0"
@@ -538,7 +556,7 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
               <strong>视频暂时无法加载</strong>
               <button
                 class="text-button"
-                @click="mediaError = false"
+                @click="reloadMedia"
               >
                 重新加载
               </button>
@@ -949,7 +967,9 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
                     :value="musicValue"
                     @change="musicMode"
                   >
-                    <option value="auto">自动生成（默认）</option>
+                    <option value="fixed">原版 Vibe 示例音乐</option>
+                    <option value="ai">AI 音乐 API 生成</option>
+                    <option value="auto">本地程序化配乐（无需 API）</option>
                     <option value="none">不加背景音乐</option>
                     <optgroup label="曲库">
                       <option

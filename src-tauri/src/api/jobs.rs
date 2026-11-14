@@ -43,6 +43,12 @@ struct AnswerBody {
     question_id: String,
     /// 回答内容。
     value: String,
+    /// 当前步骤的修改意见，只作为创作输入，不作为命令执行。
+    #[serde(default)]
+    instruction: String,
+    /// 当前音乐卡选择的已上传音频，必须属于本项目。
+    #[serde(default)]
+    asset_id: Option<String>,
 }
 
 /// `POST /jobs/{id}/answers`：回答追问并继续同一任务（幂等）。
@@ -84,9 +90,70 @@ pub async fn answer(
             ));
         }
         if let Some(q)=&job.job.question {
-            if q.input_type=="single_select" && !q.options.iter().any(|option|option.value==value) {
+            if !q.options.is_empty() && !q.options.iter().any(|option|option.value==value) {
                 return Err(ApiError::validation("请选择当前步骤提供的有效选项。"));
             }
+        }
+        let step=job.job.question.as_ref().and_then(|q|q.skill_id.clone()).unwrap_or_default();
+        let mut project=db::project_for(t,&job.job.project_id,&user)?;
+        if step=="rules_update" {
+            if value=="cancel" {
+                job.job.status=JobStatus::Cancelled;job.job.question=None;job.job.finished_at=Some(crate::util::now_iso());
+                ops::release_project(t,&mut project)?;db::save_project(t,&mut project)?;db::save_job(t,&job)?;
+                let data=json!({"job_id":job.job.id,"job_status":"cancelled"});idem.store(t,StatusCode::ACCEPTED,&data)?;return Ok(reply(StatusCode::ACCEPTED,data));
+            }
+            job.input.skill_version=Some(crate::skills::version());
+        }
+        if step=="production" && ["continue","publish"].contains(&value.as_str()) {
+            let resolution=if value=="publish"{"1080p"}else{"720p"};
+            if project.draft.settings.output_resolution!=resolution {
+                project.draft.settings.output_resolution=resolution.into();
+                for shot in &mut project.draft.shots {shot.asset_ids.retain(|id|db::load_asset(t,id).ok().flatten().is_some_and(|a|a.asset.source=="upload"));}
+                project.draft.invalidated_stages=merge_stages(&project.draft.invalidated_stages,&StageKey::Visuals.and_after());db::save_project(t,&mut project)?;
+            }
+        }
+        if let Some(id)=&input.asset_id {
+            if step!="music" || value!="upload" {return Err(ApiError::validation("素材选择不属于当前音乐步骤。"));}
+            let asset=db::load_asset(t,id)?.ok_or_else(||ApiError::not_found("未找到选择的音频。"))?;
+            if asset.asset.project_id!=project.project.id||asset.asset.kind!="audio"||asset.asset.status!="ready" {return Err(ApiError::not_found("未找到可使用的音频。"));}
+            job.input.answers.push(Answer{question_id:format!("{}:{}:selected",crate::skills::question_id("music_asset"),job.job.id),value:id.clone()});
+        }
+        if value=="save_shots" {
+            if step!="storyboard" {return Err(ApiError::validation("只能在分镜步骤保存镜头修改。"));}
+            let mut shots:Vec<Shot>=serde_json::from_str(&input.instruction).map_err(|_|ApiError::validation("镜头修改格式无效。"))?;
+            if shots.is_empty()||shots.len()>100{return Err(ApiError::validation("分镜数量应为1至100。"));}
+            let mut ids=std::collections::HashSet::new();
+            for shot in &mut shots {
+                if !ids.insert(shot.id.clone()) || !project.draft.shots.iter().any(|s|s.id==shot.id) || !(1000..=60000).contains(&shot.duration_ms) || shot.source_in_ms<0 || shot.narration.chars().count()>1000 || shot.visual_prompt.chars().count()>5000 {return Err(ApiError::validation("镜头编号、时长或文字长度无效。"));}
+                for id in &shot.asset_ids {let a=db::load_asset(t,id)?.ok_or_else(||ApiError::not_found("镜头素材不存在。"))?;if a.asset.project_id!=project.project.id|| !["image","video"].contains(&a.asset.kind.as_str()) {return Err(ApiError::not_found("无法使用这份镜头素材。"));}if a.asset.kind=="video"&&a.asset.duration_ms.is_some_and(|d|shot.source_in_ms>=d){return Err(ApiError::validation("视频入点超出原素材时长。"));}}
+                let old=project.draft.shots.iter().find(|s|s.id==shot.id).unwrap();if (old.narration!=shot.narration||old.visual_prompt!=shot.visual_prompt)&&old.asset_ids==shot.asset_ids {shot.asset_ids.retain(|id|db::load_asset(t,id).ok().flatten().is_some_and(|a|a.asset.source=="upload"));}
+                if shot.asset_ids.iter().any(|id|db::load_asset(t,id).ok().flatten().is_some_and(|a|a.asset.source=="upload")){shot.camera_motion="reference".into();}
+                shot.thumbnail_url=None;
+            }
+            if let Some(script)=&mut project.draft.script{script.text=shots.iter().map(|s|s.narration.clone()).collect::<Vec<_>>().join("\n");}
+            project.draft.shots=shots;project.draft.invalidated_stages=merge_stages(&project.draft.invalidated_stages,&StageKey::Visuals.and_after());
+            crate::skills::rewind(&mut job.input,"storyboard");project.project.draft_revision+=1;job.checkpoint_revision=project.project.draft_revision;db::save_project(t,&mut project)?;
+        }
+        let workflow_action=matches!(value.as_str(),"edit"|"regenerate"|"back"|"voice_retry");
+        if workflow_action {
+            let target=if value=="voice_retry" {"voice"}else if value=="back" {match step.as_str(){"plan"=>"music","script"=>"plan","storyboard"=>"script","production"=>"storyboard","post_edit"=>"music",_=>"style"}}else{step.as_str()};
+            if value=="edit" {
+                if input.instruction.trim().is_empty() || input.instruction.chars().count()>10000{return Err(ApiError::validation("请填写本步骤的修改意见（最多10000字）。"));}
+                job.input.feedback.push(format!("步骤 {target} 的修改要求：{}\n当前文案：{}",input.instruction.trim(),project.draft.script.as_ref().map(|s|s.text.as_str()).unwrap_or("")));
+            }
+            crate::skills::rewind(&mut job.input,target);
+            if value=="voice_retry" {job.input.voice_fallback=false;}
+            if value!="back" {
+                let stage=match target {"plan"=>StageKey::Planning,"script"=>StageKey::Script,"storyboard"=>StageKey::Storyboard,"voice"=>StageKey::Audio,_=>StageKey::Visuals};
+                project.draft.invalidated_stages=merge_stages(&project.draft.invalidated_stages,&stage.and_after());
+                if stage<=StageKey::Script{project.draft.shots.clear();project.draft.script=None;}
+                if stage==StageKey::Planning{project.draft.brief=None;project.artifacts.research_done=false;project.artifacts.sources.clear();}
+                if stage==StageKey::Storyboard{project.draft.shots.clear();}
+                if stage==StageKey::Visuals {for shot in &mut project.draft.shots{shot.asset_ids.clear();}}
+            }
+            if target=="music"{project.draft.audio.resolved_music_asset_id=None;project.artifacts.rhythm=None;for shot in &mut project.draft.shots{shot.asset_ids.clear();}project.draft.invalidated_stages=merge_stages(&project.draft.invalidated_stages,&StageKey::Visuals.and_after());}
+            project.project.draft_revision+=1;project.project.draft_dirty=true;job.checkpoint_revision=project.project.draft_revision;
+            db::save_project(t,&mut project)?;
         }
         // 对话显示用户看见的中文选项，审计输入仍保存稳定值，避免界面出现 continue / bgm。
         let display_value = job.job.question.as_ref()
@@ -100,10 +167,10 @@ pub async fn answer(
             "message.created",
             json!({ "message_id": message.id }),
         )?;
-        job.input.answers.push(Answer {
+        if !workflow_action && value!="save_shots" { job.input.answers.push(Answer {
             question_id: input.question_id.clone(),
-            value: value.clone(),
-        });
+            value: if value=="publish" {"continue".into()}else{value.clone()},
+        }); }
         job.job.question = None;
         job.job.status = JobStatus::Queued;
         if let Some(id) = &job.assistant_message_id {

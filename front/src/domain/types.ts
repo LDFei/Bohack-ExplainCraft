@@ -16,6 +16,9 @@ export type Theme = 'coffee' | 'travel' | 'product';
 export interface Settings {
   /** 由创作 skill 确认画面格式；历史项目缺字段时使用 SVG。 */
   visual_format?: 'svg' | 'html';
+  /** 固定 Vibe 视觉系统或显式选择的 Shotcraft 模板。 */
+  render_profile?: 'vibe' | 'shotcraft';
+  output_resolution?: '720p' | '1080p';
   /** 对话确认的期望时长，单位秒；实际输出以成片 duration_ms 为准。 */
   target_duration_seconds: number;
   /** 画面比例，例如 9:16；不要和像素宽高混用。 */
@@ -36,7 +39,7 @@ export interface AudioSettings {
   /** 当前作品明确选择的配音来源，旧版本可能缺省。 */
   voice_source?: 'api' | 'breeze' | 'bgm';
   /** auto 自动匹配，none 无音乐，library 曲库，upload 用户附件。 */
-  music_mode: 'auto' | 'none' | 'library' | 'upload';
+  music_mode: 'auto' | 'none' | 'library' | 'upload' | 'ai' | 'fixed';
   /** 仅 library 模式使用的曲库条目 ID，其余模式为 null。 */
   music_id: string | null;
   /** 仅 upload 模式使用的本项目音频素材 ID。 */
@@ -72,6 +75,8 @@ export interface Shot {
   camera_motion: string;
   /** 镜头引用的素材，必须属于当前项目且已就绪。 */
   asset_ids: string[];
+  /** 本地视频入点，毫秒；零表示从头开始。 */
+  source_in_ms?: number;
   /** 可选预览图地址，可能是静态 URL 或本页有效的 Blob URL。 */
   thumbnail_url?: string;
 }
@@ -113,7 +118,7 @@ export interface Asset {
   project_id: string;
   kind: 'image' | 'video' | 'audio';
   /** 素材来自用户上传、生成、曲库或已渲染文件。 */
-  source: 'upload' | 'generated' | 'library' | 'rendered';
+  source: 'upload' | 'generated' | 'library' | 'rendered' | 'music_generated' | 'music_procedural';
   /** processing 还不能用于制作，ready 可用，failed 展示错误。 */
   status: 'processing' | 'ready' | 'failed';
   file_name: string;
@@ -132,8 +137,18 @@ export interface Asset {
 /** 结构化消息卡片。模板依据 type 渲染，不从 AI 自然语言里猜测任务状态。 */
 export interface MessageBlock {
   /** 模板的分支标识，决定显示方案、进度、问题、错误或成片卡片。 */
-  type: 'plan' | 'progress' | 'video' | 'question' | 'error' | 'script';
+  type: 'plan' | 'progress' | 'video' | 'question' | 'error' | 'script' | 'sources';
   summary?: string;
+  sources?: { title: string; url: string; excerpt?: string }[];
+  quality?: {
+    passed: boolean;
+    decoded: boolean;
+    width: number;
+    height: number;
+    duration_ms: number;
+  };
+  rhythm?: { bpm: number | null; confidence: number; method: string };
+  render_profile?: string;
   job_id?: string;
   video_version_id?: string;
   /** 成片从提交到完成的总耗时。 */
@@ -194,7 +209,7 @@ export interface Job {
   question: {
     id: string;
     prompt: string;
-    input_type: 'text' | 'single_select';
+    input_type: 'text' | 'single_select' | 'review';
     options: { value: string; label: string }[];
     expires_at: string;
     /** 应用内创作流程的步骤元数据，旧后端可省略。 */
@@ -272,7 +287,7 @@ export interface Capabilities {
   /** 新项目和输入框的默认设置。 */
   defaults: Settings & {
     voice_id: string;
-    music_mode: 'auto' | 'none' | 'library' | 'upload';
+    music_mode: 'auto' | 'none' | 'library' | 'upload' | 'ai' | 'fixed';
     color_preset_id: string;
     effect_preset_id: string;
     subtitles_enabled: boolean;

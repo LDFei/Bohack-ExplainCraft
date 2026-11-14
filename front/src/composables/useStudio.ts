@@ -407,6 +407,8 @@ export function useStudio() {
     jobId: string,
     value?: string,
     questionId?: string,
+    instruction?: string,
+    assetId?: string,
   ) {
     if (pending.value) return;
     const id = projectId.value;
@@ -421,7 +423,7 @@ export function useStudio() {
           notify('问题已经更新，请重新选择当前步骤。', 'info');
           return;
         }
-        await api.answer(jobId, questionId ?? question.id, value ?? '');
+        await api.answer(jobId, questionId ?? question.id, value ?? '', instruction, assetId);
       }
       if (projectId.value === id) await refresh(id);
     } catch (error) {

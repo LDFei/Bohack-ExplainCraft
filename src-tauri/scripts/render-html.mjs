@@ -110,7 +110,7 @@ try {
   await cdp('Page.setDocumentContent', { frameId: frameTree.frame.id, html });
   await evaluate(validateDocument);
   await evaluate('document.fonts.ready.then(() => { for (const a of document.getAnimations()) { a.pause(); a.currentTime=0; } return true; })', true);
-  const frames = Math.max(1, Math.min(720, Math.ceil(duration / 1000 * 12))), rate = frames * 1000 / duration;
+  const frames = Math.max(1, Math.min(1800, Math.ceil(duration / 1000 * 30))), rate = frames * 1000 / duration;
   ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-nostdin', '-y', '-f', 'image2pipe', '-framerate', String(rate), '-i', 'pipe:0',
     '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30', '-t', String(duration / 1000), '-movflags', '+faststart', output], { stdio: ['pipe','ignore','pipe'] });
   let ffmpegError = ''; ffmpeg.stderr.on('data', bytes => { ffmpegError = (ffmpegError + bytes).slice(-4096); });

@@ -171,7 +171,13 @@ impl Config {
     /// 当前供应商的默认声线。
     pub fn default_voice(&self) -> String {
         match self.provider_llm4.as_str() {
-            "siliconflow" => self.siliconflow_tts_voice.clone(),
+            "siliconflow" => {
+                if self.siliconflow_tts_voice.trim().is_empty() {
+                    "alex".into()
+                } else {
+                    self.siliconflow_tts_voice.clone()
+                }
+            }
             "indextts" => self.indextts_voice.clone(),
             "breeze" => "voice_warm".into(),
             _ => self.qwen_tts_voice.clone(),

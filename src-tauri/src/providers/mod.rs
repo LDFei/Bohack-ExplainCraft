@@ -252,6 +252,9 @@ pub struct EditRequest {
 /// 剪辑方案：由 llm1 决定镜头顺序、时长、转场与字幕，渲染器按方案执行。
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct EditPlan {
+    /// 原生输出分辨率，历史时间线使用720p。
+    #[serde(default)]
+    pub output_resolution: String,
     /// 输出画面比例。
     pub aspect_ratio: String,
     /// 总时长（毫秒）。
@@ -283,6 +286,9 @@ pub struct EditPlan {
 pub struct Clip {
     /// 对应的镜头。
     pub shot_id: String,
+    /// 原素材入点，旧时间线默认从头播放。
+    #[serde(default)]
+    pub source_in_ms: i64,
     /// 在成片中的开始时间（毫秒）。
     pub start_ms: i64,
     /// 片段时长（毫秒）。

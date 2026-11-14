@@ -77,3 +77,13 @@ pub fn dimensions(aspect_ratio: &str) -> (i64, i64) {
         _ => (720, 1280),
     }
 }
+
+/// 输出画幅按实际分辨率计算，默认预览规格兼容旧项目。
+pub fn output_dimensions(aspect: &str, resolution: &str) -> (i64, i64) {
+    let (w, h) = dimensions(aspect);
+    if resolution == "1080p" {
+        (w * 3 / 2, h * 3 / 2)
+    } else {
+        (w, h)
+    }
+}

@@ -65,7 +65,7 @@ export function providerPreset(
     creation && provider !== 'custom'
       ? defaultCreationModel
       : kind === 'music' && provider === 'minimax'
-        ? 'music-1.5'
+        ? 'music-3.0'
         : kind === 'voice' && provider === 'siliconflow'
           ? 'fnlp/MOSS-TTSD-v0.5'
           : (models[provider] ?? '');

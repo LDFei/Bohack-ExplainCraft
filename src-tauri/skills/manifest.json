@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "mode": "guided",
   "name": "ExplainCraft guided production",
   "steps": [
@@ -94,16 +94,24 @@
       "requires_confirmation": true,
       "options": [
         {
+          "value": "upload",
+          "label": "从本地选择音乐 / 使用素材库音频"
+        },
+        {
+          "value": "ai",
+          "label": "AI 生成音乐（使用已配置的音乐 API）"
+        },
+        {
+          "value": "fixed",
+          "label": "原版 Vibe 示例音乐"
+        },
+        {
           "value": "auto",
-          "label": "程序化背景音乐"
+          "label": "本地程序化配乐（无需 API）"
         },
         {
           "value": "none",
           "label": "不使用背景音乐"
-        },
-        {
-          "value": "upload",
-          "label": "使用已上传音频"
         }
       ]
     },
@@ -114,7 +122,19 @@
       "options": [
         {
           "value": "continue",
-          "label": "确认创作方案，开始写文案"
+          "label": "采用方案，开始文案"
+        },
+        {
+          "value": "edit",
+          "label": "按修改意见调整"
+        },
+        {
+          "value": "regenerate",
+          "label": "重新生成此步骤"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -125,7 +145,19 @@
       "options": [
         {
           "value": "continue",
-          "label": "确认文案，继续"
+          "label": "采用文案，安排分镜"
+        },
+        {
+          "value": "edit",
+          "label": "按修改意见调整"
+        },
+        {
+          "value": "regenerate",
+          "label": "重新生成此步骤"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -136,7 +168,23 @@
       "options": [
         {
           "value": "continue",
-          "label": "确认分镜，继续"
+          "label": "采用分镜"
+        },
+        {
+          "value": "save_shots",
+          "label": "保存逐镜修改并重新审阅"
+        },
+        {
+          "value": "edit",
+          "label": "按修改意见调整"
+        },
+        {
+          "value": "regenerate",
+          "label": "重新生成此步骤"
+        },
+        {
+          "value": "back",
+          "label": "返回上一项"
         }
       ]
     },
@@ -147,14 +195,22 @@
       "options": [
         {
           "value": "continue",
-          "label": "开始制作镜头"
+          "label": "开始制作与合成"
+        },
+        {
+          "value": "publish",
+          "label": "1080p 原生高清制作（等待更久）"
+        },
+        {
+          "value": "back",
+          "label": "返回分镜调整"
         }
       ]
     },
     {
       "id": "render",
       "skill": "render.md",
-      "requires_confirmation": true,
+      "requires_confirmation": false,
       "options": [
         {
           "value": "continue",
@@ -173,7 +229,11 @@
         },
         {
           "value": "quercus",
-          "label": "使用 Quercus 剪辑库继续剪辑"
+          "label": "添加镜头间淡入淡出（生成剪辑版，保留初版）"
+        },
+        {
+          "value": "back",
+          "label": "返回音乐选择，重新编排节奏"
         }
       ]
     },
@@ -184,7 +244,15 @@
       "options": [
         {
           "value": "continue",
-          "label": "确认交付"
+          "label": "完成并保存作品"
+        },
+        {
+          "value": "regenerate",
+          "label": "重新制作画面"
+        },
+        {
+          "value": "voice_retry",
+          "label": "保留画面，重新选择配音"
         }
       ]
     }

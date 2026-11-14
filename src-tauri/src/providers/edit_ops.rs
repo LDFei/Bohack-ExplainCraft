@@ -100,7 +100,8 @@ pub const DEFAULT_FPS: i32 = 30;
 /// llm1 用它生成标准指令；模型也可以直接输出指令，不经过这里。
 /// 轨道约定：视频 0 放镜头画面，音频 0 放配音，音频 1 放背景音乐。
 pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
-    let (width, height) = crate::util::dimensions(&plan.aspect_ratio);
+    let (width, height) =
+        crate::util::output_dimensions(&plan.aspect_ratio, &plan.output_resolution);
     let mut ops = vec![EditOp::CreateSequence {
         width: width as i32,
         height: height as i32,
@@ -120,7 +121,7 @@ pub fn ops_from_plan(plan: &super::EditPlan) -> Vec<EditOp> {
                 track_index: 0,
                 start_ms: clip.start_ms,
                 end_ms,
-                media_in_ms: 0,
+                media_in_ms: clip.source_in_ms,
                 clip: Some(format!("shot{index}")),
             });
         }

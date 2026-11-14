@@ -572,7 +572,8 @@ impl Renderer for QuercusRenderer {
         let output = self
             .work_dir
             .join(format!("{}.mp4", crate::util::make_id("render")));
-        let (width, height) = crate::util::dimensions(&plan.aspect_ratio);
+        let (width, height) =
+            crate::util::output_dimensions(&plan.aspect_ratio, &plan.output_resolution);
         let total_ms = plan.total_ms.max(1000);
         let inputs = request.inputs;
         let target = output.clone();
@@ -633,7 +634,10 @@ impl Renderer for QuercusRenderer {
     }
 
     async fn export_bundle(&self, request: ProjectBundleRequest) -> ProviderResult<MediaOutput> {
-        let (width, height) = crate::util::dimensions(&request.plan.aspect_ratio);
+        let (width, height) = crate::util::output_dimensions(
+            &request.plan.aspect_ratio,
+            &request.plan.output_resolution,
+        );
         let duration_ms = request.plan.total_ms.max(1000);
         let work_dir = self.work_dir.clone();
         let output = tokio::task::spawn_blocking(move || export_project_bundle(request, &work_dir))
@@ -656,6 +660,20 @@ impl Renderer for QuercusRenderer {
 mod tests {
     use super::*;
 
+    /// 测试把供应商字节写入临时素材，验证剪辑消费真实媒体而非依赖存储形式。
+    fn shot_file(data: MediaData, root: Option<&std::path::Path>) -> PathBuf {
+        match data {
+            MediaData::Path(p) => p,
+            MediaData::Bytes(bytes) => {
+                let p = root
+                    .map(std::path::Path::to_path_buf)
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join(format!("shot-{}.mp4", uuid::Uuid::new_v4()));
+                std::fs::write(&p, bytes).unwrap();
+                p
+            }
+        }
+    }
     /// 首帧前应能建立非 CPU 的共享合成后端；无 GPU 的构建环境允许回退。
     #[test]
     fn initializes_gpu_compositing_backend() {
@@ -753,9 +771,7 @@ mod tests {
         let shot = crate::svg_animation::render(svg, 1000, 64, 64, 0)
             .await
             .expect("SVG 镜头");
-        let MediaData::Path(path) = shot.data else {
-            panic!("镜头路径")
-        };
+        let path = shot_file(shot.data, None);
         let output =
             std::env::temp_dir().join(format!("quercus-test-{}.mp4", uuid::Uuid::new_v4()));
         let ops = vec![
@@ -794,9 +810,7 @@ mod tests {
         let shot = crate::svg_animation::render(svg, 3000, 320, 568, 0)
             .await
             .expect("测试画面");
-        let MediaData::Path(video) = shot.data else {
-            panic!("镜头路径")
-        };
+        let video = shot_file(shot.data, Some(&root));
         let mut inputs = HashMap::from([("visual".into(), video.clone())]);
         let mut ops = vec![
             EditOp::CreateSequence {
@@ -881,9 +895,7 @@ mod tests {
         let shot = crate::svg_animation::render(svg, 1000, 64, 64, 0)
             .await
             .expect("测试画面");
-        let MediaData::Path(video) = shot.data else {
-            panic!("镜头路径")
-        };
+        let video = shot_file(shot.data, Some(&root));
         let source = root.join("source.mp4");
         let visual_ops = vec![
             EditOp::CreateSequence {

@@ -215,6 +215,53 @@ pub fn cancel() {
     CANCEL.store(true, Ordering::SeqCst);
 }
 
+/// 下载前检查目标盘空间；无法查询的平台仍由实际写入错误提供反馈。
+async fn check_free_space(root: &Path, dir: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let output = tokio::time::timeout(
+            Duration::from_secs(4),
+            tokio::process::Command::new("df")
+                .arg("-Pk")
+                .arg(root)
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await;
+        if let Ok(Ok(output)) = output {
+            if output.status.success() {
+                let remaining: u64 = FILES
+                    .iter()
+                    .map(|f| {
+                        let dest = dir.join(f.path);
+                        let completed = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                        let partial = std::fs::metadata(part_path(&dest))
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        if completed == f.size {
+                            0
+                        } else {
+                            f.size.saturating_sub(partial.min(f.size))
+                        }
+                    })
+                    .sum();
+                let available = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .last()
+                    .and_then(|line| line.split_whitespace().nth(3))
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .map(|kb| kb * 1024);
+                if available.is_some_and(|free| free < remaining + 512 * 1024 * 1024) {
+                    anyhow::bail!("目标磁盘空间不足：模型尚需约 {:.1} GB，并需预留 0.5 GB。请选择其他磁盘或释放空间后重试。",remaining as f64/1_000_000_000.);
+                }
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (root, dir);
+    Ok(())
+}
+
 /// 下载进度累加器，负责限频推送事件。
 struct Reporter<'a, R: Runtime> {
     /// 用于推送事件的句柄。
@@ -371,9 +418,11 @@ pub async fn download<R: Runtime>(
     CANCEL.store(false, Ordering::SeqCst);
 
     let dir = model_dir(&comfyui_dir);
+    check_free_space(&comfyui_dir, &dir).await?;
     tokio::fs::create_dir_all(&dir).await?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(1800))
         .build()?;
     let mut reporter = Reporter {
         app: &app,

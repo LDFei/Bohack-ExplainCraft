@@ -72,3 +72,12 @@ export function formatBytes(bytes: number): string {
   }
   return `${unit === 0 || value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
+
+/** 用户主动上传参考音与对应转写，后端转换并保存在应用目录。 */
+export async function uploadBreezeReference(file: File, text: string) {
+  return invoke<{ ready: boolean }>(
+    'upload_breeze_reference',
+    new Uint8Array(await file.arrayBuffer()),
+    { headers: { 'x-reference-text': encodeURIComponent(text) } },
+  );
+}

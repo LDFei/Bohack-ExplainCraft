@@ -22,6 +22,7 @@ pub fn version() -> String {
         hash.update(policy(step["id"].as_str().unwrap()));
     }
     hash.update(include_str!("../skills/shotcraft/recipes.json"));
+    hash.update(include_str!("../skills/vibe.md"));
     format!(
         "{}+{}",
         manifest["version"].as_str().unwrap_or("1.0.0"),
@@ -46,6 +47,11 @@ pub fn choice<'a>(input: &'a JobInput, step: &str) -> Option<&'a str> {
 }
 /// 安装缺失时的改选同样是明确用户回答，不改变全局供应商配置。
 pub fn voice_mode(input: &JobInput) -> &str {
+    if let Some(value) = choice(input, "voice_failed") {
+        if ["api", "breeze", "bgm"].contains(&value) {
+            return value;
+        }
+    }
     match choice(input, "breeze_install") {
         Some("choose_api") => "api",
         Some("bgm") => "bgm",
@@ -75,7 +81,15 @@ pub fn question(step: &str, prompt: String, ttl: i64) -> Question {
     Question {
         id: question_id(step),
         prompt,
-        input_type: "single_select".into(),
+        input_type: if matches!(
+            step,
+            "plan" | "script" | "storyboard" | "production" | "post_edit" | "delivery"
+        ) {
+            "review"
+        } else {
+            "single_select"
+        }
+        .into(),
         options,
         expires_at: iso(now() + chrono::Duration::seconds(ttl)),
         skill_id: Some(step.into()),
@@ -130,21 +144,38 @@ pub fn policy(step: &str) -> &'static str {
 }
 /// 将真实上游镜头配方送入生成上下文，而非仅替换模板名称。
 pub fn template_recipe(topic: &str) -> String {
+    if !topic.contains("[template:shotcraft-") {
+        return include_str!("../skills/vibe.md").into();
+    }
     let data: Value = serde_json::from_str(include_str!("../skills/shotcraft/recipes.json"))
         .expect("镜头配方合法");
-    if topic.contains("shotcraft")
-        || topic.contains("Shotcraft")
-        || topic.contains("Vibe")
-        || topic.contains("墨")
-        || topic.contains("数据")
-    {
-        format!(
-            "\n镜头配方（按当前用户时长、风格和SVG/HTML选择适配，不能覆盖选择）：{}",
-            data
-        )
-    } else {
-        String::new()
-    }
+    let preset = data["presets"].as_array().and_then(|v| {
+        v.iter()
+            .find(|p| topic.contains(p["id"].as_str().unwrap_or("---")))
+    });
+    format!(
+        "当前模板配方：{}；只使用该模板列出的镜头语言，用户确认参数优先。",
+        preset.unwrap_or(&data)
+    )
+}
+
+/// 清除指定步骤以后的确认；恢复产物和重新生成产物由调用方分别决定。
+pub fn rewind(input: &mut JobInput, step: &str) {
+    let m = manifest();
+    let steps = m["steps"].as_array().unwrap();
+    let at = steps.iter().position(|s| s["id"] == step).unwrap_or(0);
+    input.answers.retain(|a| {
+        !steps[at..].iter().any(|s| {
+            let key = question_id(s["id"].as_str().unwrap());
+            a.question_id == key || a.question_id.starts_with(&(key + ":"))
+        }) && !(at <= 3
+            && (a.question_id.contains("breeze_install") || a.question_id.contains("voice_failed")))
+            && !(at <= 4
+                && (a.question_id.contains("music_asset")
+                    || a.question_id.contains("music_failed")))
+    });
+    input.awaiting_post_edit = false;
+    input.post_edit_applied = false;
 }
 
 #[cfg(test)]

@@ -272,7 +272,7 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
 }
 
 /// 加载各平台中文字体，供 SVG 镜头与透明字幕共用。
-fn svg_options() -> usvg::Options<'static> {
+pub(crate) fn svg_options() -> usvg::Options<'static> {
     let mut options = usvg::Options::default();
     for (path, family) in [
         (
@@ -314,13 +314,17 @@ fn render_blocking(
     width: u32,
     height: u32,
     work: &Path,
+    cancelled: &std::sync::atomic::AtomicBool,
 ) -> ProviderResult<PathBuf> {
-    let fps = 12;
-    let frames = ((duration_ms as f64 / 1000.0 * fps as f64).ceil() as i64).clamp(1, 720);
+    let fps = 30;
+    let frames = ((duration_ms as f64 / 1000.0 * fps as f64).ceil() as i64).clamp(1, 1800);
     std::fs::create_dir_all(work)
         .map_err(|_| ProviderError::render_failed("无法创建 SVG 渲染目录"))?;
     let options = svg_options();
     for frame in 0..frames {
+        if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(ProviderError::render_failed("SVG 输出已停止。"));
+        }
         let time_ms = (frame as i64 * duration_ms / frames.max(1)).min(duration_ms);
         let svg = frame_svg(source, time_ms)?;
         let tree = usvg::Tree::from_str(&svg, &options)
@@ -365,8 +369,21 @@ fn render_blocking(
                 "-movflags",
                 "+faststart",
             ])
-            .arg(&output)
-            .status()
+            .arg(&output);
+        let mut child = command.spawn()?;
+        let started = std::time::Instant::now();
+        loop {
+            if cancelled.load(std::sync::atomic::Ordering::Relaxed)
+                || started.elapsed() > std::time::Duration::from_secs(180)
+            {
+                let _ = child.kill();
+                return child.wait();
+            }
+            if let Some(status) = child.try_wait()? {
+                return Ok(status);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     })?;
     if !output.is_file() {
         return Err(ProviderError::render_failed("FFmpeg 编码 SVG 动画失败"));
@@ -453,6 +470,22 @@ pub fn write_subtitle_overlay(
 }
 
 /// 把 SVG/SMIL 渲染为可交给 Quercus 的镜头 MP4。
+/// 渲染取消令牌随 future 一起销毁；阻塞线程在下一帧或编码轮询时退出。
+struct RenderCancel(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for RenderCancel {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+/// 同步线程持有临时目录，任何退出路径均清理 PNG 与半成品 MP4。
+struct RenderScratch(PathBuf);
+impl Drop for RenderScratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+        let _ = std::fs::remove_file(self.0.with_extension("mp4"));
+    }
+}
+/// 有界并发地将完整 SVG 动画输出为真实视频字节，取消后不留下外部临时素材。
 pub async fn render(
     source: &str,
     duration_ms: i64,
@@ -460,21 +493,30 @@ pub async fn render(
     height: u32,
     shot_index: usize,
 ) -> ProviderResult<MediaOutput> {
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = SLOTS
+        .acquire()
+        .await
+        .map_err(|_| ProviderError::render_failed("SVG 输出器已关闭。"))?;
     let work = std::env::temp_dir().join(format!(
-        "explaincraft-svg-{}-{}",
-        shot_index,
+        "explaincraft-svg-{shot_index}-{}",
         uuid::Uuid::new_v4()
     ));
     let source = source.to_string();
-    let blocking_work = work.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        render_blocking(&source, duration_ms, width, height, &blocking_work)
+    let cancel = RenderCancel(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        false,
+    )));
+    let flag = cancel.0.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        let _scratch = RenderScratch(work.clone());
+        let output = render_blocking(&source, duration_ms, width, height, &work, &flag)?;
+        std::fs::read(output).map_err(|_| ProviderError::render_failed("无法读取 SVG 动画输出。"))
     })
     .await
-    .map_err(|_| ProviderError::render_failed("SVG 渲染线程失败"))??;
-    let _ = tokio::fs::remove_dir_all(work).await;
+    .map_err(|_| ProviderError::render_failed("SVG 输出线程中断。"))??;
+    drop(permit);
     Ok(MediaOutput {
-        data: MediaData::Path(output),
+        data: MediaData::Bytes(bytes),
         file_name: format!("svg-shot-{}.mp4", shot_index + 1),
         mime_type: "video/mp4".into(),
         kind: "video".into(),
@@ -516,11 +558,10 @@ mod tests {
         let output = render(svg, 1000, 64, 64, 0)
             .await
             .expect("SVG 动画应渲染为 MP4");
-        let MediaData::Path(path) = output.data else {
-            panic!("渲染应返回文件路径")
+        let MediaData::Bytes(bytes) = output.data else {
+            panic!("视频必须返回可入库的媒体字节");
         };
-        assert!(path.is_file());
+        assert!(bytes.len() > 1000);
         assert_eq!(output.kind, "video");
-        let _ = std::fs::remove_file(path);
     }
 }

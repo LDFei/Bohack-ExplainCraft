@@ -33,11 +33,16 @@ impl ScriptModel for ScriptMock {
             settings: r.ctx.settings,
         }))
     }
-    async fn write_script(&self, _: ScriptRequest) -> ProviderResult<Script> {
+    async fn write_script(&self, request: ScriptRequest) -> ProviderResult<Script> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(Script {
             title: "测试".into(),
-            text: "这是一个概念。".into(),
+            text: if request.ctx.user_text.contains("换成抛硬币") {
+                "抛硬币的每次结果相互独立。"
+            } else {
+                "这是一个概念。"
+            }
+            .into(),
         })
     }
     async fn storyboard(&self, _: StoryboardRequest) -> ProviderResult<Vec<ShotPlan>> {
@@ -126,6 +131,8 @@ fn fixture() -> (
     let mut cfg = crate::Config::from_env();
     cfg.database_path = root.join("test.sqlite3");
     cfg.storage_dir = root.join("storage");
+    cfg.demo_media_dir =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../shared/public/media");
     cfg.settings_file = root.join(".env");
     cfg.provider_llm4 = "qwen".into();
     cfg.qwen_tts.api_key = "test-only".into();
@@ -269,7 +276,6 @@ async fn guided_choices_survive_restart_and_publish_before_optional_edit() {
         ("script", "continue"),
         ("storyboard", "continue"),
         ("production", "continue"),
-        ("render", "continue"),
     ] {
         let j = job(&state, &id);
         assert_eq!(j.job.status, JobStatus::WaitingInput, "{j:?}");
@@ -289,7 +295,7 @@ async fn guided_choices_survive_restart_and_publish_before_optional_edit() {
     assert_eq!(models.load(Ordering::SeqCst), 3);
     assert_eq!(renders.load(Ordering::SeqCst), 1);
     let messages = state.db.read(|c| {
-        Ok(c.query_row("SELECT COUNT(*) FROM messages WHERE project_id=?1 AND role='user' AND text='极简信息图'", [&j.job.project_id], |r| r.get::<_, i64>(0))?)
+        Ok(c.query_row("SELECT COUNT(*) FROM messages WHERE project_id=?1 AND role='user' AND text='深色几何 · 青绿极简'", [&j.job.project_id], |r| r.get::<_, i64>(0))?)
     }).unwrap();
     assert_eq!(messages, 1, "选择应显示用户看见的中文标签而非内部值");
     assert!(j
@@ -346,8 +352,19 @@ async fn retry_preserves_skill_version_and_rejects_silent_migration() {
     );
     run(&state, retry).await;
     assert_eq!(
-        job(&state, retry).job.error.unwrap().code,
-        "SKILL_VERSION_CHANGED"
+        job(&state, retry)
+            .job
+            .question
+            .as_ref()
+            .unwrap()
+            .skill_id
+            .as_deref(),
+        Some("rules_update")
+    );
+    answer(&state, retry, "continue").await;
+    assert_eq!(
+        job(&state, retry).input.skill_version.as_deref(),
+        Some(crate::skills::version().as_str())
     );
     assert_eq!(models.load(Ordering::SeqCst), 0);
     let _ = std::fs::remove_dir_all(root);
@@ -391,7 +408,6 @@ async fn missing_breeze_model_requires_explicit_download_or_alternative() {
 async fn approve_to_preview(state: &AppState, id: &str, voice: &str, music: &str) {
     for value in [
         "minimal", "15", "svg", voice, music, "continue", "continue", "continue", "continue",
-        "continue",
     ] {
         answer(state, id, value).await;
     }
@@ -466,5 +482,249 @@ async fn editor_runs_only_after_opt_in_and_delivers_exactly_one_new_version() {
     answer(&state, &id, "continue").await;
     assert_eq!(job(&state, &id).job.status, JobStatus::Succeeded);
     assert_eq!(count(), 2);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// 真实音乐文件入库，供测试上传选择和供应商 HTTP 输出复用。
+async fn local_music(state: &AppState, project: &str, id: &str) -> db::AssetRow {
+    let draft = crate::catalog::empty_draft();
+    let media = procedural::ProceduralMusic
+        .compose(MusicRequest {
+            ctx: ProductionContext {
+                brief: None,
+                settings: draft.settings,
+                user_text: "节奏测试".into(),
+                answers: vec![],
+                speech_rate: 1.,
+            },
+            mode: "auto".into(),
+            track_id: None,
+            duration_ms: 6000,
+        })
+        .await
+        .unwrap();
+    let (path, size) = state.media.store_output(project, id, &media).await.unwrap();
+    let asset=serde_json::from_value(json!({"id":id,"project_id":project,"kind":"audio","source":"upload","status":"ready","file_name":"我的节奏.wav","mime_type":"audio/wav","size_bytes":size,"duration_ms":6000,"width":null,"height":null,"thumbnail_url":null,"error":null})).unwrap();
+    let row = db::AssetRow {
+        asset,
+        storage_path: path.to_string_lossy().into(),
+    };
+    state.db.write(|t| db::insert_asset(t, &row)).unwrap();
+    row
+}
+
+/// 审阅允许修改与返回；空意见、旧卡片均不能推进，也不会丢失原偏好。
+#[tokio::test]
+async fn review_edit_and_back_preserve_preferences_and_reject_stale_card() {
+    let (state, root, models, _) = fixture();
+    let id = start(&state).await;
+    for value in ["minimal", "15", "svg", "bgm", "auto", "continue"] {
+        answer(&state, &id, value).await;
+    }
+    let q = job(&state, &id).job.question.unwrap();
+    assert_eq!(q.skill_id.as_deref(), Some("script"));
+    let (status, _) = request(
+        &state,
+        &format!("/api/v1/jobs/{id}/answers"),
+        json!({"question_id":q.id,"value":"edit","instruction":""}),
+    )
+    .await;
+    assert_eq!(status, 422);
+    let (status, _) = request(
+        &state,
+        &format!("/api/v1/jobs/{id}/answers"),
+        json!({"question_id":q.id,"value":"edit","instruction":"换成抛硬币的例子"}),
+    )
+    .await;
+    assert_eq!(status, 202);
+    run(&state, &id).await;
+    let j = job(&state, &id);
+    assert_ne!(j.job.question.as_ref().unwrap().id, q.id);
+    assert_eq!(crate::skills::choice(&j.input, "music"), Some("auto"));
+    let draft = state
+        .db
+        .read(|c| Ok(db::load_project(c, &j.job.project_id)?.unwrap().draft))
+        .unwrap();
+    assert!(draft.script.unwrap().text.contains("抛硬币"));
+    let (status, _) = request(
+        &state,
+        &format!("/api/v1/jobs/{id}/answers"),
+        json!({"question_id":q.id,"value":"continue"}),
+    )
+    .await;
+    assert_eq!(status, 409);
+    answer(&state, &id, "continue").await;
+    let before = models.load(Ordering::SeqCst);
+    answer(&state, &id, "back").await;
+    assert_eq!(models.load(Ordering::SeqCst), before);
+    assert_eq!(
+        job(&state, &id).job.question.unwrap().skill_id.as_deref(),
+        Some("script")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// 本地音乐在当前步骤选定，后端检查归属并实际分析，不让前端任意引用别的项目文件。
+#[tokio::test]
+async fn local_music_selection_is_owned_persisted_and_analyzed() {
+    let (state, root, _, _) = fixture();
+    let id = start(&state).await;
+    let project = job(&state, &id).job.project_id;
+    let music = local_music(&state, &project, "local-track").await;
+    for value in ["minimal", "15", "svg", "bgm"] {
+        answer(&state, &id, value).await;
+    }
+    let q = job(&state, &id).job.question.unwrap();
+    let (status, _) = request(
+        &state,
+        &format!("/api/v1/jobs/{id}/answers"),
+        json!({"question_id":q.id,"value":"upload","asset_id":"missing"}),
+    )
+    .await;
+    assert_eq!(status, 404);
+    let (status, _) = request(
+        &state,
+        &format!("/api/v1/jobs/{id}/answers"),
+        json!({"question_id":q.id,"value":"upload","asset_id":music.asset.id}),
+    )
+    .await;
+    assert_eq!(status, 202);
+    run(&state, &id).await;
+    answer(&state, &id, "continue").await;
+    answer(&state, &id, "continue").await;
+    let p = state
+        .db
+        .read(|c| Ok(db::load_project(c, &project)?.unwrap()))
+        .unwrap();
+    assert_eq!(
+        p.draft.audio.resolved_music_asset_id.as_deref(),
+        Some("local-track")
+    );
+    assert_eq!(p.artifacts.rhythm.as_ref().unwrap().asset_id, "local-track");
+    assert!(!p.artifacts.rhythm.as_ref().unwrap().beats_ms.is_empty());
+    let mut shots = p.draft.shots.clone();
+    shots[0].narration = "修改的字幕完整保留，不应截断。".into();
+    let q = job(&state, &id).job.question.unwrap();
+    let(status,_)=request(&state,&format!("/api/v1/jobs/{id}/answers"),json!({"question_id":q.id,"value":"save_shots","instruction":serde_json::to_string(&shots).unwrap()})).await;
+    assert_eq!(status, 202);
+    run(&state, &id).await;
+    assert_eq!(
+        job(&state, &id).job.question.unwrap().skill_id.as_deref(),
+        Some("storyboard")
+    );
+    let p = state
+        .db
+        .read(|c| Ok(db::load_project(c, &project)?.unwrap()))
+        .unwrap();
+    assert_eq!(p.draft.shots[0].narration, shots[0].narration);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// AI配乐使用真实HTTP协议，供应商收到纯音乐参数；恢复不会再次生成。
+#[tokio::test]
+async fn ai_music_calls_actual_http_adapter_once_with_instrumental_request() {
+    let (state, root, _, _) = fixture();
+    let id = start(&state).await;
+    let project = job(&state, &id).job.project_id;
+    let wave = local_music(&state, &project, "reference-wave").await;
+    let hex = hex::encode(std::fs::read(&wave.storage_path).unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route(
+                "/music_generation",
+                axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                    let hex = hex.clone();
+                    let calls = observed.clone();
+                    async move {
+                        assert_eq!(body["is_instrumental"], true);
+                        assert_eq!(body["model"], "music-3.0");
+                        assert_eq!(body["audio_setting"]["format"], "mp3");
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        axum::Json(json!({"data":{"audio":hex}}))
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+    let mut cfg = (**state.model_config.load()).clone();
+    cfg.provider_llm3 = "minimax".into();
+    cfg.llm3.api_key = "test-only".into();
+    cfg.llm3.model = "music-3.0".into();
+    cfg.llm3_base = format!("http://{address}");
+    state.model_config.store(Arc::new(cfg.clone()));
+    let mut providers = (**state.providers.load()).clone();
+    providers.music = Arc::new(openai::MiniMaxApiMusic::new(&cfg));
+    state.providers.store(Arc::new(providers));
+    for value in ["minimal", "15", "svg", "bgm", "ai", "continue", "continue"] {
+        answer(&state, &id, value).await;
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    answer(&state, &id, "back").await;
+    answer(&state, &id, "continue").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let p = state
+        .db
+        .read(|c| Ok(db::load_project(c, &project)?.unwrap()))
+        .unwrap();
+    let a = state
+        .db
+        .read(|c| {
+            Ok(
+                db::load_asset(c, p.draft.audio.resolved_music_asset_id.as_ref().unwrap())?
+                    .unwrap(),
+            )
+        })
+        .unwrap();
+    assert_eq!(a.asset.source, "music_generated");
+    assert!(p.artifacts.rhythm.is_some());
+    server.abort();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// 高清模式从原生SVG开始渲染1080p，真实媒体检查通过后才发布。
+#[tokio::test]
+async fn native_1080p_vibe_is_checked_before_publication() {
+    let (state, root, _, _) = fixture();
+    let id = start(&state).await;
+    for value in [
+        "minimal", "15", "svg", "bgm", "fixed", "continue", "continue", "continue",
+    ] {
+        answer(&state, &id, value).await;
+    }
+    answer(&state, &id, "publish").await;
+    let j = job(&state, &id);
+    assert!(j.input.awaiting_post_edit, "{j:?}");
+    let p = state
+        .db
+        .read(|c| Ok(db::load_project(c, &j.job.project_id)?.unwrap()))
+        .unwrap();
+    assert_eq!(p.artifacts.quality.as_ref().unwrap()["height"], 1920);
+    assert_eq!(p.artifacts.quality.as_ref().unwrap()["width"], 1080);
+    assert_eq!(p.artifacts.quality.as_ref().unwrap()["passed"], true);
+    if let Ok(dir) = std::env::var("EXPLAINCRAFT_ARTIFACT_DIR") {
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let version = state
+            .db
+            .read(|c| {
+                Ok(
+                    db::load_version(c, p.project.latest_video_version_id.as_ref().unwrap())?
+                        .unwrap(),
+                )
+            })
+            .unwrap();
+        let asset = state
+            .db
+            .read(|c| Ok(db::load_asset(c, &version.video_asset_id)?.unwrap()))
+            .unwrap();
+        std::fs::copy(asset.storage_path, dir.join("vibe-native-1080p.mp4")).unwrap();
+    }
     let _ = std::fs::remove_dir_all(root);
 }

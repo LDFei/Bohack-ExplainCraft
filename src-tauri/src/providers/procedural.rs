@@ -202,6 +202,8 @@ mod tests {
                     language: "zh-CN".into(),
                     style_id: "warm".into(),
                     visual_format: "svg".into(),
+                    render_profile: "vibe".into(),
+                    output_resolution: "720p".into(),
                 },
                 user_text: "温暖的咖啡店".into(),
                 answers: vec![],

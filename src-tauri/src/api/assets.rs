@@ -402,3 +402,87 @@ pub async fn library(
         Err(_) => ApiError::not_found("曲目不存在。").into_response(),
     }
 }
+
+/// 上传视频的独立播放入口：原始文件保留，统一生成浏览器可解码的 H.264/AAC 预览并缓存。
+pub async fn preview(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(asset_id): Path<String>,
+) -> ApiResult<Response> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let row = state.db.read(|c| asset_for(c, &asset_id, &user))?;
+    if row.asset.kind != "video" || row.asset.source != "upload" {
+        let (url, expires) = state.media.signed_url(&asset_id, false);
+        return Ok(ok(json!({"playback_url":url,"expires_at":expires})));
+    }
+    let _guard = LOCK.lock().await;
+    let preview_id = format!("preview_{asset_id}");
+    let existing = state.db.read(|c| db::load_asset(c, &preview_id))?;
+    if existing
+        .as_ref()
+        .is_none_or(|r| !std::path::Path::new(&r.storage_path).is_file())
+    {
+        let path = state
+            .media
+            .path_for(&row.asset.project_id, &preview_id, "preview.mp4");
+        let parent = path
+            .parent()
+            .ok_or_else(|| ApiError::validation("无法准备视频预览。"))?;
+        tokio::fs::create_dir_all(parent).await?;
+        let temporary = path.with_extension("preview.mp4");
+        let mut cmd = tokio::process::Command::new(
+            std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
+        );
+        cmd.args(["-v", "error", "-nostdin", "-y", "-i"])
+            .arg(&row.storage_path)
+            .args([
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-vf",
+                "scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "22",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&temporary)
+            .kill_on_drop(true);
+        let encoded = tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output()).await;
+        if !matches!(encoded,Ok(Ok(ref out)) if out.status.success()) {
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return Err(ApiError::validation(
+                "视频预览转换失败，请确认原始视频可播放或转为 H.264 MP4。",
+            ));
+        }
+        tokio::fs::rename(&temporary, &path).await?;
+        let mut asset = row.asset.clone();
+        asset.id = preview_id.clone();
+        asset.source = "generated".into();
+        asset.file_name = "兼容预览.mp4".into();
+        asset.mime_type = "video/mp4".into();
+        asset.size_bytes = tokio::fs::metadata(&path).await?.len() as i64;
+        let preview = AssetRow {
+            asset,
+            storage_path: path.to_string_lossy().into(),
+        };
+        state.db.write(|t| {
+            db::project_for(t, &row.asset.project_id, &user)?;
+            if db::load_asset(t, &preview_id)?.is_none() {
+                db::insert_asset(t, &preview)?;
+            }
+            Ok(())
+        })?;
+    }
+    let (url, expires) = state.media.signed_url(&preview_id, false);
+    Ok(ok(json!({"playback_url":url,"expires_at":expires})))
+}

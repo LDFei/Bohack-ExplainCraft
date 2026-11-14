@@ -489,10 +489,19 @@ pub async fn patch_draft(
             if !catalog.has_style(&settings.style_id) {
                 return Err(field_error("settings.style_id", "不支持这个风格。"));
             }
+            if !matches!(settings.render_profile.as_str(), "vibe" | "shotcraft") {
+                return Err(field_error("settings.render_profile", "不支持该视频类型。"));
+            }
             if !matches!(settings.visual_format.as_str(), "svg" | "html") {
                 return Err(field_error(
                     "settings.visual_format",
                     "请选择 SVG 或 HTML 画面。",
+                ));
+            }
+            if !["720p", "1080p"].contains(&settings.output_resolution.as_str()) {
+                return Err(field_error(
+                    "settings.output_resolution",
+                    "请选择720p或1080p。",
                 ));
             }
             let old = &draft.settings;
@@ -502,6 +511,7 @@ pub async fn patch_draft(
             if settings.aspect_ratio != old.aspect_ratio
                 || settings.style_id != old.style_id
                 || settings.visual_format != old.visual_format
+                || settings.output_resolution != old.output_resolution
             {
                 invalid.extend(StageKey::Visuals.and_after());
                 drop_generated_visuals(t, &mut draft.shots, None)?;
@@ -615,7 +625,7 @@ pub async fn patch_draft(
                 return Err(field_error("audio", "音量需要在 0～1 之间。"));
             }
             match audio.music_mode.as_str() {
-                "auto" | "none" => {
+                "auto" | "none" | "ai" | "fixed" => {
                     audio.music_id = None;
                     audio.music_asset_id = None;
                 }

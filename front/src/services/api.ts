@@ -44,7 +44,13 @@ interface StudioApi {
   getJob(id: string): Promise<Job>;
   cancel(id: string): Promise<void>;
   retry(id: string, revision: number): Promise<void>;
-  answer(id: string, question: string, value: string): Promise<void>;
+  answer(
+    id: string,
+    question: string,
+    value: string,
+    instruction?: string,
+    assetId?: string,
+  ): Promise<void>;
   listVersions(id: string): Promise<VideoVersion[]>;
   getVersion(id: string, versionId: string): Promise<VideoVersion>;
   exportVideo(
@@ -53,6 +59,13 @@ interface StudioApi {
     resolution: string,
     includeProject: boolean,
   ): Promise<{ asset_id?: string; job_id?: string; cached?: boolean }>;
+  preview(assetId: string): Promise<{ playback_url: string; expires_at: string }>;
+  runtimeStatus(): Promise<{
+    items: { name: string; ready: boolean; required: boolean; message: string }[];
+    music_configured: boolean;
+    voice_configured: boolean;
+    script_configured: boolean;
+  }>;
   download(assetId: string): Promise<{ download_url: string; file_name: string }>;
   watch(id: string, cursor: string, onChange: () => void, onError: () => void): () => void;
 }
@@ -218,8 +231,12 @@ class TauriApi implements StudioApi {
     await this.request('retry_job', { jobId: id, expectedDraftRevision: revision }, makeId('key'));
   }
 
-  async answer(id: string, question: string, value: string) {
-    await this.request('answer_job', { jobId: id, questionId: question, value }, makeId('key'));
+  async answer(id: string, question: string, value: string, instruction = '', assetId?: string) {
+    await this.request(
+      'answer_job',
+      { jobId: id, questionId: question, value, instruction, assetId },
+      makeId('key'),
+    );
   }
 
   async listVersions(id: string) {
@@ -239,6 +256,20 @@ class TauriApi implements StudioApi {
       { projectId: id, versionId, resolution, includeProject },
       makeId('key'),
     );
+  }
+
+  /** 预览使用播放签名，后台为上传视频缓存兼容格式。 */
+  preview(assetId: string) {
+    return this.request<{ playback_url: string; expires_at: string }>('preview_asset', { assetId });
+  }
+  /** 开始制作前查看本机工具和模型是否就绪。 */
+  runtimeStatus() {
+    return invoke<{
+      items: { name: string; ready: boolean; required: boolean; message: string }[];
+      music_configured: boolean;
+      voice_configured: boolean;
+      script_configured: boolean;
+    }>('runtime_status');
   }
 
   download(assetId: string) {

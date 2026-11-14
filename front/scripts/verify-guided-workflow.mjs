@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
+import { mkdir } from 'node:fs/promises';
+import { createServer as createPortServer } from 'node:net';
 
 // 使用独立临时端口，不干扰开发中的桌面应用。IPC 替身仅验证界面交互。
+const probe = createPortServer();
+await new Promise((resolve, reject) => {
+  probe.once('error', reject);
+  probe.listen(0, '127.0.0.1', resolve);
+});
+const testPort = probe.address().port;
+await new Promise((resolve) => probe.close(resolve));
 const server = await createServer({
   mode: 'studio',
-  server: { host: '127.0.0.1', port: 0, open: false },
+  server: { host: '127.0.0.1', port: testPort, open: false },
 });
 await server.listen();
 const address = server.httpServer.address();
@@ -37,7 +46,10 @@ await page.addInitScript(() => {
       state.paused += 1;
     }
   };
-  const ok = (data, status = 200) => ({ status, body: { data, request_id: 'review' } });
+  const ok = (data, status = 200) => ({
+    status,
+    body: { data: structuredClone(data), request_id: 'review' },
+  });
   window.__TAURI_INTERNALS__ = {
     convertFileSrc: (url) => url,
     transformCallback: () => 1,
@@ -98,12 +110,27 @@ await page.addInitScript(() => {
             ? [
                 asset('rendered-video', 'rendered', 'video', '最终成片.mp4'),
                 asset('upload-audio', 'upload', 'audio', '上传音乐.wav'),
+                asset('upload-video', 'upload', 'video', '本地视频.mp4'),
                 asset('intermediate', 'generated', 'video', '隐藏中间镜头.mp4'),
               ]
             : [],
         };
       };
       state.rows.project ??= make('project', true);
+      state.rows.project.draft.shots = state.rows.project.draft.shots.length
+        ? state.rows.project.draft.shots
+        : [
+            {
+              id: 'shot-1',
+              duration_ms: 5000,
+              narration: '概率不等于保证。',
+              visual_prompt: '几何关系',
+              shot_size: '中景',
+              camera_motion: '固定',
+              asset_ids: [],
+              source_in_ms: 0,
+            },
+          ];
       state.job ??= {
         id: 'guided-job',
         project_id: 'project',
@@ -199,18 +226,108 @@ await page.addInitScript(() => {
         case 'cancel_job':
           state.job.status = 'cancelled';
           return ok({ job_status: 'cancelled' });
-        case 'answer_job':
-          state.job.question = {
-            ...state.job.question,
-            id: 'duration-question',
-            skill_id: 'duration',
-            step: 2,
-            prompt: '选择时长',
-            options: [{ value: '30', label: '30 秒' }],
+        case 'answer_job': {
+          const old = state.job.question;
+          const serial = (state.serial = (state.serial ?? 0) + 1);
+          const set = (step, prompt, options, type = 'review') => {
+            state.job.question = {
+              id: `${step}-${serial}`,
+              skill_id: step,
+              step: 6,
+              total_steps: 12,
+              input_type: type,
+              prompt,
+              options: options.map(([value, label]) => ({ value, label })),
+            };
           };
+          const script = () =>
+            set('script', '请审阅文案：概率不等于保证。', [
+              ['continue', '采用文案'],
+              ['edit', '按修改意见调整'],
+              ['regenerate', '重新生成此步骤'],
+              ['back', '返回上一项'],
+            ]);
+          if (old.skill_id === 'style')
+            set(
+              'duration',
+              '选择时长',
+              [
+                ['30', '30 秒'],
+                ['60', '60 秒'],
+              ],
+              'single_select',
+            );
+          else if (old.skill_id === 'duration')
+            set(
+              'music',
+              '选择背景音乐来源',
+              [
+                ['upload', '从本地选择音乐'],
+                ['ai', 'AI 生成音乐'],
+                ['fixed', '原版 Vibe 示例音乐'],
+              ],
+              'single_select',
+            );
+          else if (old.skill_id === 'music') script();
+          else if (old.skill_id === 'script' && args.value === 'continue')
+            set('storyboard', '审阅分镜', [
+              ['continue', '采用分镜'],
+              ['save_shots', '保存逐镜修改并重新审阅'],
+              ['edit', '按修改意见调整'],
+              ['back', '返回上一项'],
+            ]);
+          else if (old.skill_id === 'script') {
+            script();
+            state.job.question.prompt = '已按修改意见更新文案，请重新审阅。';
+          } else if (old.skill_id === 'storyboard' && args.value === 'save_shots') {
+            row.draft.shots = JSON.parse(args.instruction);
+            set('storyboard', '逐镜修改已保存，请重新审阅。', [
+              ['continue', '采用分镜'],
+              ['save_shots', '保存逐镜修改并重新审阅'],
+              ['edit', '按修改意见调整'],
+              ['back', '返回上一项'],
+            ]);
+          } else if (old.skill_id === 'storyboard' && args.value === 'back') script();
           return ok({ job_status: 'waiting_input' });
-        case 'project_events':
-          return { changed: false, cursor: '0' };
+        }
+        case 'upload_asset': {
+          const raw = new TextDecoder().decode(args);
+          const name = raw.match(/filename="([^"]+)"/)?.[1] ?? '本地音乐.wav';
+          const asset = {
+            id: 'new-local-music',
+            project_id: 'project',
+            kind: 'audio',
+            source: 'upload',
+            file_name: name,
+            status: 'ready',
+            mime_type: 'audio/wav',
+            size_bytes: 2000,
+            duration_ms: 5000,
+            width: null,
+            height: null,
+            thumbnail_url: null,
+            error: null,
+          };
+          state.rows.project.assets.push(asset);
+          return ok({ asset }, 201);
+        }
+        case 'preview_asset':
+          return ok({ playback_url: '/media/coffee-16x9.mp4', expires_at: '2027-01-01T00:00:00Z' });
+        case 'runtime_status':
+          return {
+            items: [
+              { name: 'FFmpeg', ready: true, required: true, message: '可用' },
+              { name: 'ffprobe', ready: true, required: true, message: '可用' },
+            ],
+            music_configured: false,
+            voice_configured: true,
+            script_configured: true,
+          };
+        case 'project_events': {
+          const changed = !!state.changed;
+          state.changed = false;
+          return { changed, cursor: changed ? '1' : '0' };
+        }
         case 'create_project': {
           const id = `new-${++state.created}`;
           state.rows[id] = make(id, false);
@@ -221,7 +338,7 @@ await page.addInitScript(() => {
           row.project.draft_revision += 1;
           return ok({ draft: row.draft, draft_revision: row.project.draft_revision });
         case 'download_asset':
-          return ok({ download_url: 'data:audio/wav;base64,UklGRg==', file_name: '上传音乐.wav' });
+          return ok({ download_url: '/media/ambient.wav', file_name: '上传音乐.wav' });
         case 'get_model_settings':
           return {
             script: {
@@ -229,6 +346,13 @@ await page.addInitScript(() => {
               model: 'test',
               baseUrl: 'http://localhost',
               hasApiKey: true,
+            },
+            visual: {
+              provider: 'custom',
+              model: 'test',
+              baseUrl: 'http://localhost',
+              hasApiKey: true,
+              overridden: false,
             },
             music: { provider: 'procedural', model: 'test', baseUrl: '', hasApiKey: false },
             voice: {
@@ -239,6 +363,10 @@ await page.addInitScript(() => {
               voiceId: 'Cherry',
             },
           };
+        case 'list_models':
+          return ['test-model'];
+        case 'list_voices':
+          return ['Cherry'];
         case 'plugin:event|listen':
           return 1;
         case 'plugin:event|unlisten':
@@ -261,74 +389,152 @@ await page.addInitScript(() => {
 
 try {
   await page.goto(`${base}/studio.html#/projects/project`);
-  await page.getByRole('radio', { name: '极简信息图' }).waitFor();
+  await page.getByRole('button', { name: '极简信息图', exact: true }).click();
+  await page.getByRole('button', { name: '30 秒', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '确认选择并继续' }).count(), 0);
   assert.equal(await page.getByLabel('目标视频时长').count(), 0);
-  await page.getByRole('radio', { name: '极简信息图' }).check();
-  await page.getByRole('button', { name: '确认选择并继续' }).click();
-  await page.getByRole('radio', { name: '30 秒' }).waitFor();
-  assert.ok(await page.getByRole('button', { name: '确认选择并继续' }).isDisabled());
-  const saved = await page.evaluate(() =>
-    window.__review.calls.find((c) => c.command === 'answer_job'),
+  await page.getByRole('button', { name: '30 秒', exact: true }).click();
+  await page.getByRole('button', { name: '从本地选择音乐', exact: true }).waitFor();
+  await page
+    .locator('.question-card input[type=file]')
+    .setInputFiles({
+      name: '我的节奏.wav',
+      mimeType: 'audio/wav',
+      buffer: Buffer.from('RIFF-local-browser-test'),
+    });
+  await page
+    .locator('.local-music-list')
+    .getByRole('button', { name: /我的节奏.wav/ })
+    .click();
+  await page.getByLabel('所选背景音乐试听').waitFor();
+  await page.getByRole('button', { name: '使用这首音乐', exact: true }).click();
+  await page.getByLabel('当前步骤修改意见').fill('保留结论，换一个抛硬币的例子');
+  const music = await page.evaluate(() =>
+    window.__review.calls
+      .filter((c) => c.command === 'answer_job' && c.args.value === 'upload')
+      .at(-1),
   );
-  assert.equal(saved.args.questionId, 'style-question');
-  assert.equal(saved.args.value, 'minimal');
-  // 同名 ready 也用于上传音频，不能误打开 Breeze 设置。
+  assert.equal(music.args.assetId, 'new-local-music');
+  await page.getByRole('button', { name: '按修改意见调整', exact: true }).click();
+  await page.getByText('已按修改意见更新文案，请重新审阅。', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel('当前步骤修改意见').inputValue(), '');
+  const edit = await page.evaluate(() =>
+    window.__review.calls
+      .filter((c) => c.command === 'answer_job' && c.args.value === 'edit')
+      .at(-1),
+  );
+  assert.equal(edit.args.instruction, '保留结论，换一个抛硬币的例子');
+  await page.getByRole('button', { name: '采用文案', exact: true }).click();
+  await page.getByText('逐镜头编辑文字、顺序、素材和视频入点', { exact: true }).click();
+  await page.getByLabel('镜头1解说').fill('独立事件不会记住过去的结果。');
+  await page.getByRole('button', { name: '保存逐镜修改并重新审阅', exact: true }).click();
+  await page.getByText('逐镜修改已保存，请重新审阅。', { exact: true }).waitFor();
+  const shotSave = await page.evaluate(() =>
+    window.__review.calls
+      .filter((c) => c.command === 'answer_job' && c.args.value === 'save_shots')
+      .at(-1),
+  );
+  assert.equal(JSON.parse(shotSave.args.instruction)[0].narration, '独立事件不会记住过去的结果。');
+  await page.getByRole('button', { name: '返回上一项', exact: true }).click();
+  await page.getByRole('button', { name: '采用文案', exact: true }).waitFor();
+  await page
+    .locator('details.progress-card')
+    .evaluateAll((nodes) => nodes.forEach((n) => (n.open = true)));
+  await page.getByText('后端已保存创作方向').waitFor();
+  // 上传视频通过独立播放器打开，完全不要求关联生成版本。
+  await page.evaluate(() => {
+    location.hash = '#/projects/project/library';
+  });
+  await page.getByRole('button', { name: '预览 本地视频.mp4', exact: true }).click();
+  const player = page.getByLabel('上传视频播放器');
+  await player.waitFor();
+  await page.waitForFunction(
+    () => document.querySelector('video[aria-label="上传视频播放器"]')?.readyState >= 2,
+  );
+  await player.evaluate((video) => video.play());
+  assert.equal(await player.evaluate((video) => video.paused), false);
+  await page.keyboard.press('Escape');
+  await player.waitFor({ state: 'detached' });
+  assert.equal(await player.count(), 0);
+  assert.ok(
+    await page.evaluate(() =>
+      window.__review.calls.some(
+        (c) => c.command === 'preview_asset' && c.args.assetId === 'upload-video',
+      ),
+    ),
+  );
+  // 音乐配置入口应定位音乐模块，不能跳到 Breeze 下载。
   await page.evaluate(() => {
     window.__review.job.question = {
-      ...window.__review.job.question,
-      id: 'music-upload-question',
+      id: 'music-settings',
       skill_id: 'music',
-      prompt: '上传音乐后继续',
-      options: [{ value: 'ready', label: '已上传，刷新音频列表' }],
+      step: 5,
+      total_steps: 12,
+      input_type: 'single_select',
+      prompt: 'AI音乐需要配置',
+      options: [
+        { value: 'open_settings', label: '打开音乐 API 设置' },
+        { value: 'ready', label: '已配置，重新检查' },
+      ],
     };
-  });
-  await page.evaluate(() => {
-    location.hash = '#/create';
-  });
-  await page.waitForFunction(() => location.hash === '#/create');
-  await page.evaluate(() => {
+    window.__review.changed = true;
     location.hash = '#/projects/project';
   });
-  await page.getByRole('radio', { name: '已上传，刷新音频列表' }).check();
+  await page.getByRole('button', { name: '打开音乐 API 设置', exact: true }).click();
+  await page.getByLabel('音乐供应商').waitFor({ state: 'visible' });
+  await page.getByLabel('音乐供应商').selectOption('minimax');
+  assert.equal(await page.getByLabel('音乐模型名称').inputValue(), 'music-3.0');
+  await page.getByRole('button', { name: '关闭对话框', exact: true }).click();
   const probes = await page.evaluate(
     () => window.__review.calls.filter((c) => c.command === 'breeze_model_status').length,
   );
-  await page.getByRole('button', { name: '确认选择并继续' }).click();
-  await page.getByRole('radio', { name: '30 秒' }).waitFor();
+  await page.getByRole('button', { name: '已配置，重新检查', exact: true }).click();
+  await page.getByRole('button', { name: '采用文案', exact: true }).waitFor();
   assert.equal(
     await page.evaluate(
       () => window.__review.calls.filter((c) => c.command === 'breeze_model_status').length,
     ),
     probes,
   );
-  const ready = await page.evaluate(() =>
-    window.__review.calls.filter((c) => c.command === 'answer_job').at(-1),
+  await mkdir('test-results/vibe-v2', { recursive: true });
+  await page.screenshot({ path: 'test-results/vibe-v2/workflow-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/vibe-v2/workflow-mobile.png' });
+  assert.ok(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2),
+    '移动页面不能横向溢出',
   );
-  assert.equal(ready.args.value, 'ready');
-  await page
-    .locator('details.progress-card')
-    .evaluateAll((nodes) => nodes.forEach((n) => (n.open = true)));
-  await page.getByText('后端已保存创作方向').waitFor();
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: '结束此次话题', exact: true }).click();
   await page.waitForFunction(() => location.hash === '#/create');
   assert.ok(
     await page.evaluate(() => window.__review.calls.some((c) => c.command === 'cancel_job')),
   );
   const input = page.getByRole('textbox', { name: '视频创作需求' });
-  await input.fill('应清空的未发送主题');
+  await input.fill('未发送内容');
   await page.getByRole('button', { name: '新建话题', exact: true }).click();
   assert.equal(await input.inputValue(), '');
   await page.getByRole('button', { name: '灵感模板', exact: true }).click();
-  await page.getByText('Ink Press · 纸墨叙事', { exact: false }).first().waitFor();
-  // 预览资源必须实际加载，不能只检查文字而遗漏打包路径错误。
   await page.waitForFunction(() => {
     const images = [...document.querySelectorAll('.template-card img')];
-    return images.length === 3 && images.every((image) => image.complete && image.naturalWidth > 0);
+    return images.length === 3 && images.every((i) => i.complete && i.naturalWidth > 0);
   });
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: choice UI, stale-answer isolation, duration removal, backend logs, end-topic cancel, new-topic reset, Shotcraft template, uploaded-music choice isolation',
+    'PASS: direct choices, local music upload/audition/select, review edits, storyboard save/back, uploaded video playback, music settings focus, voice isolation, logs, mobile layout, topic lifecycle, template assets',
   );
+} catch (error) {
+  await mkdir('test-results/vibe-v2', { recursive: true });
+  await page.screenshot({ path: 'test-results/vibe-v2/failure.png' });
+  console.log(
+    await page.evaluate(() => ({
+      question: window.__review.job.question,
+      commands: window.__review.calls.slice(-12).map((c) => c.command),
+      errorText: document.querySelector('.question-card')?.innerText,
+      pageErrors: [],
+    })),
+  );
+  throw error;
 } finally {
   await browser.close();
   await server.close();

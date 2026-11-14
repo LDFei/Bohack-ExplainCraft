@@ -88,7 +88,9 @@ function openHistory() {
 
 /** 素材概览与完整素材库使用相同范围，最终成片也计入视频数量。 */
 const uploadAssets = computed(() =>
-  props.assets.filter((asset) => asset.source === 'upload' || asset.source === 'rendered'),
+  props.assets.filter((asset) =>
+    ['upload', 'rendered', 'music_generated', 'music_procedural', 'library'].includes(asset.source),
+  ),
 );
 const countOf = (kind: Asset['kind']) =>
   uploadAssets.value.filter((asset) => asset.kind === kind).length;

@@ -8,6 +8,7 @@ import type { ThemeId } from '../composables/useTheme.ts';
 import {
   BREEZE_MODEL_BYTES,
   breezeModelStatus,
+  uploadBreezeReference,
   cancelBreezeDownload,
   downloadBreezeModel,
   formatBytes,
@@ -26,7 +27,7 @@ import type { ModelSettings, ProviderSetting } from '../services/settings.ts';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 
-const props = defineProps<{ open: boolean; focusBreeze?: boolean }>();
+const props = defineProps<{ open: boolean; focusBreeze?: boolean; focusMusic?: boolean }>();
 const emit = defineEmits<{ close: []; saved: [persisted: boolean]; resetLayout: [] }>();
 const { general, saveSettings } = useAppSettings();
 const { selectedTheme, setTheme, persistenceError } = useTheme();
@@ -64,6 +65,28 @@ const breezeModel = ref<BreezeModelStatus | null>(null),
   breezeDir = ref(''),
   breezeProgress = ref<BreezeModelProgress | null>(null),
   breezeError = ref('');
+const referenceFile = ref<File | null>(null),
+  referenceText = ref(''),
+  referenceStatus = ref(''),
+  referenceSaving = ref(false);
+/** 从系统文件选择器取得参考音，提交前还需用户填写对应转写。 */
+function chooseReference(event: Event) {
+  referenceFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+  referenceStatus.value = '';
+}
+/** 保存参考音不触发模型下载或推理，云端配音 API 仍保持原配置。 */
+async function saveReference() {
+  if (!referenceFile.value || !referenceText.value.trim()) return;
+  referenceSaving.value = true;
+  try {
+    await uploadBreezeReference(referenceFile.value, referenceText.value);
+    referenceStatus.value = '参考音已保存；请确认本地模型和 ComfyUI 服务也已就绪。';
+  } catch (error) {
+    referenceStatus.value = String(error);
+  } finally {
+    referenceSaving.value = false;
+  }
+}
 const breezeDownloading = computed(() => breezeProgress.value?.phase === 'downloading');
 
 // 打开设置时若当前配音就是本地 breezeTTS2，立即显示模型是否已下载，但不自动下载。
@@ -106,7 +129,7 @@ watch(
     theme.value = selectedTheme.value;
     error.value = '';
     resetDone.value = false;
-    tab.value = props.focusBreeze ? 'apis' : 'general';
+    tab.value = props.focusBreeze || props.focusMusic ? 'apis' : 'general';
     loading.value = true;
     try {
       providerForm.value = await getModelSettings();
@@ -622,7 +645,10 @@ async function save() {
             </template>
           </div>
         </details>
-        <details class="api-module">
+        <details
+          class="api-module"
+          :open="focusMusic"
+        >
           <summary><strong>背景音乐</strong></summary>
           <div class="api-module-fields">
             <label class="field-label">
@@ -689,6 +715,42 @@ async function save() {
         >
           <summary><strong>配音</strong></summary>
           <div class="api-module-fields">
+            <div
+              v-if="providerForm.voice.provider === 'breeze'"
+              class="breeze-model-row"
+            >
+              <strong>本地配音参考音</strong>
+              <p>
+                选择3～20秒的清晰人声音频，并填写这段音频的准确文字。模型下载完成后仍需要参考音和
+                ComfyUI 服务。
+              </p>
+              <input
+                type="file"
+                accept="audio/*,.mp3,.wav,.m4a"
+                aria-label="Breeze参考音文件"
+                @change="chooseReference"
+              />
+              <textarea
+                v-model="referenceText"
+                aria-label="参考音准确转写"
+                rows="3"
+                maxlength="2000"
+                placeholder="填写参考音中实际说出的内容"
+              />
+              <button
+                class="button secondary"
+                :disabled="referenceSaving || !referenceFile || !referenceText.trim()"
+                @click="saveReference"
+              >
+                {{ referenceSaving ? '正在保存…' : '保存参考音' }}
+              </button>
+              <p
+                v-if="referenceStatus"
+                role="status"
+              >
+                {{ referenceStatus }}
+              </p>
+            </div>
             <label class="field-label">
               <span>供应商</span>
               <select

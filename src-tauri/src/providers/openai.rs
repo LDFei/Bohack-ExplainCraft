@@ -72,8 +72,9 @@ impl MusicModel for MiniMaxApiMusic {
             .json(&json!({
                 "model": self.access.model,
                 "prompt": music_prompt(&request.ctx),
-                "lyrics": "",
-                "audio_format": "mp3",
+                "is_instrumental": true,
+                "audio_setting": {"sample_rate":44100,"bitrate":256000,"format":"mp3"},
+                "output_format":"hex",
             }))
             .send()
             .await
@@ -229,7 +230,7 @@ impl OpenAiSpeech {
             base: config.siliconflow_tts_base.clone(),
             api_key: config.siliconflow_tts.api_key.clone(),
             model: config.siliconflow_tts.model.clone(),
-            default_voice: config.siliconflow_tts_voice.clone(),
+            default_voice: config.default_voice(),
             voice_options: config.tts_voices.clone(),
             cloud: true,
             siliconflow: true,
