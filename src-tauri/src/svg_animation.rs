@@ -187,13 +187,17 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
             "SVG 不能包含脚本、外链图片或外部资源。",
         ));
     }
+    let animations: Vec<roxmltree::Node> = document
+        .descendants()
+        .filter(|node| {
+            matches!(
+                node.tag_name().name(),
+                "animate" | "animateTransform" | "set"
+            )
+        })
+        .collect();
     let mut edits: BTreeMap<usize, (usize, usize, BTreeMap<String, String>)> = BTreeMap::new();
-    for node in document.descendants().filter(|node| {
-        matches!(
-            node.tag_name().name(),
-            "animate" | "animateTransform" | "set"
-        )
-    }) {
+    for node in &animations {
         let Some(parent) = node.parent() else {
             continue;
         };
@@ -260,12 +264,29 @@ fn frame_svg(source: &str, time_ms: i64) -> ProviderResult<String> {
             .2
             .insert(animation.attribute.clone(), value_at(&animation, time_ms));
     }
-    let mut output = String::with_capacity(source.len() + edits.len() * 32);
+    // 组装替换片段：父元素起始标签换成算好的属性，动画节点本身整段删除
+    // （动画已经在这里插值成静态属性，交给 resvg 的只剩最终画面）。
+    let mut ranges: Vec<(usize, usize, String)> = edits
+        .values()
+        .map(|(start, end, attributes)| {
+            (*start, *end, update_tag(&source[*start..*end], attributes))
+        })
+        .collect();
+    for node in &animations {
+        let range = node.range();
+        ranges.push((range.start, range.end, String::new()));
+    }
+    ranges.sort_by_key(|(start, _, _)| *start);
+    let mut output = String::with_capacity(source.len() + ranges.len() * 32);
     let mut cursor = 0;
-    for (start, end, attributes) in edits.values() {
-        output.push_str(&source[cursor..*start]);
-        output.push_str(&update_tag(&source[*start..*end], attributes));
-        cursor = *end;
+    for (start, end, replacement) in ranges {
+        if start < cursor {
+            // 理论上不会重叠；保底跳过，避免切出坏结构。
+            continue;
+        }
+        output.push_str(&source[cursor..start]);
+        output.push_str(&replacement);
+        cursor = end;
     }
     output.push_str(&source[cursor..]);
     Ok(output)
@@ -307,19 +328,64 @@ fn svg_options() -> usvg::Options<'static> {
     options
 }
 
+/// 运动检测网格：把每帧缩成 16×16 的亮度网格来比较，成本可忽略。
+const MOTION_GRID: usize = 16;
+
+/// 亮度网格的最小波动（0～255）。纯静态 SVG 的每一帧完全相同，波动为 0。
+const MOTION_THRESHOLD: f32 = 2.0;
+
+/// 把一帧压成 16×16 的平均亮度网格，用于判断画面是否在动。
+fn frame_signature(pixmap: &tiny_skia::Pixmap) -> Vec<f32> {
+    let width = pixmap.width() as usize;
+    let height = pixmap.height() as usize;
+    let cell_width = width.div_ceil(MOTION_GRID).max(1);
+    let cell_height = height.div_ceil(MOTION_GRID).max(1);
+    let mut sums = vec![0f64; MOTION_GRID * MOTION_GRID];
+    let mut counts = vec![0usize; MOTION_GRID * MOTION_GRID];
+    let pixels = pixmap.pixels();
+    // 每两个像素取样一次，足够判断有没有运动会，也避免逐像素扫描拖慢渲染。
+    for y in (0..height).step_by(2) {
+        for x in (0..width).step_by(2) {
+            let pixel = pixels[y * width + x];
+            let luminance = 0.299 * pixel.red() as f64
+                + 0.587 * pixel.green() as f64
+                + 0.114 * pixel.blue() as f64;
+            let cell = (y / cell_height) * MOTION_GRID + (x / cell_width);
+            sums[cell] += luminance;
+            counts[cell] += 1;
+        }
+    }
+    sums.iter()
+        .zip(&counts)
+        .map(|(sum, count)| {
+            if *count == 0 {
+                0.0
+            } else {
+                (sum / *count as f64) as f32
+            }
+        })
+        .collect()
+}
+
 /// 同步渲染并编码一个动画；调用方需放到阻塞线程。
+///
+/// 返回值里的布尔量表示各帧之间是否存在可见运动（判断依据是缩略亮度网格的波动），
+/// 供画面生成阶段识别“模型只画了一张静态图”的情况。
 fn render_blocking(
     source: &str,
     duration_ms: i64,
     width: u32,
     height: u32,
     work: &Path,
-) -> ProviderResult<PathBuf> {
-    let fps = 12;
+) -> ProviderResult<(PathBuf, bool)> {
+    let fps = 24;
     let frames = ((duration_ms as f64 / 1000.0 * fps as f64).ceil() as i64).clamp(1, 720);
     std::fs::create_dir_all(work)
         .map_err(|_| ProviderError::render_failed("无法创建 SVG 渲染目录"))?;
     let options = svg_options();
+    let cells = MOTION_GRID * MOTION_GRID;
+    let mut lowest = vec![f32::MAX; cells];
+    let mut highest = vec![f32::MIN; cells];
     for frame in 0..frames {
         let time_ms = (frame as i64 * duration_ms / frames.max(1)).min(duration_ms);
         let svg = frame_svg(source, time_ms)?;
@@ -331,6 +397,10 @@ fn render_blocking(
         let scale = (width as f32 / size.width()).min(height as f32 / size.height());
         let transform = tiny_skia::Transform::from_scale(scale, scale);
         resvg::render(&tree, transform, &mut pixmap.as_mut());
+        for (cell, value) in frame_signature(&pixmap).into_iter().enumerate() {
+            lowest[cell] = lowest[cell].min(value);
+            highest[cell] = highest[cell].max(value);
+        }
         pixmap
             .encode_png()
             .map_err(|_| ProviderError::render_failed("SVG 帧编码失败"))
@@ -339,6 +409,11 @@ fn render_blocking(
                     .map_err(|_| ProviderError::render_failed("无法保存 SVG 帧"))
             })?;
     }
+    let motion = lowest
+        .iter()
+        .zip(&highest)
+        .map(|(low, high)| high - low)
+        .fold(0.0_f32, f32::max);
     let output = work.with_extension("mp4");
     crate::providers::encoding::encode_h264("SVG 动画", |encoder| {
         let mut command =
@@ -371,7 +446,7 @@ fn render_blocking(
     if !output.is_file() {
         return Err(ProviderError::render_failed("FFmpeg 编码 SVG 动画失败"));
     }
-    Ok(output)
+    Ok((output, motion >= MOTION_THRESHOLD))
 }
 
 /// 把一段字幕绘制成全画幅透明 PNG，供 Quercus 按时间区间放到视频轨。
@@ -460,6 +535,22 @@ pub async fn render(
     height: u32,
     shot_index: usize,
 ) -> ProviderResult<MediaOutput> {
+    render_animation(source, duration_ms, width, height, shot_index)
+        .await
+        .map(|(media, _)| media)
+}
+
+/// 渲染镜头动画，同时报告画面里是否存在可见运动。
+///
+/// 模型经常只画一张静态 SVG；调用方可用第二个返回值判断是否需要重画，
+/// 而不是把一个不动的画面放进成片。
+pub async fn render_animation(
+    source: &str,
+    duration_ms: i64,
+    width: u32,
+    height: u32,
+    shot_index: usize,
+) -> ProviderResult<(MediaOutput, bool)> {
     let work = std::env::temp_dir().join(format!(
         "explaincraft-svg-{}-{}",
         shot_index,
@@ -467,13 +558,13 @@ pub async fn render(
     ));
     let source = source.to_string();
     let blocking_work = work.clone();
-    let output = tokio::task::spawn_blocking(move || {
+    let (output, has_motion) = tokio::task::spawn_blocking(move || {
         render_blocking(&source, duration_ms, width, height, &blocking_work)
     })
     .await
     .map_err(|_| ProviderError::render_failed("SVG 渲染线程失败"))??;
     let _ = tokio::fs::remove_dir_all(work).await;
-    Ok(MediaOutput {
+    let media = MediaOutput {
         data: MediaData::Path(output),
         file_name: format!("svg-shot-{}.mp4", shot_index + 1),
         mime_type: "video/mp4".into(),
@@ -482,7 +573,34 @@ pub async fn render(
         width: Some(width as i64),
         height: Some(height as i64),
         duration_ms: Some(duration_ms),
-    })
+    };
+    Ok((media, has_motion))
+}
+
+/// 给静态画面补一个缓慢推镜：把整份内容包进 `<g>` 并加 `animateTransform`。
+///
+/// 模型两次都只画出静态图时用它兜底，保证每个镜头至少在动，不会出现定格画面。
+pub fn with_camera_move(source: &str, duration_ms: i64) -> String {
+    let duration = format!("{:.3}s", duration_ms.max(1000) as f64 / 1000.0);
+    let Some(open) = source.find('>').map(|index| index + 1) else {
+        return source.to_string();
+    };
+    let Some(close) = source.rfind("</svg>") else {
+        return source.to_string();
+    };
+    if close < open {
+        return source.to_string();
+    }
+    let wrapper = format!(
+        r#"<g><animateTransform attributeName="transform" type="scale" values="1.02;1.08" dur="{duration}"/>"#
+    );
+    let mut output = String::with_capacity(source.len() + 160);
+    output.push_str(&source[..open]);
+    output.push_str(&wrapper);
+    output.push_str(&source[open..close]);
+    output.push_str("</g>");
+    output.push_str(&source[close..]);
+    output
 }
 
 #[cfg(test)]
@@ -522,5 +640,61 @@ mod tests {
         assert!(path.is_file());
         assert_eq!(output.kind, "video");
         let _ = std::fs::remove_file(path);
+    }
+
+    /// 静态 SVG 会被识别成“没有可见运动”，补上推镜后就能检测到运动。
+    #[tokio::test]
+    async fn detects_static_artwork_and_adds_camera_move() {
+        let still = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect width="160" height="160" fill="#eeeeee"/><rect x="20" y="60" width="40" height="40" fill="#337799"/></svg>"##;
+        let (media, has_motion) = render_animation(still, 1200, 160, 160, 0)
+            .await
+            .expect("静态画面仍应渲染成功");
+        assert!(!has_motion, "静态 SVG 不应被当成动画");
+        let MediaData::Path(static_path) = media.data else {
+            panic!("成片路径")
+        };
+        let _ = std::fs::remove_file(static_path);
+
+        let animated = with_camera_move(still, 1200);
+        assert!(animated.contains("<g><animateTransform"));
+        assert!(animated.contains("</g></svg>"));
+        let (media, has_motion) = render_animation(&animated, 1200, 160, 160, 0)
+            .await
+            .expect("补推镜后应渲染成功");
+        assert!(has_motion, "补了推镜的画面应该检测到运动");
+        let MediaData::Path(animated_path) = media.data else {
+            panic!("成片路径")
+        };
+        let _ = std::fs::remove_file(animated_path);
+    }
+
+    /// 逐帧画面里的 SMIL 节点会被删掉：动画已经插值成静态属性，
+    /// 留下的动画节点只会让渲染器重复解析、刷警告甚至二次变形。
+    #[test]
+    fn frames_are_baked_and_animation_nodes_removed() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#eeeeee"/><circle cx="10" cy="10" r="6" fill="#336699"><animate attributeName="cx" values="10;90" dur="1s"/><animateTransform attributeName="transform" type="scale" values="1;1.08" dur="1s"/></circle></svg>"##;
+        let frame = frame_svg(svg, 500).expect("逐帧 SVG");
+        assert!(!frame.contains("<animate"), "{frame}");
+        assert!(!frame.contains("</animate"), "{frame}");
+        assert!(!frame.contains("animateTransform"), "{frame}");
+        // 动画算出来的属性仍在：cx 走了一半，scale 也走了一半。
+        assert!(frame.contains("cx=\"50\""), "{frame}");
+        assert!(frame.contains("transform=\"scale(1.04)\""), "{frame}");
+        // 剩下的仍然是合法 XML。
+        roxmltree::Document::parse(&frame).expect("逐帧 SVG 结构完整");
+    }
+
+    /// 运镜包装不能丢掉原有内容，也必须保持标签闭合。
+    #[test]
+    fn camera_move_wraps_content_in_a_group() {
+        let source = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>"##;
+        let wrapped = with_camera_move(source, 2500);
+        assert!(wrapped
+            .starts_with(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g>"##));
+        assert!(wrapped.contains("<circle cx=\"5\" cy=\"5\" r=\"4\"/>"));
+        assert!(wrapped.ends_with("</g></svg>"));
+        assert!(wrapped.contains("dur=\"2.500s\""));
+        // 没有 </svg> 的输入原样返回，不产生坏结构。
+        assert_eq!(with_camera_move("<svg>", 1000), "<svg>");
     }
 }

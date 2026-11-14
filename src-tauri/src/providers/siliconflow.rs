@@ -990,46 +990,157 @@ fn validate_ops(ops: &[EditOp], plan: &EditPlan) -> Result<(), String> {
 
 // ---------- llm1 复用：SVG 动画场景 ----------
 
+/// 画分镜动画的系统提示词：强调输出的是动画，不是插画。
+const SVG_SHOT_SYSTEM: &str = "你是短视频动画师：把镜头描述画成简洁、可循环的 SVG 矢量动画。\
+画面会被逐帧光栅化后送进剪辑，所以只写标准 SVG + SMIL，不要 Markdown、不要解释。";
+
+/// 把分镜里的运镜转成可以照抄的 SMIL 写法（带具体数值，模型更容易照做）。
+fn camera_move_rule(camera_motion: &str, duration: &str, width: i64, height: i64) -> String {
+    let dx = (width as f64 * 0.04).round() as i64;
+    let dy = (height as f64 * 0.03).round() as i64;
+    let motion = camera_motion.trim();
+    if motion.contains('推') {
+        format!("整体缓推：给包住画面的 <g> 加 <animateTransform attributeName=\"transform\" type=\"scale\" values=\"1;1.08\" dur=\"{duration}\"/>。")
+    } else if motion.contains('拉') {
+        format!("整体缓拉：给包住画面的 <g> 加 <animateTransform attributeName=\"transform\" type=\"scale\" values=\"1.08;1\" dur=\"{duration}\"/>。")
+    } else if motion.contains('摇') {
+        format!("整体横移：给包住画面的 <g> 加 <animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;-{dx} 0\" dur=\"{duration}\"/>，背景 <rect> 要比画布宽 {dx}px，避免露边。")
+    } else if motion.contains('移') {
+        format!("整体竖移：给包住画面的 <g> 加 <animateTransform attributeName=\"transform\" type=\"translate\" values=\"0 0;0 -{dy}\" dur=\"{duration}\"/>，背景 <rect> 要比画布高 {dy}px，避免露边。")
+    } else {
+        "镜头固定：整体不要缩放，但至少两个主体元素要有自己的位移动画（<animate attributeName=\"cx|cy|r\">）或透明度/颜色循环动画（短循环 dur≈1s，repeatCount=\"indefinite\"）。".to_string()
+    }
+}
+
+/// 单个镜头 SVG 动画的提示词。`feedback` 用于重画时指出上一版的问题。
+fn svg_shot_prompt(request: &VisualRequest, width: i64, height: i64, feedback: &str) -> String {
+    let duration_ms = request.duration_ms.max(1000);
+    // 同一镜头的多个画面切点要像同一场戏的不同机位，剪辑点前后能看出来是换了画面。
+    let cut = if request.cut_count > 1 {
+        format!(
+            "这是本镜头的第 {}/{} 个画面（同一段的连续切点）：保持同一场景、同一主体和色调，\
+             但机位/景别要明显不同（例如一个更近的特写、一个更远的环境），剪辑点前后能看出换了画面。\n",
+            request.cut_index + 1,
+            request.cut_count
+        )
+    } else {
+        String::new()
+    };
+    let duration = format!("{:.3}s", duration_ms as f64 / 1000.0);
+    let short = format!("{:.2}s", (duration_ms as f64 / 2000.0).clamp(0.8, 1.6));
+    let style = request
+        .ctx
+        .brief
+        .as_ref()
+        .map(|brief| brief.style.as_str())
+        .unwrap_or("温暖");
+    let camera = camera_move_rule(&request.shot.camera_motion, &duration, width, height);
+    let center_x = width / 2;
+    let center_y = (height as f64 * 0.55).round() as i64;
+    let radius = (width.min(height) as f64 * 0.16).round().max(24.0) as i64;
+    let radius_large = (radius as f64 * 1.25).round() as i64;
+    let block_x = (width as f64 * 0.12).round() as i64;
+    let block_y = (height as f64 * 0.62).round() as i64;
+    let block_w = (width as f64 * 0.76).round() as i64;
+    let block_h = (height as f64 * 0.26).round() as i64;
+    format!(
+        "为下面这个镜头画一段 {width}×{height} 的 SVG 动画（是动画，不是静态插画）：\n\
+         画面：{}\n{cut}风格：{style}\n这个画面时长：{duration}\n\n\
+         硬性要求：\n\
+         1. 必须始终有可见运动：至少 2 个元素各自带 SMIL 动画（<animate> 或 <animateTransform>），不能交一张静态图；\n\
+         2. 动画标签直接写在要动的元素内部，不要用 xlink:href 指向别的元素；\n\
+         3. 只支持这些属性：opacity、fill、stroke、cx、cy、r、x、y、width、height、transform（translate/scale/rotate）；\n\
+         4. 动画要么覆盖整段时长（dur=\"{duration}\"），要么用短循环（dur≈{short}，repeatCount=\"indefinite\"）；\n\
+         5. {camera}\n\
+         6. 禁止 CSS、<style>、<script>、<foreignObject>、<image>、<animateMotion>、外链资源和任何文字；\n\
+         7. 元素总数 ≤ 60，字符数 ≤ 6000；只输出完整 SVG，不要 Markdown 或解释。\n\n\
+         结构示例（照这个结构写，坐标、颜色、形状按你的画面替换）：\n\
+         <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {width} {height}\">\n\
+           <rect x=\"0\" y=\"0\" width=\"{width}\" height=\"{height}\" fill=\"#0f1b2a\"/>\n\
+           <g><animateTransform attributeName=\"transform\" type=\"scale\" values=\"1;1.08\" dur=\"{duration}\"/>\n\
+             <circle cx=\"{center_x}\" cy=\"{center_y}\" r=\"{radius}\" fill=\"#f5b25a\" opacity=\"0.85\">\n\
+               <animate attributeName=\"r\" values=\"{radius};{radius_large};{radius}\" dur=\"{short}\" repeatCount=\"indefinite\"/>\n\
+             </circle>\n\
+             <rect x=\"{block_x}\" y=\"{block_y}\" width=\"{block_w}\" height=\"{block_h}\" rx=\"18\" fill=\"#1d3557\" opacity=\"0\">\n\
+               <animate attributeName=\"opacity\" values=\"0;1;1\" keyTimes=\"0;0.35;1\" dur=\"{duration}\"/>\n\
+             </rect>\n\
+           </g>\n\
+         </svg>\n{feedback}",
+        request.shot.visual_prompt,
+    )
+}
+
 #[async_trait]
 impl VisualModel for GlmScript {
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
         let (width, height) = crate::util::dimensions(&request.ctx.settings.aspect_ratio);
-        let prompt = format!(
-            "为以下镜头绘制 {}×{} 的 SVG 动画：{}\n风格：{}\n镜头时长：{} 毫秒。\n\
-             只输出完整 SVG，不要 Markdown。使用 rect/circle/ellipse/path/text 和 SMIL animate/animateTransform；\
-             禁止 script、foreignObject、image、animateMotion、外链和 CSS 动画。",
-            width,
-            height,
-            request.shot.visual_prompt,
-            request
-                .ctx
-                .brief
-                .as_ref()
-                .map(|brief| brief.style.as_str())
-                .unwrap_or("温暖"),
-            request.shot.duration_ms,
-        );
-        let text = self
-            .client
-            .chat(
-                &self.access,
-                "你同时负责短视频文案与 SVG 场景绘制，输出简洁、可循环的矢量动画，控制在6000字符以内且不超过60个元素。",
-                &prompt,
-                12000,
+        let duration_ms = request.duration_ms.max(1000);
+        let label = if request.cut_count > 1 {
+            format!(
+                "镜头 {}/{}",
+                request.shot_index + 1,
+                format!("切点 {}/{}", request.cut_index + 1, request.cut_count)
             )
-            .await?;
-        let svg = extract_svg(&text).ok_or_else(|| {
-            tracing::warn!(target: "job", "SVG 场景模型返回内容不完整：{}", preview(&text));
-            ProviderError::invalid("模型没有返回完整 SVG，请重试或调整创作要求。")
-        })?;
-        crate::svg_animation::render(
-            &svg,
-            request.shot.duration_ms.max(1000),
-            width as u32,
-            height as u32,
-            request.shot_index,
-        )
-        .await
+        } else {
+            format!("镜头 {}", request.shot_index + 1)
+        };
+        let mut feedback = String::new();
+        // 先要求模型画动画；渲染后做运动检测，静止图最多重画一次，仍静止就自动补推镜。
+        for attempt in 0..2 {
+            let prompt = svg_shot_prompt(&request, width, height, &feedback);
+            let text = self
+                .client
+                .chat(&self.access, SVG_SHOT_SYSTEM, &prompt, 12000)
+                .await?;
+            let Some(svg) = extract_svg(&text) else {
+                tracing::warn!(target: "job", "  · {label} 的 SVG 不完整：{}", preview(&text));
+                if attempt == 0 {
+                    feedback =
+                        "\n上一次没有给出完整 SVG。请重新输出，只包含一个完整的 <svg>…</svg>。"
+                            .into();
+                    continue;
+                }
+                return Err(ProviderError::invalid(
+                    "模型没有返回完整 SVG，请重试或调整创作要求。",
+                ));
+            };
+            match crate::svg_animation::render_animation(
+                &svg,
+                duration_ms,
+                width as u32,
+                height as u32,
+                request.shot_index,
+            )
+            .await
+            {
+                Ok((media, true)) => return Ok(media),
+                Ok((_, false)) if attempt == 0 => {
+                    tracing::warn!(target: "job", "  · {label} 的 SVG 没有可见动画，要求重画");
+                    feedback = "\n上一版在预览里几乎是静止的，不合格。请重画：至少 2 个元素带 SMIL 动画，并且画面在整段时长里都能看到明显运动（推拉、位移、缩放、透明度或颜色变化都可以）。".into();
+                }
+                Ok((_, false)) => {
+                    tracing::warn!(target: "job", "  · {label} 两次都画成静态图，自动补一个缓慢推镜");
+                    let patched = crate::svg_animation::with_camera_move(&svg, duration_ms);
+                    return crate::svg_animation::render(
+                        &patched,
+                        duration_ms,
+                        width as u32,
+                        height as u32,
+                        request.shot_index,
+                    )
+                    .await;
+                }
+                Err(error) if attempt == 0 => {
+                    tracing::warn!(target: "job", "  · {label} 的 SVG 渲染失败：{}", error.message);
+                    feedback = format!(
+                        "\n上一版 SVG 解析/渲染失败（{}）。请只输出标准 SVG，不要用滤镜、渐变动画或未列出的属性。",
+                        error.message
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(ProviderError::invalid("未能生成可用的动画画面，请重试。"))
     }
 }
 
@@ -1164,7 +1275,56 @@ mod tests {
         assert_eq!(shot_count(300), 40);
     }
 
+    /// 运镜会变成具体的 SMIL 写法，模型照着写就能动起来。
+    #[test]
+    fn camera_rules_cover_each_motion_kind() {
+        assert!(camera_move_rule("缓慢推进", "3.0s", 720, 1280).contains("1;1.08"));
+        assert!(camera_move_rule("拉远", "3.0s", 720, 1280).contains("1.08;1"));
+        assert!(camera_move_rule("摇", "3.0s", 720, 1280).contains("translate"));
+        assert!(camera_move_rule("移", "3.0s", 720, 1280).contains("translate"));
+        assert!(camera_move_rule("固定", "3.0s", 720, 1280).contains("固定"));
+    }
 
+    /// 画面提示词必须明确要求“动画”，并带上镜头时长与重画反馈。
+    #[test]
+    fn svg_prompt_asks_for_animation_not_a_still_image() {
+        let shot: crate::models::Shot = serde_json::from_value(json!({
+            "id": "s1",
+            "duration_ms": 3300,
+            "narration": "第一句",
+            "visual_prompt": "清晨咖啡店，阳光落在木桌上",
+            "shot_size": "中景",
+            "camera_motion": "推",
+            "asset_ids": [],
+        }))
+        .expect("镜头");
+        let request = VisualRequest {
+            ctx: ProductionContext {
+                brief: None,
+                settings: crate::models::Settings {
+                    target_duration_seconds: 30,
+                    aspect_ratio: "9:16".into(),
+                    language: "zh-CN".into(),
+                    style_id: "warm".into(),
+                },
+                user_text: "测试".into(),
+                answers: vec![],
+            },
+            shot,
+            shot_index: 0,
+            shot_count: 1,
+            duration_ms: 3300,
+            cut_index: 0,
+            cut_count: 1,
+        };
+        let prompt = svg_shot_prompt(&request, 720, 1280, "\n请重画。");
+        assert!(prompt.contains("SVG 动画"));
+        assert!(prompt.contains("至少 2 个元素"));
+        assert!(prompt.contains("清晨咖啡店"));
+        assert!(prompt.contains("dur=\"3.300s\""));
+        assert!(prompt.contains("type=\"scale\""));
+        assert!(prompt.ends_with("请重画。"));
+    }
 
     /// 长旁白配多个画面切点：每个切点一段画面，配音整段只在第一个切点开始。
     #[test]
