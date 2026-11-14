@@ -45,10 +45,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
-          mkdir -p "$RUNNER_TEMP/ffmpeg-sdk"
-          ln -s /usr/include/x86_64-linux-gnu "$RUNNER_TEMP/ffmpeg-sdk/include"
-          ln -s /usr/lib/x86_64-linux-gnu "$RUNNER_TEMP/ffmpeg-sdk/lib"
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf clang cmake nasm libmpg123-dev libzstd-dev libfontconfig1-dev libfreetype6-dev libasound2-dev libpipewire-0.3-dev fonts-noto-cjk ffmpeg
+      - name: Build Linux FFmpeg 8 SDK
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$RUNNER_TEMP/ffmpeg.tar.xz"
+          tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/ffmpeg-8.0.1"
+          ./configure \
+            --prefix="$RUNNER_TEMP/ffmpeg-sdk" \
+            --disable-shared \
+            --enable-static \
+            --disable-programs \
+            --disable-doc \
+            --disable-debug \
+            --disable-network \
+            --disable-autodetect
+          make -j"$CARGO_BUILD_JOBS"
+          make install
           echo "FFMPEG_DIR=$RUNNER_TEMP/ffmpeg-sdk" >> "$GITHUB_ENV"
       - name: Install macOS build libraries and tools
         if: runner.os == 'macOS'
