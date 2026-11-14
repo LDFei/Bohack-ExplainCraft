@@ -18,6 +18,7 @@ import SettingsPanel from './components/SettingsPanel.vue';
 import { useAppSettings } from './composables/useAppSettings.ts';
 import { panelLabels, useWorkspaceLayout } from './composables/useWorkspaceLayout.ts';
 import AssetLibrary from './components/AssetLibrary.vue';
+import { breezeModelStatus } from './services/breeze.ts';
 
 // 所有主要数据取自一个组合函数，三栏共享同一份项目、任务和版本状态。
 const studio = useStudio(),
@@ -26,8 +27,13 @@ const studio = useStudio(),
 const sidebarExpanded = ref(true);
 const workspaceRoot = ref<HTMLElement | null>(null),
   sidebar = ref<InstanceType<typeof Sidebar> | null>(null),
-  settingsOpen = ref(false);
+  settingsOpen = ref(false),
+  focusBreezeSettings = ref(false);
 const { general } = useAppSettings();
+// 下载入口的定位仅持续到本次设置关闭，普通打开设置仍落在通用页。
+watch(settingsOpen, (open) => {
+  if (!open) focusBreezeSettings.value = false;
+});
 const {
   state: layoutState,
   timelineDisplayHeight,
@@ -78,6 +84,10 @@ const {
   messages,
   playing,
 } = studio;
+// 等待用户选择时允许补传素材，真正执行模型或渲染时才锁定上传。
+const uploadBlocked = computed(
+  () => pending.value || (busy.value && activeJob.value?.status !== 'waiting_input'),
+);
 /** 素材库是独立模块；路由在项目路径下加 /library 段，来回切换不丢项目。 */
 const libraryMode = computed(
   () => typeof route.params.projectId === 'string' && route.path.endsWith('/library'),
@@ -111,18 +121,6 @@ const exportResolution = ref('720p'),
   exportError = ref(''),
   exportProject = ref(false);
 const title = computed(() => current.value?.project.title ?? '新的创作');
-// Vibe 知识大赏的启动选项：默认标准模式，用户在教程里改选后再开始。
-const vibeStyle = ref<(typeof vibeAwards.styles)[number]['id']>('card'),
-  vibeRatio = ref<(typeof vibeAwards.ratios)[number]['id']>('9:16'),
-  vibeVoice = ref<'none' | 'tts'>('none'),
-  vibeBgm = ref<'fixed' | 'none'>('fixed');
-const vibeRatios = vibeAwards.ratios;
-// 只有比例、配音、BGM 都没改时才叫标准模式；风格方向不算偏离。
-const vibeMode = computed(() =>
-  vibeRatio.value === '9:16' && vibeVoice.value === 'none' && vibeBgm.value === 'fixed'
-    ? '标准 Vibe'
-    : 'Vibe 变体',
-);
 const exportJob = computed(() => (exportJobId.value ? jobs.value[exportJobId.value] : null));
 // 路由导航会丢弃尚未保存的设置弹窗副本，不让首页往返意外保留打开状态。
 watch(
@@ -270,72 +268,43 @@ async function newProject() {
   sidebarOpen.value = false;
   await studio.newProject();
 }
-/**
- * 进入 Vibe 知识大赏：按教程里的选择新建创作、设定比例与配音，并在需要时导入固定 BGM。
- * 只填提示词不自动生成；每一步的方向仍由用户确认后再继续。
- */
+/** Vibe 仅提供可编辑的主题入口，全部创作选择由后端持久化 skill 逐步确认。 */
 async function startVibeAwards() {
-  modal.value = null;
   await useTemplate(vibeAwards.prompt);
-  // 新建页尚无后端项目；明确采用模板时先准备草稿，才能保存比例和声音选项。
-  if (!(await studio.prepareProject()) || !current.value) return;
-  // 把用户在教程里选的风格、比例、配音与剪辑要求写进提示词，让每一步都有明确目标。
-  const styleName =
-    vibeAwards.styles.find((item) => item.id === vibeStyle.value)?.name ?? '信息卡片';
-  const decisions = [
-    `风格方向：${styleName}`,
-    `画面比例：${vibeRatio.value}`,
-    `配音：${vibeVoice.value === 'tts' ? '使用' : '不使用'}`,
-    `BGM：${vibeBgm.value === 'fixed' ? vibeAwards.bgm.name : '不使用'}`,
-    '开始任何剪辑或转场前先问我要不要剪辑；我说不做就只按镜头表拼接。',
-  ].join('；');
-  studio.useExample(`${vibeAwards.prompt}【${decisions}】`);
-  const saved = await studio.save(
-    {
-      settings: { ...settings, aspect_ratio: vibeRatio.value },
-      audio: { ...current.value!.draft.audio, narration_enabled: vibeVoice.value === 'tts' },
-    },
-    current.value!.project.draft_revision,
-  );
-  if (!saved) return;
-  try {
-    // 固定 BGM 随前端一起发布；用户选择「不用 BGM」时跳过导入。
-    if (vibeBgm.value === 'none') {
-      const draft = current.value?.draft;
-      if (draft)
-        await studio.save(
-          { audio: { ...draft.audio, music_mode: 'none', music_asset_id: null } },
-          current.value!.project.draft_revision,
+}
+/** 结束当前话题并保留历史，先请求停止活动任务再返回空白入口。 */
+async function endTopic() {
+  if (await studio.endTopic()) {
+    previewOpen.value = false;
+    sidebarOpen.value = false;
+  }
+}
+/** 缺少本地模型时打开明确的下载设置，完成下载后再回到当前问题确认继续。 */
+async function answerQuestion(jobId: string, value: string, questionId?: string) {
+  if (
+    jobs.value[jobId]?.question?.skill_id === 'voice' &&
+    (value === 'download' || value === 'ready')
+  ) {
+    try {
+      const status = await breezeModelStatus();
+      if (!status.installed) {
+        focusBreezeSettings.value = true;
+        settingsOpen.value = true;
+        studio.notify(
+          '请在设置中确认下载 breezeTTS2；完成后返回此处选择“模型已就绪，继续”。',
+          'info',
         );
+        return;
+      }
+      value = 'ready';
+    } catch {
+      focusBreezeSettings.value = true;
+      settingsOpen.value = true;
+      studio.notify('暂时无法检查本地模型，请先在设置中查看下载状态。', 'error');
       return;
     }
-    const response = await fetch(vibeAwards.bgm.url);
-    if (!response.ok) return;
-    const file = new File([await response.blob()], 'we-never.mp3', { type: 'audio/mpeg' });
-    await studio.upload([file]);
-    const asset = assets.value.find(
-      (item) =>
-        item.kind === 'audio' && item.source === 'upload' && item.file_name === 'we-never.mp3',
-    );
-    // 上传后重新取草稿：上传流程可能已经刷新过项目状态。
-    const draft = current.value?.draft;
-    if (!asset || !draft) return;
-    await studio.save(
-      {
-        audio: {
-          ...draft.audio,
-          narration_enabled: vibeVoice.value === 'tts',
-          music_mode: 'upload',
-          music_id: null,
-          music_asset_id: asset.id,
-          music_volume: 0.9,
-        },
-      },
-      current.value!.project.draft_revision,
-    );
-  } catch {
-    // 导入失败时不阻断流程；用户仍可在「声音」面板手动上传 BGM。
   }
+  await studio.jobAction('answer', jobId, value, questionId);
 }
 /**
  * 在空白创作中填入可编辑的模板提示词，仅填输入框，不自动启动生成。
@@ -389,7 +358,7 @@ function closeModal() {
       :open="sidebarOpen"
       :shots="selectedVersion?.snapshot.shots ?? current?.draft.shots ?? []"
       :assets="assets"
-      :busy="busy || pending"
+      :busy="uploadBlocked || historical"
       :rail-only="libraryMode"
       :module="libraryMode ? 'library' : 'workbench'"
       @new="newProject"
@@ -671,6 +640,7 @@ function closeModal() {
             :assets="assets"
             :selected-assets="selectedAssets"
             :busy="busy"
+            :upload-blocked="uploadBlocked"
             :pending="pending"
             :uploading="uploading"
             :historical="historical"
@@ -679,11 +649,12 @@ function closeModal() {
             @update:settings="Object.assign(settings, $event)"
             @send="studio.send()"
             @new="newProject"
+            @end-topic="endTopic"
             @upload="studio.upload"
             @remove-asset="selectedAssets = selectedAssets.filter((id) => id !== $event)"
             @stop="activeJob && studio.jobAction('cancel', activeJob.id)"
             @retry="studio.jobAction('retry', $event)"
-            @answer="(jobId, value) => studio.jobAction('answer', jobId, value)"
+            @answer="answerQuestion"
             @example="studio.useExample"
             @view="openVersion"
             @panel="openPanel"
@@ -714,6 +685,7 @@ function closeModal() {
             :caps="caps"
             :job="activeJob"
             :busy="busy"
+            :upload-blocked="uploadBlocked"
             :pending="pending"
             :open="previewOpen"
             :on-save="studio.save"
@@ -735,7 +707,7 @@ function closeModal() {
       v-else
       :assets="assets"
       :versions="versions"
-      :busy="busy || pending"
+      :busy="uploadBlocked || historical"
       :project-title="title"
       :music-asset-id="
         current?.draft.audio.music_mode === 'upload' ? current.draft.audio.music_asset_id : null
@@ -770,6 +742,7 @@ function closeModal() {
     </Transition>
     <SettingsPanel
       :open="settingsOpen"
+      :focus-breeze="focusBreezeSettings"
       @close="settingsOpen = false"
       @reset-layout="resetLayout"
       @saved="
@@ -796,7 +769,7 @@ function closeModal() {
           @click="modal = 'vibe'"
         >
           <div class="vibe-thumb">
-            <span>固定 BGM · 无配音 · 代码画面</span>
+            <span>知识讲解 · 代码画面 · 逐步确认</span>
           </div>
           <strong>{{ vibeAwards.title }}</strong>
           <p>{{ vibeAwards.subtitle }}</p>
@@ -837,7 +810,7 @@ function closeModal() {
           name="sparkles"
           :size="15"
         />
-        <span>想复刻抖音 Vibe 知识大赏？先看固定的 BGM、无配音和卡点流程。</span>
+        <span>想做 Vibe 知识大赏？先了解知识结构与卡点方法，声音和时长由你选择。</span>
         <button
           class="text-button"
           @click="modal = 'vibe'"
@@ -848,120 +821,16 @@ function closeModal() {
     </Modal>
     <Modal
       :open="modal === 'vibe'"
-      title="Vibe 知识大赏 · 固定流程"
+      title="Vibe 知识大赏 · 创作指南"
       subtitle="照着流程走，一支视频只讲一个知识点。"
       wide
       @close="closeModal"
     >
       <div class="vibe-tutorial">
-        <section class="vibe-choices">
-          <h3>先选视频风格方向</h3>
-          <div
-            class="vibe-option-grid"
-            role="radiogroup"
-            aria-label="视频风格方向"
-          >
-            <button
-              v-for="style in vibeAwards.styles"
-              :key="style.id"
-              type="button"
-              class="vibe-option"
-              :class="{ active: vibeStyle === style.id }"
-              role="radio"
-              :aria-checked="vibeStyle === style.id"
-              @click="vibeStyle = style.id"
-            >
-              <strong>{{ style.name }}</strong>
-              <span>{{ style.detail }}</span>
-            </button>
-          </div>
-        </section>
-        <section class="vibe-choices">
-          <h3>画面比例</h3>
-          <div
-            class="vibe-option-grid compact"
-            role="radiogroup"
-            aria-label="画面比例"
-          >
-            <button
-              v-for="ratio in vibeRatios"
-              :key="ratio.id"
-              type="button"
-              class="vibe-option"
-              :class="{ active: vibeRatio === ratio.id }"
-              role="radio"
-              :aria-checked="vibeRatio === ratio.id"
-              @click="vibeRatio = ratio.id"
-            >
-              <strong>{{ ratio.name }}</strong>
-            </button>
-          </div>
-        </section>
-        <section class="vibe-choices">
-          <h3>配音与 BGM</h3>
-          <div class="vibe-switch-row">
-            <div class="switch-field">
-              <span>
-                <strong>配音</strong>
-                <small>
-                  {{
-                    vibeVoice === 'tts' ? '字幕 + 旁白，两句都要过得下' : '不用配音，字幕承担讲解'
-                  }}
-                </small>
-              </span>
-              <button
-                type="button"
-                class="switch"
-                :class="{ on: vibeVoice === 'tts' }"
-                role="switch"
-                :aria-checked="vibeVoice === 'tts'"
-                aria-label="使用配音"
-                @click="vibeVoice = vibeVoice === 'tts' ? 'none' : 'tts'"
-              >
-                <span />
-              </button>
-            </div>
-            <div class="switch-field">
-              <span>
-                <strong>固定 BGM</strong>
-                <small>
-                  {{ vibeBgm === 'fixed' ? vibeAwards.bgm.name : '不用 BGM，只做画面与字幕' }}
-                </small>
-              </span>
-              <button
-                type="button"
-                class="switch"
-                :class="{ on: vibeBgm === 'fixed' }"
-                role="switch"
-                :aria-checked="vibeBgm === 'fixed'"
-                aria-label="使用固定 BGM"
-                @click="vibeBgm = vibeBgm === 'fixed' ? 'none' : 'fixed'"
-              >
-                <span />
-              </button>
-            </div>
-          </div>
-          <p class="vibe-mode-note">当前：{{ vibeMode }}</p>
-        </section>
-        <section
-          v-if="vibeBgm === 'fixed'"
-          class="vibe-bgm"
-        >
-          <div class="vibe-bgm-label">
-            <Icon
-              name="music"
-              :size="15"
-            />
-            <span>固定 BGM · 可在这步换成自己的音频</span>
-          </div>
-          <strong>{{ vibeAwards.bgm.name }}</strong>
-          <p>{{ vibeAwards.bgm.artist }}</p>
-          <audio
-            controls
-            preload="none"
-            :src="vibeAwards.bgm.url"
-          />
-        </section>
+        <p class="vibe-mode-note">
+          发送知识主题后，助手会逐项提供风格、时长、SVG / HTML 画面、API / 本地 / 纯 BGM
+          声音选项。完成基础成片后，再由你决定是否使用剪辑库。
+        </p>
         <div class="vibe-rules">
           <h3>默认约定（可改）</h3>
           <ul>
@@ -992,7 +861,7 @@ function closeModal() {
       </div>
       <template #footer>
         <span class="settings-footer-note">
-          会按选择导入 BGM 与配音设置；补上知识点后由你发送，每一步仍由你确认
+          仅填入可编辑的知识主题提示；发送后每一步都会先给选择，确认后才继续
         </span>
         <button
           class="button secondary"

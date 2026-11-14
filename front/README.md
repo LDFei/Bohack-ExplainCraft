@@ -25,27 +25,25 @@ npm run desktop:build:windows
 
 ## 真实生成链路
 
-- 文案、对话、分镜与 SVG 动画共用 llm1，不单独配置视觉模型。
-- 视觉场景以受约束的 SVG/SMIL 输出，本地逐帧渲染后交给 Quercus。
-- 新项目默认使用本地程序化配乐：按风格合成和弦、贝斯、琶音与轻打击乐，直接生成 WAV。
-- 也可关闭音乐，或改用 MiniMax、Stable Audio、硅基流动、曲库和上传音频。
-- Qwen-TTS、本地 IndexTTS 或 breezeTTS2 负责配音。
-- Quercus 负责预览剪辑与 MP4 导出，不直接复制示例成片。
+- 主题提交后，按应用内 skills 依次确认风格、时长、SVG/HTML、API / breezeTTS2 /
+  BGM、音乐、方案、文案和分镜。
+- 选择题由后端持久化，前端显示选项与确认按钮；没有回答不会执行下一步。固定秒数下拉框已移除。
+- SVG/SMIL 本地逐帧渲染；HTML/CSS 在系统 Chrome 中离线定帧，后者需要 Node.js 24+、Chrome 和 FFmpeg。
+- FFmpeg 先合成基础成片与字幕。用户看完初版、明确同意后才调用 Quercus 生成后续版本。
+- API 与本地配音均有超时限制，超时转为字幕加 BGM；不会把失败说成配音成功。
+- breezeTTS2 模型缺失时打开下载设置；下载需要用户明确点击同意。
+- 音乐可用本地程序化 BGM、已上传音频，或不使用音乐；选择纯 BGM 时需保留背景音乐。
+- 三个 Shotcraft 模板来自已核对的镜头配方适配；Vibe 保留知识讲解结构，并服从同一套选择约束。
 
-“工作台设置 → API 配置”用于选择供应商、base URL、模型与密钥。保存通过
-`get_model_settings` / `update_model_settings` commands 写入应用配置并热替换供应商，
-新任务立即生效；密钥不会回显到页面。
-
-选择“自定义 OpenAI
-Compatible”时，可填写自己的 Endpoint 和模型名称；Endpoint 必须包含完整 HTTP(S) 地址。
-填写 API Key 后会自动请求该 Endpoint 的 `/models`，模型名可从下拉列表选择，也可手动输入。
-配音可选择 Qwen-TTS、硅基流动 TTS、本地 IndexTTS 或 breezeTTS2。
-每次创作可在作品设置中选择或手填声线；旧音色 ID 会迁移到当前默认声线。
-目标时长支持 15～300 秒，超过 300 秒直接返回 `DURATION_TOO_LONG`，不会静默截断。
+“工作台设置 → API 配置”保存创作 API、云端配音 API 与本地 ComfyUI 配置，
+通过 `get_model_settings` / `update_model_settings` 写入本机，密钥不会回显。
+自定义 OpenAI Compatible Endpoint 需填写完整地址与模型；声线可选择或手填。
+对话时长提供 15、30、60、120 秒、内容推荐，以及用户原话中 15～300 秒内的指定值。
 
 ## 工作台功能
 
-- 项目历史、素材上传、对话创作与修改、追问、取消和失败重试。
+- 新建话题、结束当前话题、项目历史、素材上传、对话修改、逐步选择、取消与失败重试。
+- 制作步骤内展示后端操作、镜头进度、耗时与超时降级；等待选择时允许上传素材。
 - 脚本、音色、语速、音乐、音量、字幕、风格和比例设置。
 - 成片播放、历史版本、MP4 导出下载、项目改名和删除。
 - 三栏自定义布局、侧栏收缩、四套主题与发送快捷键。
@@ -67,3 +65,5 @@ cargo test --workspace
 ```
 
 接口说明见 [API 文档](docs/API.md)，官网开发见 [website/README.md](../website/README.md)。
+
+本轮设计与验证见 [引导制作闭环](docs/GUIDED_PRODUCTION.md)。

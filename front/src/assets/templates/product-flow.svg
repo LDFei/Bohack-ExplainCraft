@@ -1,0 +1,97 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 960 540"
+>
+  <title>Shotcraft 功能演示示意</title>
+  <rect
+    width="960"
+    height="540"
+    fill="#151824"
+  />
+  <text
+    x="70"
+    y="90"
+    fill="#c0c8fa"
+    font-size="19"
+    letter-spacing="4"
+  >
+    SHOTCRAFT · SHOW THE FLOW
+  </text>
+  <rect
+    x="70"
+    y="140"
+    width="820"
+    height="72"
+    rx="16"
+    fill="#242a3c"
+    stroke="#727fe0"
+  />
+  <circle
+    cx="110"
+    cy="173"
+    r="12"
+    fill="none"
+    stroke="#aab5f8"
+    stroke-width="3"
+  />
+  <path
+    d="m120 183 10 10"
+    stroke="#aab5f8"
+    stroke-width="3"
+  />
+  <text
+    x="154"
+    y="186"
+    fill="#f1f3ff"
+    font-size="28"
+  >
+    输入一个问题，看清整个过程
+  </text>
+  <g fill="#30384e">
+    <rect
+      x="70"
+      y="260"
+      width="250"
+      height="150"
+      rx="14"
+    />
+    <rect
+      x="355"
+      y="260"
+      width="250"
+      height="150"
+      rx="14"
+    />
+    <rect
+      x="640"
+      y="260"
+      width="250"
+      height="150"
+      rx="14"
+    />
+  </g>
+  <rect
+    x="355"
+    y="260"
+    width="250"
+    height="150"
+    rx="14"
+    fill="#4a5692"
+    stroke="#b6c0ff"
+    stroke-width="2"
+  />
+  <path
+    d="m443 333 25 25 48-52"
+    fill="none"
+    stroke="#e7ecff"
+    stroke-width="7"
+  />
+  <text
+    x="70"
+    y="478"
+    fill="#a7b0cc"
+    font-size="18"
+  >
+    输入 / 筛选 / 结果归位 · 功能示意，不代表用户真实页面
+  </text>
+</svg>

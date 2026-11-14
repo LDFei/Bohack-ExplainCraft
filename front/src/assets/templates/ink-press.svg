@@ -1,0 +1,56 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 960 540"
+>
+  <title>Ink Press 纸墨叙事示意</title>
+  <rect
+    width="960"
+    height="540"
+    fill="#f2eee6"
+  />
+  <path
+    d="M100 110h760M100 430h760"
+    stroke="#c7b9a5"
+  />
+  <text
+    x="100"
+    y="166"
+    fill="#955905"
+    font-size="20"
+    font-family="serif"
+    letter-spacing="5"
+  >
+    SHOTCRAFT · INK PRESS
+  </text>
+  <text
+    x="100"
+    y="273"
+    fill="#13110f"
+    font-size="68"
+    font-family="serif"
+  >
+    让一个好想法
+  </text>
+  <text
+    x="100"
+    y="350"
+    fill="#955905"
+    font-size="68"
+    font-family="serif"
+  >
+    清楚落定。
+  </text>
+  <path
+    d="M100 372h205"
+    stroke="#955905"
+    stroke-width="5"
+  />
+  <text
+    x="100"
+    y="476"
+    fill="#65635f"
+    font-size="18"
+  >
+    压印开场 / 单一主角 / 呼吸字卡 · 模板示意
+  </text>
+</svg>

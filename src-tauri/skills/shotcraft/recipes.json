@@ -1,0 +1,219 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "upstream_commit": "6700db2ba80572ebc777b99d72049679fed9840c",
+  "execution": "Adapted scene recipes consumed by the local SVG/HTML workflow. No Remotion runtime is bundled.",
+  "recipes": [
+    {
+      "id": "brand-ink-open",
+      "source_card": "references/shots/opening/brand-ink-open.md",
+      "reference_implementation": "demos/typography/brand-ink-open/BrandInkOpen.tsx",
+      "duration_frames": 104,
+      "fps": 30,
+      "keyframes": {
+        "vertical_draw": [
+          0,
+          9
+        ],
+        "horizontal_draw": [
+          8,
+          18
+        ],
+        "crosshair_fade": [
+          24,
+          34
+        ],
+        "glyph_delay": 10,
+        "glyph_stagger": 3,
+        "glyph_duration": 12,
+        "complete_title_hold": [
+          64,
+          97
+        ],
+        "exit": [
+          97,
+          104
+        ]
+      },
+      "constraints": [
+        "标题最后一字落定后至少停留30帧",
+        "准星画完必须淡出",
+        "文字scale从1.6收敛到1且blur归零"
+      ],
+      "svg_html_adaptation": "SVG pathLength与stroke-dashoffset画准星；标题文字按固定帧编号压印，退出时整体上浮。中文标题长度变化时先重新预算，不缩短完整标题停留。"
+    },
+    {
+      "id": "paper-title-card",
+      "source_card": "references/shots/typography/paper-title-card.md",
+      "reference_implementation": "demos/typography/paper-title-card/PaperTitleCard.tsx",
+      "duration_frames": 55,
+      "fps": 30,
+      "keyframes": {
+        "word_delay": 4,
+        "word_stagger": 4,
+        "word_duration": 9,
+        "underline": [
+          16,
+          34
+        ],
+        "exit": [
+          47,
+          55
+        ]
+      },
+      "constraints": [
+        "一句只有一个强调词",
+        "scale1.28到1、blur7到0、opacity入场",
+        "字号按画布缩放，防止中文孤字换行"
+      ],
+      "svg_html_adaptation": "使用纸底#f2eee6、墨色#13110f、强调色#955905作为可替换主题令牌。SVG逐词显示或HTML定帧插值，不复制上游产品文案。"
+    },
+    {
+      "id": "spotlight-hero-card",
+      "source_card": "references/shots/opening/spotlight-hero-card.md",
+      "reference_implementation": "demos/opening/spotlight-hero-card/SpotlightHeroCard.tsx",
+      "duration_frames": 172,
+      "fps": 30,
+      "keyframes": {
+        "light_search": [
+          4,
+          28
+        ],
+        "lock": 34,
+        "camera_push": [
+          40,
+          58
+        ],
+        "scan_first": [
+          68,
+          82
+        ],
+        "scan_second": [
+          88,
+          108
+        ],
+        "reseat": 142,
+        "final_hold": [
+          142,
+          172
+        ]
+      },
+      "constraints": [
+        "只有一个主角",
+        "相机推进后锁定，不持续漂移",
+        "文字必须保持对比度和锐利度"
+      ],
+      "svg_html_adaptation": "SVG采用卡形柔光遮罩，HTML可用CSS透视；不把圆形遮罩直接盖在卡上导致两头变暗。未提供页面截图时只能画明确标注的功能示意。"
+    },
+    {
+      "id": "type-and-filter",
+      "source_card": "references/shots/interaction/type-and-filter.md",
+      "reference_implementation": "demos/interaction/type-and-filter/TypeAndFilter.tsx",
+      "duration_frames": 73,
+      "fps": 30,
+      "keyframes": {
+        "typing_start": 10,
+        "frames_per_character": 3,
+        "filter_start": 42,
+        "click": 58,
+        "camera_end": 72,
+        "result_hold_min": 11
+      },
+      "constraints": [
+        "真人交互打字至少3帧每字符",
+        "输入结束后保留约11帧因果停顿",
+        "目标结果必须归位真实网格槽位"
+      ],
+      "svg_html_adaptation": "在本地截图或明确示意网格上逐帧绘制输入与筛选结果；禁止合成不存在的用户产品功能。"
+    },
+    {
+      "id": "chart-live-moves",
+      "style_key": "axis-rescale-shock",
+      "source_card": "references/shots/data/chart-live-moves.md",
+      "reference_implementation": "demos/data/chart-live-moves/AxisRescaleShockV2.tsx",
+      "duration_frames": 192,
+      "fps": 30,
+      "keyframes": {
+        "readable_final_hold_min": 36,
+        "single_rescale_event": true
+      },
+      "constraints": [
+        "必须展示标题、刻度、单位、数据来源",
+        "爆表与重标只发生一次",
+        "示例数据明确标注，不把虚构数字说成事实"
+      ],
+      "svg_html_adaptation": "用SVG真实坐标轴与折线展现变化，再定帧重标坐标轴；结尾保留36帧静止读数。"
+    }
+  ],
+  "presets": [
+    {
+      "id": "shotcraft-ink-press",
+      "name": "Shotcraft · Ink Press",
+      "recipe_ids": [
+        "brand-ink-open",
+        "spotlight-hero-card",
+        "paper-title-card"
+      ],
+      "structure": [
+        "品牌或主题开场",
+        "单一主角介绍",
+        "价值主张字卡",
+        "总结收口"
+      ],
+      "provenance": "基于上游Ink Press结构的SVG/HTML适配，不是原Remotion工程逐像素复刻"
+    },
+    {
+      "id": "shotcraft-product-demo",
+      "name": "Shotcraft · 功能演示",
+      "recipe_ids": [
+        "brand-ink-open",
+        "type-and-filter",
+        "paper-title-card"
+      ],
+      "structure": [
+        "提出用户问题",
+        "展示输入动作",
+        "展示结果与收益",
+        "确认结论"
+      ],
+      "provenance": "基于上游已验证交互镜头卡的应用内组合"
+    },
+    {
+      "id": "shotcraft-data-story",
+      "name": "Shotcraft · 数据叙事",
+      "recipe_ids": [
+        "paper-title-card",
+        "chart-live-moves",
+        "paper-title-card"
+      ],
+      "structure": [
+        "提出数据问题",
+        "展示带单位的图表",
+        "一次核心变化",
+        "解释含义与边界"
+      ],
+      "provenance": "基于上游chart-live-moves的axis-rescale-shock变体适配"
+    },
+    {
+      "id": "vibe-knowledge-awards",
+      "name": "Vibe 知识大赏",
+      "recipe_ids": [
+        "paper-title-card",
+        "chart-live-moves"
+      ],
+      "structure": [
+        "反常识钩子",
+        "一句可验证结论",
+        "机制或数据解释",
+        "适用边界与总结"
+      ],
+      "provenance": "本项目原创知识叙事模板；按需借用Shotcraft文字与图表动效词汇",
+      "rules": [
+        "只讲一个知识点",
+        "风格时长视觉配音和BGM均由用户选择",
+        "字幕短句但不因凑字数删定义",
+        "只在初版交付后询问可选剪辑"
+      ]
+    }
+  ]
+}

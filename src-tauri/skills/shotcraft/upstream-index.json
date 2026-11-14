@@ -1,0 +1,78 @@
+{
+  "source": {
+    "repository": "https://github.com/Vincentwei1021/video-shotcraft",
+    "commit": "6700db2ba80572ebc777b99d72049679fed9840c",
+    "license": "Apache-2.0",
+    "gallery_revision": "bdd94be16d60fa8f"
+  },
+  "cards": [
+    {
+      "id": "brand-ink-open",
+      "card": "references/shots/opening/brand-ink-open.md",
+      "styles": [
+        {
+          "key": "brand-ink-open",
+          "label": "brand-ink-open"
+        }
+      ],
+      "preview_url": "https://vincentwei1021.github.io/video-shotcraft/media/brand-ink-open.mp4?v=1790980736778",
+      "updated_at": "2026-10-02T21:01:48.000Z"
+    },
+    {
+      "id": "chart-live-moves",
+      "card": "references/shots/data/chart-live-moves.md",
+      "styles": [
+        {
+          "key": "oscilloscope-stream",
+          "label": "oscilloscope-stream"
+        },
+        {
+          "key": "unit-dot-swarm-regroup",
+          "label": "unit-dot-swarm-regroup"
+        },
+        {
+          "key": "axis-rescale-shock",
+          "label": "axis-rescale-shock"
+        }
+      ],
+      "preview_url": "https://vincentwei1021.github.io/video-shotcraft/media/oscilloscope-stream.mp4?v=1790980736785",
+      "updated_at": "2026-10-02T21:01:48.000Z"
+    },
+    {
+      "id": "paper-title-card",
+      "card": "references/shots/typography/paper-title-card.md",
+      "styles": [
+        {
+          "key": "paper-title-card",
+          "label": "paper-title-card"
+        }
+      ],
+      "preview_url": "https://vincentwei1021.github.io/video-shotcraft/media/paper-title-card.mp4?v=1790980736845",
+      "updated_at": "2026-10-02T21:01:48.000Z"
+    },
+    {
+      "id": "spotlight-hero-card",
+      "card": "references/shots/opening/spotlight-hero-card.md",
+      "styles": [
+        {
+          "key": "spotlight-hero-card",
+          "label": "spotlight-hero-card"
+        }
+      ],
+      "preview_url": "https://vincentwei1021.github.io/video-shotcraft/media/spotlight-hero-card.mp4?v=1790980736873",
+      "updated_at": "2026-10-02T21:01:48.000Z"
+    },
+    {
+      "id": "type-and-filter",
+      "card": "references/shots/interaction/type-and-filter.md",
+      "styles": [
+        {
+          "key": "type-and-filter",
+          "label": "type-and-filter"
+        }
+      ],
+      "preview_url": "https://vincentwei1021.github.io/video-shotcraft/media/type-and-filter.mp4?v=1790980736894",
+      "updated_at": "2026-10-02T21:01:48.000Z"
+    }
+  ]
+}

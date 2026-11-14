@@ -16,10 +16,12 @@ mod media;
 mod metrics;
 mod models;
 
+mod html_animation;
 mod oak;
 mod ops;
 mod pipeline;
 mod providers;
+mod skills;
 mod state;
 mod svg_animation;
 mod util;
@@ -265,3 +267,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod workflow_tests;

@@ -226,6 +226,36 @@ pub async fn operation<T>(
     result
 }
 
+/// 向当前制作步骤报告细粒度进度；只接受调用点生成的安全说明，不转发请求或密钥。
+pub fn production_log(message: impl Into<String>) {
+    let Ok(ctx) = CURRENT.try_with(Clone::clone) else {
+        return;
+    };
+    let message = message.into();
+    if let Err(error) = ctx.db.write(|t| {
+        let Some(mut row) = crate::db::load_job(t, &ctx.job_id)? else {
+            return Ok(());
+        };
+        if row.attempt != ctx.attempt || row.job.status != crate::models::JobStatus::Running {
+            return Ok(());
+        }
+        row.job.logs.push(crate::models::JobLog {
+            id: make_id("log"),
+            stage: Some(ctx.stage),
+            message: message.clone(),
+            created_at: now_iso(),
+            level: "info".into(),
+        });
+        if row.job.logs.len() > 200 {
+            row.job.logs.drain(..row.job.logs.len() - 200);
+        }
+        crate::db::save_job(t, &row)?;
+        crate::ops::emit_job_updated(t, &row.job, &message)
+    }) {
+        tracing::warn!("步骤日志保存失败：{error:?}");
+    }
+}
+
 /// 从供应商返回结构提取总 Token；缓存和推理等细分字段是子集，不重复相加。
 fn normalize_usage(raw: &Value) -> Value {
     let integer = |keys: &[&str]| {

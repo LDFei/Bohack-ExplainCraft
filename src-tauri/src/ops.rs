@@ -155,6 +155,7 @@ pub fn create_job(
             current_stage: None,
             progress_percent: Some(0),
             stages: stages_for(kind),
+            logs: vec![],
             question: None,
             result: None,
             error: None,
@@ -162,7 +163,18 @@ pub fn create_job(
             started_at: None,
             finished_at: None,
         },
-        input,
+        input: JobInput {
+            skill_version: if matches!(kind, JobKind::Generate | JobKind::Revise) {
+                // 重试保留原规则摘要，不能借创建新任务把旧确认静默迁移到新规则。
+                input
+                    .skill_version
+                    .clone()
+                    .or_else(|| Some(crate::skills::version()))
+            } else {
+                input.skill_version.clone()
+            },
+            ..input
+        },
         attempt: 0,
         checkpoint_revision: project.project.draft_revision,
         assistant_message_id: assistant_id.clone(),

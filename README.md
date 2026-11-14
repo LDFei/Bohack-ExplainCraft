@@ -38,7 +38,7 @@ npm run desktop:build
 
 Windows 的 quercus/MSVC 开发环境可使用
 `npm run desktop:dev:windows` 和 `npm run desktop:build:windows`；脚本会加载 MSVC 环境并传递
-`--features quercus`（当前已为默认 feature）。FFmpeg 等额外要求见 [后端说明](src-tauri/README.md)。
+`--features quercus`（保留兼容参数）。FFmpeg 等额外要求见 [后端说明](src-tauri/README.md)。
 
 也可以从仓库根目录执行 Cargo 检查：
 
@@ -48,11 +48,22 @@ cargo test --workspace
 cargo check --workspace --all-targets
 ```
 
-视觉模型输出受约束的 SVG/SMIL 动画，本地逐帧渲染后由 Quercus 剪辑和导出。
-多段旁白与烧录字幕会进入最终成片；导出时可选包含全部素材和 OVE / OTIO / FCPXML 的 ZIP 工程包。
-OpenAI、阿里云百炼、DeepSeek、MiniMax、硅基流动与 GLM 的 base URL 已预置；
-音乐支持 MiniMax、Stable Audio 和硅基流动，配音支持 Qwen-TTS、本地 IndexTTS 与 breezeTTS2。
-`src-tauri/src/oak/` 提供 50 个可通过 OpenAI `tool_calls` 驱动的 Quercus 工具。
+制作流程由应用内 skills 约束：主题 → 风格 → 时长 → SVG/HTML → 配音 → BGM →
+方案确认 → 文案确认 → 分镜确认 → 制作确认 → 初版确认 → 可选剪辑 → 交付。
+输入框旁不再放秒数下拉框；选择保存在同一任务内，刷新或重启可以恢复。
+
+视觉模型生成受约束的 SVG/SMIL 或离线 HTML/CSS，本地输出镜头后由 FFmpeg 合成基础 MP4、
+旁白、BGM 与字幕。HTML 路径额外需要系统 Chrome。**初版生成前不调用 Quercus**；
+初版可播放后，用户明确选择继续剪辑才调用 Quercus 并保存第二个版本。
+工程包导出属于单独的显式请求，保留 OVE / OTIO / FCPXML 能力。
+
+配音每次提供 API、本地 breezeTTS2、纯 BGM 三项。缺少本地模型时询问是否打开下载设置，
+必须再点同意才下载；API / 本地配音超时按约定退回 BGM，页面展示原因。
+API 默认 45 秒、本地默认 90 秒，可用 `VOICE_TIMEOUT_SECONDS` 调整。
+
+除 Vibe 知识大赏外，模板已换为 Video Shotcraft 镜头配方适配，随代码保存上游提交和 Apache-2.0
+许可证；当前运行 SVG/HTML 路径，未引入上游完整 Remotion 工作台。
+详细闭环设计、来源、检查与实际边界见 [引导制作说明](front/docs/GUIDED_PRODUCTION.md)。
 
 ## 独立官网开发
 

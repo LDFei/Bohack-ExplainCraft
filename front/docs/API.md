@@ -1,6 +1,6 @@
 # 一句话生成视频：前后端接口文档
 
-版本：v0.2 · 日期：2026-11-14 · 前端：Vue · 后端：Rust · 桌面端：Tauri 2
+版本：v0.3 · 日期：2026-11-14 · 前端：Vue · 后端：Rust · 桌面端：Tauri 2
 
 本文是 Tauri 工作台与进程内 Rust 后端的业务约定。workspace 根目录的 `src-tauri`
 通过 `#[tauri::command]`
@@ -8,7 +8,9 @@
 
 ## 1. 产品流程与接口边界
 
-用户输入一句话，例如：“帮我做一个 30 秒的咖啡店宣传视频，温暖治愈一点。”系统补齐非必要参数，依次完成需求整理、文案与分镜、素材准备、配音与背景音乐、剪辑、调色与特效、预览渲染。用户查看结果后，可以继续说“第二个镜头换成咖啡特写”“语速慢一点”，再生成新版本。
+用户输入主题后，系统依次询问风格、时长、SVG/HTML、API / breezeTTS2 /
+BGM 和音乐来源。方案、文案、分镜、制作、初版输出、可选剪辑和交付分别需要明确确认。初版先由 FFmpeg 输出，已可播放后才询问是否使用 Quercus。用户确认交付后，可以发修改意见再生成新版本。完整规则与验证见
+[引导制作闭环](GUIDED_PRODUCTION.md)。
 
 | 业务环节   | 后端责任                               | 前端展示                   |
 | ---------- | -------------------------------------- | -------------------------- |
@@ -22,8 +24,7 @@
 
 前端只调用 Rust 业务接口。模型、素材库、TTS 和剪辑库都由后端调用；Vue 关闭或刷新都不应终止后端任务。
 
-第一版默认自动完成整个流程，不强制用户逐步确认。只有无法继续执行的关键信息缺失时才提问。调色与特效默认使用
-`natural`、`none`，用户可以主动修改。
+当前版本固定为 guided 模式，偏好选择和阶段确认均由持久化问题控制。输入框旁不保留固定秒数下拉框；时长通过对话选项确定，自动模式先展示方案建议。模板不得覆盖已确认答案。Markdown 规则及 manifest 随应用编译打包，运行中任务保存内容摘要；规则变更后不静默迁移旧任务。
 
 ## 2. 基础约定
 
@@ -79,7 +80,8 @@ HTTP 状态：201 创建完成；202 异步任务已受理；400 请求结构错
   `409 REVISION_CONFLICT`，并带当前版本。前端重新取快照后，让用户保留并重新提交自己的修改。
 - 每个项目最多一个活动任务，活动状态包括
   `queued/running/waiting_input/cancelling`。活动期间禁止修改草稿和启动其他任务，返回
-  `409 PROJECT_BUSY`；允许查询、播放旧版本、回答当前问题和取消。此限制也适用于聊天任务和导出任务。
+  `409 PROJECT_BUSY`；允许查询、播放旧版本、回答当前问题和取消；`waiting_input`
+  还允许上传素材，但不能直接覆盖草稿。此限制也适用于聊天任务和导出任务。
 
 ## 3. 核心数据对象
 
@@ -145,6 +147,7 @@ Shot 字段：`id`、`duration_ms`、`narration`、`visual_prompt`、`shot_size`
 | `current_stage`                     | 当前阶段；排队和普通聊天可为 null                                                |
 | `progress_percent`                  | 0～100 或 null；是估算值，无可靠估算时返回 null                                  |
 | `stages`                            | 阶段数组：`key/status/progress_percent/message`                                  |
+| `logs`                              | 最近 200 条业务执行日志，含 `id/stage/message/created_at/level`，按阶段展示      |
 | `question`                          | 当前待回答问题或 null，结构见 5.6                                                |
 | `result`                            | 未完成时为 null；完成结构见下文                                                  |
 | `error`                             | 未失败时为 null；失败时含 `code/message/retryable/failed_stage`                  |
@@ -247,7 +250,7 @@ VideoVersion 字段：`id/project_id/version_number/source_draft_revision/source
       "effect_preset_id": "none",
       "subtitles_enabled": true
     },
-    "duration_range_seconds": { "min": 5, "max": 120 },
+    "duration_range_seconds": { "min": 15, "max": 300 },
     "aspect_ratios": ["9:16", "16:9", "1:1"],
     "languages": ["zh-CN"],
     "styles": [{ "id": "warm", "name": "温暖治愈" }],
@@ -443,11 +446,14 @@ HTTP 202 表示已受理，不能显示“视频生成完成”。
 `changes` 允许
 `settings/script/shots/audio/finishing`，不允许修改 brief、资源归属或版本 ID。提交的每个顶层子对象整体替换，未提交的顶层字段保持原值；因此提交 audio 时必须带齐 audio 的可写字段，避免不同客户端对深层合并规则理解不一致。必需字段缺失返回 422。
 
-- `settings`：结构见快照；时长范围、比例、语言和风格由 capabilities 校验。
+- `settings`：结构见快照；时长范围、比例、语言和风格由 capabilities 校验。新增
+  `visual_format=svg|html`，旧草稿缺失时默认 svg。修改格式使原生成画面失效。
 - `script`：完整的
   `{"title":"标题","text":"完整解说词"}`；非空，title 最多 100 字符、text 最多 20000 字符。
 - `shots`：完整数组，1～100 个镜头，每项字段见 3.1，`duration_ms>0`；修改现有镜头保留 ID，新增镜头省略 ID，由后端分配。数组顺序即播放顺序，重复、陌生 ID 和非本项目素材返回 422。
-- `audio`：语速范围拟定 0.5～2.0；两个音量均为 0～1。`music_mode` 为
+- `audio`：新增 `narration_enabled` 与
+  `voice_source=api|breeze|bgm`，旧草稿缺失时兼容默认值；实际执行由当前任务确认答案控制。语速范围为 0.5～2.0；两个音量均为 0～1。`music_mode`
+  为
   `auto / none / library / upload`：auto 由后端匹配，none 不配音乐，library 必须带有效 music_id，upload 必须带本项目 ready 的音频 music_asset_id。auto/none 的两个来源 ID 均为 null；library 的 music_asset_id 为 null，upload 的 music_id 为 null。只读字段
   `resolved_music_asset_id`
   由后端在音频准备完成时填入，指向最终使用的音乐素材，none 为 null；客户端不得提交此字段。音频设置改变时清空旧解析结果，成片快照保存实际素材用于复现。
@@ -480,33 +486,37 @@ HTTP 202 表示已受理，不能显示“视频生成完成”。
 `GET /jobs/{job_id}` → 200，返回 `data.job: Job`。失败结果通过 Job.error 表达；HTTP
 200 表示查询成功，不代表任务成功。
 
-无法继续制作时进入 waiting_input，Job.question 示例：
+每个选择或确认边界进入 `waiting_input`，Job.question 示例：
 
 ```json
 {
-  "id": "question_001",
-  "prompt": "你希望宣传的店名是什么？也可以选择不展示店名。",
-  "input_type": "text",
-  "options": [],
+  "id": "skill:style:1:job_001",
+  "prompt": "选择这支视频的视觉风格。",
+  "input_type": "single_select",
+  "options": [{ "value": "minimal", "label": "极简信息图" }],
+  "skill_id": "style",
+  "step": 1,
+  "total_steps": 12,
   "expires_at": "2026-11-14T09:05:00Z"
 }
 ```
 
 `input_type` 为 text 或 single_select；后者 options 为 `[{"value":"no_name","label":"不展示店名"}]`
-这样的数组。一次最多一个问题。一般偏好应使用默认值，不逐项向小白追问。
+这样的数组。一次最多一个问题；`skill_id/step/total_steps`
+为可选元数据。普通模型补充问题也可为 text。前端必须显示真实选项，不把所有问题渲染为文本框，也不能自动提交默认答案。
 
 `POST /jobs/{job_id}/answers`，带幂等 key → 202：
 
 ```json
 {
-  "question_id": "question_001",
-  "value": "暖日咖啡"
+  "question_id": "skill:style:1:job_001",
+  "value": "minimal"
 }
 ```
 
 返回
 `data.job_id / data.job_status`。回答恢复同一任务，状态为 running 或 queued，不创建第二次生成。后端原子校验 question_id；过期、已回答、状态不符返回
-`409 QUESTION_NOT_ACTIVE`。等待超过 expires_at 进入 failed，错误码
+`409 QUESTION_NOT_ACTIVE`；single_select 提交不在当前 options 中的值返回 422。选择按 question_id 隔离，不能把前一步答案带入下一步。等待超过 expires_at 进入 failed，错误码
 `INPUT_TIMEOUT`，不无限占用执行线程。
 
 ### 5.7 停止与重试
@@ -693,8 +703,8 @@ token，旧 worker、超时调用和取消后迟到的结果均不能覆盖新�
 
 - 以上要求均已实现：状态与项目事件在同一事务提交；`jobs.attempt` 作为 fencing
   token；重启时把中断的任务放回队列，从检查点继续。
-- 当前链路：GLM 负责文案、分镜和剪辑工具调用，视觉 LLM 输出 SVG/SMIL，本地逐帧渲染后由
-  quercus-engine 剪辑导出；音乐与配音可分别选择 MiniMax/Stable Audio、Qwen-TTS/IndexTTS。
+- 当前链路：配置的创作模型负责方案、文案、分镜与 SVG/HTML；FFmpeg 先合成初版。用户明确确认后才使用 Quercus。配音提供 API
+  / breezeTTS2 / BGM 选择，API 默认 45 秒、本地默认 90 秒超时转 BGM；缺失模型不得自动下载。
 - 尚未覆盖：播放 / 下载地址过期后的前端自动续期、事件游标过期（410）的端到端演练、登录与令牌校验。
 
 ## 10. 桌面应用（Tauri）
@@ -713,7 +723,9 @@ workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后�
 业务入口包括 `capabilities`、`list_projects`、`create_project`、`get_project`、`send_message`、
 `patch_draft`、`list_assets`、`upload_asset`、`get_job`、`cancel_job`、`retry_job`、`answer_job`、
 `list_versions`、`get_version`、`export_video`、`download_asset` 和 `project_events` 等 20 个
-`#[tauri::command]`。上传通过原始 IPC 字节传递 multipart，避免 base64 膨胀。
+`#[tauri::command]`。上传通过原始 IPC 字节传递 multipart，避免 base64 膨胀。Tauri 会重写原始 body 的 Content-Type，前端另传
+`X-Upload-Content-Type`
+保存 boundary，command 验证并恢复后再交给 multipart 解析器。解析或存库失败会清理本次新文件。
 
 媒体文件通过 `explaincraft` 自定义协议读取并保留签名、Range 与下载响应头。CSP 只允许 IPC
 和对应媒体协议，不开放本机 HTTP 端口。dev 鉴权模式使用单用户 `local_user`。
@@ -724,16 +736,16 @@ workspace 只包含 `src-tauri/` 一个 crate，桌面壳和 commands 业务后�
 
 制作阶段与模型分工（`src-tauri/src/pipeline.rs`、`src-tauri/src/providers/`）：
 
-| 阶段 key                             | 执行者                                                        |
-| ------------------------------------ | ------------------------------------------------------------- |
-| `planning` / `script` / `storyboard` | llm1：选题、文案、分镜（GLM-5.3）                             |
-| `visuals`                            | llm1：每个镜头生成 SVG/SMIL 动画并本地渲染                    |
-| `audio`                              | llm4 配音（breezeTTS2）与 llm3 背景音乐（MiniMax-H3）同时进行 |
-| `edit`                               | llm1 输出剪辑指令（见下）                                     |
-| `finishing`                          | 按调色 / 特效预设整理剪辑方案与转场                           |
-| `render`                             | quercus-engine 执行剪辑指令并导出 MP4                         |
+| 阶段 key                             | 执行者                                                 |
+| ------------------------------------ | ------------------------------------------------------ |
+| `planning` / `script` / `storyboard` | llm1：选题、文案、分镜（配置的创作模型）               |
+| `visuals`                            | llm1：每镜头生成 SVG/SMIL 或离线 HTML/CSS 并本地输出   |
+| `audio`                              | 已确认的 API / Breeze / 无旁白；程序化或已选择的 BGM   |
+| `edit`                               | 确定性安排镜头顺序；初版不调用剪辑模型                 |
+| `finishing`                          | 准备字幕与输出检查；初版不应用可选剪辑效果             |
+| `render`                             | FFmpeg 基础输出；明确确认后才调用 Quercus 保存后续版本 |
 
-剪辑指令是 llm1 以 JSON 输出、由剪辑库逐条执行的操作序列（`src-tauri/src/providers/edit_ops.rs`）：
+基础时间线由后端从已确认分镜确定性生成。保留的剪辑指令格式可由显式授权的 Quercus 路径执行，其操作序列（`src-tauri/src/providers/edit_ops.rs`）：
 
 ```json
 [

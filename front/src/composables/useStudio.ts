@@ -4,12 +4,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, isActive } from '../services/api.ts';
-import {
-  capabilities as defaults,
-  copy,
-  durationTooLong,
-  requestedDurationSeconds,
-} from '../domain/content.ts';
+import { capabilities as defaults, copy } from '../domain/content.ts';
 import { makeId } from '../domain/id.ts';
 import type {
   Asset,
@@ -310,10 +305,6 @@ export function useStudio() {
   async function send(overrideText?: string) {
     const text = (overrideText ?? input.value).trim();
     if (!text || busy.value || pending.value || uploading.value) return;
-    if (durationTooLong(text)) {
-      notify('单个作品最长支持 300 秒，请缩短目标时长后重试。', 'error');
-      return;
-    }
     if (historical.value) {
       notify('请先回到当前草稿，再基于最新版本修改。', 'info');
       return;
@@ -322,8 +313,6 @@ export function useStudio() {
     const nextSettings = copy(settings),
       chosen = [...selectedAssets.value],
       mode = intent.value;
-    nextSettings.target_duration_seconds =
-      requestedDurationSeconds(text) ?? nextSettings.target_duration_seconds;
     try {
       // 「新做一个」必须落在新项目里；否则会沿用当前项目的草稿和成片上下文。
       const id = await ensureProject(mode === 'generate' && !!current.value?.latest_video);
@@ -381,6 +370,10 @@ export function useStudio() {
    */
   async function upload(files: FileList | File[]) {
     if (uploading.value || pending.value) return;
+    if (busy.value && activeJob.value?.status !== 'waiting_input') {
+      notify('当前步骤正在制作，请在下一次确认时补充素材。', 'info');
+      return;
+    }
     // 原生文件列表是实时对象，跨 await 前先复制，否则控件清空后可能读不到文件。
     const chosenFiles = Array.from(files);
     pending.value = true;
@@ -409,14 +402,27 @@ export function useStudio() {
   /**
    * 统一处理停止、重试和回答追问，再刷新所属项目；pending 用来阻止重复点击。
    */
-  async function jobAction(action: 'cancel' | 'retry' | 'answer', jobId: string, value?: string) {
+  async function jobAction(
+    action: 'cancel' | 'retry' | 'answer',
+    jobId: string,
+    value?: string,
+    questionId?: string,
+  ) {
     if (pending.value) return;
     const id = projectId.value;
     pending.value = true;
     try {
       if (action === 'cancel') await api.cancel(jobId);
       else if (action === 'retry') await api.retry(jobId, current.value!.project.draft_revision);
-      else await api.answer(jobId, jobs.value[jobId]!.question!.id, value ?? '');
+      else {
+        const question = jobs.value[jobId]?.question;
+        // 回答绑定点击时的问题，不能将旧 DOM 或迟到事件的选择提交给新一步。
+        if (!question || (questionId && questionId !== question.id)) {
+          notify('问题已经更新，请重新选择当前步骤。', 'info');
+          return;
+        }
+        await api.answer(jobId, questionId ?? question.id, value ?? '');
+      }
       if (projectId.value === id) await refresh(id);
     } catch (error) {
       notify(errorText(error), 'error');
@@ -498,7 +504,42 @@ export function useStudio() {
    * 导航到空白创作页；延迟到首次发送或上传再创建实际项目，减少空白历史。
    */
   async function newProject() {
+    if (pending.value || uploading.value) return;
+    // /create 到自身不会触发路由 watcher，需要主动清掉上次未发送的草稿。
+    localInputs.delete('create');
+    input.value = '';
+    selectedAssets.value = [];
+    intent.value = 'generate';
     await router.push('/create');
+    input.value = '';
+    selectedAssets.value = [];
+    intent.value = 'generate';
+  }
+  /** 结束本次话题：停止服务端任务并保留已有消息、素材与成片，随后清空新话题入口。 */
+  async function endTopic() {
+    if (pending.value || uploading.value) return false;
+    const id = projectId.value;
+    pending.value = true;
+    try {
+      const job = activeJob.value;
+      if (job && isActive(job)) await api.cancel(job.id);
+      localInputs.delete(id || 'create');
+      localInputs.delete('create');
+      // 先清空输入再导航，避免 watcher 把已结束话题的未发送文字重新保存。
+      input.value = '';
+      selectedAssets.value = [];
+      intent.value = 'generate';
+      await router.push('/create');
+      input.value = '';
+      selectedAssets.value = [];
+      notify('本次话题已结束，历史创作已保留。', 'info');
+      return true;
+    } catch (error) {
+      notify(errorText(error), 'error');
+      return false;
+    } finally {
+      pending.value = false;
+    }
   }
   /**
    * 记录不一定出现在消息中的额外任务，例如导出；终态后也继续查询它以读取下载结果。
@@ -544,6 +585,7 @@ export function useStudio() {
     useExample,
     prepareProject,
     newProject,
+    endTopic,
     trackJob,
   };
 }

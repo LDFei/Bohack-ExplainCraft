@@ -83,7 +83,16 @@ pub async fn answer(
                 "这个问题已失效，请刷新当前创作。",
             ));
         }
-        let mut message = ops::new_message(&job.job.project_id, "user", &value, Some(&job.job.id));
+        if let Some(q)=&job.job.question {
+            if q.input_type=="single_select" && !q.options.iter().any(|option|option.value==value) {
+                return Err(ApiError::validation("请选择当前步骤提供的有效选项。"));
+            }
+        }
+        // 对话显示用户看见的中文选项，审计输入仍保存稳定值，避免界面出现 continue / bgm。
+        let display_value = job.job.question.as_ref()
+            .and_then(|q| q.options.iter().find(|option| option.value == value))
+            .map(|option| option.label.clone()).unwrap_or_else(|| value.clone());
+        let mut message = ops::new_message(&job.job.project_id, "user", &display_value, Some(&job.job.id));
         message.asset_ids = vec![];
         db::insert_message(t, &message)?;
         t.emit(

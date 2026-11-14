@@ -39,6 +39,8 @@ pub struct Config {
     pub provider_llm3: String,
     /// llm4（配音 TTS）的供应商名称。
     pub provider_llm4: String,
+    /// 配音单次截止时间；未指定时 API 为45秒、本地为90秒。
+    pub voice_timeout_seconds: Option<u64>,
     /// 剪辑渲染器的供应商名称。
     pub provider_renderer: String,
     /// ffprobe 可执行文件，用于解析上传素材的真实宽高和时长。
@@ -213,7 +215,8 @@ impl Config {
             provider_llm1: var("PROVIDER_LLM1", "siliconflow"),
             provider_llm3: var("PROVIDER_LLM3", "procedural"),
             provider_llm4: var("PROVIDER_LLM4", "qwen"),
-            provider_renderer: var("PROVIDER_RENDERER", "quercus"),
+            voice_timeout_seconds: env::var("VOICE_TIMEOUT_SECONDS").ok().and_then(|v|v.parse().ok()),
+            provider_renderer: var("PROVIDER_RENDERER", "direct"),
             ffprobe: var("FFPROBE_PATH", "ffprobe"),
             siliconflow_base: var("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
                 .trim_end_matches('/')

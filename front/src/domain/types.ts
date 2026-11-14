@@ -14,7 +14,9 @@ export type Theme = 'coffee' | 'travel' | 'product';
 
 /** 用户可选择的创作参数；目标时长与实际成片时长分开记录。 */
 export interface Settings {
-  /** 期望时长，单位秒；示例成片实际固定 30 秒，以成片 duration_ms 为准。 */
+  /** 由创作 skill 确认画面格式；历史项目缺字段时使用 SVG。 */
+  visual_format?: 'svg' | 'html';
+  /** 对话确认的期望时长，单位秒；实际输出以成片 duration_ms 为准。 */
   target_duration_seconds: number;
   /** 画面比例，例如 9:16；不要和像素宽高混用。 */
   aspect_ratio: string;
@@ -31,6 +33,8 @@ export interface AudioSettings {
   speech_rate: number;
   /** 是否生成配音；关闭后字幕承担全部讲解，成片只保留背景音乐。 */
   narration_enabled: boolean;
+  /** 当前作品明确选择的配音来源，旧版本可能缺省。 */
+  voice_source?: 'api' | 'breeze' | 'bgm';
   /** auto 自动匹配，none 无音乐，library 曲库，upload 用户附件。 */
   music_mode: 'auto' | 'none' | 'library' | 'upload';
   /** 仅 library 模式使用的曲库条目 ID，其余模式为 null。 */
@@ -178,6 +182,14 @@ export interface Job {
   /** 整体估算百分比，未知时为空；只有终态成功才表示完成。 */
   progress_percent: number | null;
   stages: Stage[];
+  /** 后端按阶段持久化的安全制作日志；只展示业务信息，不包含密钥和请求头。 */
+  logs?: {
+    id: string;
+    stage: StageKey | null;
+    message: string;
+    created_at: string;
+    level: 'info' | 'warn' | 'error';
+  }[];
   /** 待回答问题；回答必须带其 ID，避免旧问题被重复消费。 */
   question: {
     id: string;
@@ -185,6 +197,10 @@ export interface Job {
     input_type: 'text' | 'single_select';
     options: { value: string; label: string }[];
     expires_at: string;
+    /** 应用内创作流程的步骤元数据，旧后端可省略。 */
+    skill_id?: string;
+    step?: number;
+    total_steps?: number;
   } | null;
   /** 成功结果，按 kind 返回成片、助手消息或导出素材 ID。 */
   result: {

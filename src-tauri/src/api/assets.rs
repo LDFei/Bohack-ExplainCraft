@@ -15,7 +15,7 @@ use crate::catalog::{AUDIO_LIMIT, IMAGE_LIMIT, LIBRARY_FILES, VIDEO_LIMIT};
 use crate::db::{self, AssetRow};
 use crate::error::{ApiError, ApiResult};
 use crate::media::sniff;
-use crate::models::Asset;
+use crate::models::{Asset, JobStatus};
 use crate::state::AppState;
 use crate::util::{make_id, short};
 
@@ -63,6 +63,17 @@ pub async fn get(
 ) -> ApiResult<Response> {
     let row = state.db.read(|conn| asset_for(conn, &asset_id, &user))?;
     Ok(ok(json!({ "asset": state.media.asset_api(&row) })))
+}
+
+/// 等待用户选择时允许补充素材；任务正在执行时不改变它使用的素材集合。
+fn assert_upload_allowed(conn: &Connection, project_id: &str, user: &str) -> ApiResult<()> {
+    let project = db::project_for(conn, project_id, user)?;
+    if let Some(id) = project.project.active_job_id.as_deref() {
+        if db::load_job(conn, id)?.is_some_and(|row| row.job.status == JobStatus::WaitingInput) {
+            return Ok(());
+        }
+    }
+    crate::ops::assert_idle(&project)
 }
 
 /// `POST /projects/{id}/assets`：上传一个文件（multipart 字段 `file`，幂等）。
@@ -153,6 +164,9 @@ pub async fn upload(
     if let Some(response) = state.db.read(|conn| idem.replay(conn))? {
         return Ok(response);
     }
+    state
+        .db
+        .read(|conn| assert_upload_allowed(conn, &project_id, &user))?;
     let uploaded = state.db.read(|conn| db::count_uploads(conn, &project_id))?;
     if uploaded >= state.catalog.max_uploaded_files {
         return Err(ApiError::new(
@@ -210,7 +224,7 @@ pub async fn upload(
         if let Some(response) = idem.replay(t)? {
             return Ok(Err(response));
         }
-        db::project_for(t, &project_id, &user)?;
+        assert_upload_allowed(t, &project_id, &user)?;
         db::insert_asset(t, &row)?;
         // 返回值里的缩略图地址是临时的；幂等重放时重新签发。
         let data = json!({ "asset": state.media.asset_api(&row) });
@@ -230,7 +244,15 @@ pub async fn upload(
             row.asset.duration_ms.map(|ms| format!(" {:.1}s", ms as f64 / 1000.0)).unwrap_or_default()
         );
         Ok(Ok(reply(StatusCode::CREATED, data)))
-    })?;
+    });
+    // 校验和写入之间任务可能从等待转为执行；拒绝时清理刚写入的临时文件。
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err(error);
+        }
+    };
     match response {
         Ok(response) => Ok(response),
         Err(replayed) => {

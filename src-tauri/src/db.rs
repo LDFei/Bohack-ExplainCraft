@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     current_stage TEXT,
     progress_percent INTEGER,
     stages TEXT NOT NULL,
+    logs TEXT NOT NULL DEFAULT '[]',
     question TEXT,
     result TEXT,
     error TEXT,
@@ -187,6 +188,19 @@ impl Db {
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.execute_batch(SCHEMA)?;
         crate::metrics::initialize(&conn)?;
+        // 增量升级，保留旧任务和其全部历史数据。
+        let has_logs = conn
+            .prepare("PRAGMA table_info(jobs)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "logs");
+        if !has_logs {
+            conn.execute(
+                "ALTER TABLE jobs ADD COLUMN logs TEXT NOT NULL DEFAULT '[]'",
+                [],
+            )?;
+        }
         // 早期版本的 versions 表没有工程时间线；仅补充列，不重写任何历史数据。
         let has_edit_plan = {
             let mut statement = conn.prepare("PRAGMA table_info(versions)")?;
@@ -522,6 +536,7 @@ fn job_row(row: &Row) -> rusqlite::Result<JobRow> {
             current_stage: stage.map(|s| from_json(&format!("\"{s}\""))).transpose()?,
             progress_percent: row.get("progress_percent")?,
             stages: from_json(&row.get::<_, String>("stages")?)?,
+            logs: from_json(&row.get::<_, String>("logs")?)?,
             question: opt_json(row.get("question")?)?,
             result: opt_json(row.get("result")?)?,
             error: opt_json(row.get("error")?)?,
@@ -549,8 +564,8 @@ pub fn insert_job(conn: &Connection, r: &JobRow) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO jobs (id, project_id, parent_job_id, kind, status, current_stage,
             progress_percent, stages, question, result, error, input, attempt, checkpoint_revision,
-            assistant_message_id, created_at, started_at, finished_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            assistant_message_id, created_at, started_at, finished_at, logs)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             j.id,
             j.project_id,
@@ -569,7 +584,8 @@ pub fn insert_job(conn: &Connection, r: &JobRow) -> ApiResult<()> {
             r.assistant_message_id,
             j.created_at,
             j.started_at,
-            j.finished_at
+            j.finished_at,
+            to_json(&j.logs)?,
         ],
     )?;
     Ok(())
@@ -581,7 +597,7 @@ pub fn save_job(conn: &Connection, r: &JobRow) -> ApiResult<()> {
     conn.execute(
         "UPDATE jobs SET status = ?2, current_stage = ?3, progress_percent = ?4, stages = ?5,
             question = ?6, result = ?7, error = ?8, input = ?9, attempt = ?10,
-            checkpoint_revision = ?11, started_at = ?12, finished_at = ?13
+            checkpoint_revision = ?11, started_at = ?12, finished_at = ?13, logs = ?14
          WHERE id = ?1",
         params![
             j.id,
@@ -596,7 +612,8 @@ pub fn save_job(conn: &Connection, r: &JobRow) -> ApiResult<()> {
             r.attempt,
             r.checkpoint_revision,
             j.started_at,
-            j.finished_at
+            j.finished_at,
+            to_json(&j.logs)?,
         ],
     )?;
     Ok(())

@@ -51,8 +51,8 @@ impl StageKey {
             StageKey::Storyboard => "规划分镜",
             StageKey::Visuals => "准备画面",
             StageKey::Audio => "配音与音乐",
-            StageKey::Edit => "剪辑合成",
-            StageKey::Finishing => "调色与字幕",
+            StageKey::Edit => "安排镜头顺序",
+            StageKey::Finishing => "字幕与输出检查",
             StageKey::Render => "输出成片",
         }
     }
@@ -172,11 +172,24 @@ pub struct Settings {
     pub language: String,
     /// 风格 ID，取值来自 capabilities。
     pub style_id: String,
+    /// 用户在技能流程中明确选择的代码画面格式；旧草稿使用 SVG。
+    #[serde(default = "default_visual_format")]
+    pub visual_format: String,
+}
+
+/// 旧项目沿用 SVG，不因升级改变视觉引擎。
+fn default_visual_format() -> String {
+    "svg".into()
 }
 
 /// 配音开关的默认值：历史草稿没有这个字段时按“需要配音”处理。
 fn default_narration_enabled() -> bool {
     true
+}
+
+/// 旧项目的旁白默认采用配置好的 API。
+fn default_voice_source() -> String {
+    "api".into()
 }
 
 /// 草稿中的音频设置。
@@ -189,6 +202,9 @@ pub struct AudioSettings {
     /// 是否生成配音；关闭后字幕承担全部讲解，成片只保留背景音乐。
     #[serde(default = "default_narration_enabled")]
     pub narration_enabled: bool,
+    /// 本次作品明确选择的配音来源；旧草稿沿用 API。
+    #[serde(default = "default_voice_source")]
+    pub voice_source: String,
     /// 音乐来源：`auto` 自动匹配、`none` 不配乐、`library` 曲库、`upload` 用户上传。
     pub music_mode: String,
     /// `library` 模式下的曲库 ID，其他模式为 `null`。
@@ -387,6 +403,15 @@ pub struct Question {
     pub options: Vec<QuestionOption>,
     /// 过期时间，过期后任务以 `INPUT_TIMEOUT` 失败。
     pub expires_at: String,
+    /// 本问题所属技能；普通模型追问为空。
+    #[serde(default)]
+    pub skill_id: Option<String>,
+    /// 当前技能步骤序号。
+    #[serde(default)]
+    pub step: Option<usize>,
+    /// 技能流程总步骤数。
+    #[serde(default)]
+    pub total_steps: Option<usize>,
 }
 
 /// 任务失败信息。
@@ -400,6 +425,21 @@ pub struct JobError {
     pub retryable: bool,
     /// 失败的阶段。
     pub failed_stage: Option<StageKey>,
+}
+
+/// 给用户看的执行记录，不保存密钥、请求体或原始服务响应。
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct JobLog {
+    /// 去重标识。
+    pub id: String,
+    /// 关联制作步骤。
+    pub stage: Option<StageKey>,
+    /// 可展示的操作与结果。
+    pub message: String,
+    /// UTC 时间。
+    pub created_at: String,
+    /// info、warn 或 error。
+    pub level: String,
 }
 
 /// 制作任务（文档 3.3）。
@@ -421,6 +461,9 @@ pub struct Job {
     pub progress_percent: Option<u8>,
     /// 全部阶段状态。chat 为空，export 只有 render。
     pub stages: Vec<Stage>,
+    /// 最近两百条制作日志，刷新、恢复和重启后保留。
+    #[serde(default)]
+    pub logs: Vec<JobLog>,
     /// 当前待回答的问题。
     pub question: Option<Question>,
     /// 成功结果，结构随任务类型不同（文档 3.3）。
@@ -570,6 +613,18 @@ pub struct JobInput {
     /// 导出任务的规格。
     #[serde(default)]
     pub export: Option<ExportSpec>,
+    /// 技能执行版本随任务固定，避免恢复时规则悄悄改变。
+    #[serde(default)]
+    pub skill_version: Option<String>,
+    /// 已发布基础成片，正在等待是否进入可选剪辑。
+    #[serde(default)]
+    pub awaiting_post_edit: bool,
+    /// 可选剪辑是否已完成，交付确认时不能再次调用库。
+    #[serde(default)]
+    pub post_edit_applied: bool,
+    /// 配音超时后的持久化回退标记，恢复时不能再次调用超时的供应商。
+    #[serde(default)]
+    pub voice_fallback: bool,
 }
 
 /// 项目内部的制作产物（检查点），供后续阶段和后续版本复用，不对前端暴露。

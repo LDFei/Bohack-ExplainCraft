@@ -489,11 +489,20 @@ pub async fn patch_draft(
             if !catalog.has_style(&settings.style_id) {
                 return Err(field_error("settings.style_id", "不支持这个风格。"));
             }
+            if !matches!(settings.visual_format.as_str(), "svg" | "html") {
+                return Err(field_error(
+                    "settings.visual_format",
+                    "请选择 SVG 或 HTML 画面。",
+                ));
+            }
             let old = &draft.settings;
             if settings.target_duration_seconds != old.target_duration_seconds {
                 invalid.extend(StageKey::Storyboard.and_after());
             }
-            if settings.aspect_ratio != old.aspect_ratio || settings.style_id != old.style_id {
+            if settings.aspect_ratio != old.aspect_ratio
+                || settings.style_id != old.style_id
+                || settings.visual_format != old.visual_format
+            {
                 invalid.extend(StageKey::Visuals.and_after());
                 drop_generated_visuals(t, &mut draft.shots, None)?;
             }
@@ -585,6 +594,12 @@ pub async fn patch_draft(
 
         // 音频：换音色、语速或音乐需要重新准备音频；只改音量只需重新剪辑混音。
         if let Some(mut audio) = changes.audio {
+            if !matches!(audio.voice_source.as_str(), "api" | "breeze" | "bgm") {
+                return Err(field_error(
+                    "audio.voice_source",
+                    "请选择 API、本地配音或纯 BGM。",
+                ));
+            }
             if audio.voice_id.trim().is_empty() {
                 return Err(field_error("audio.voice_id", "请选择或填写声线。"));
             }
@@ -634,6 +649,7 @@ pub async fn patch_draft(
             };
             if music_changed
                 || old.narration_enabled != audio.narration_enabled
+                || old.voice_source != audio.voice_source
                 || old.voice_id != audio.voice_id
                 || old.speech_rate != audio.speech_rate
             {

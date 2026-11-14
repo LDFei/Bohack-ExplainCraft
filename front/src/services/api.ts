@@ -178,7 +178,8 @@ class TauriApi implements StudioApi {
       headers: {
         ...this.headers(),
         'Idempotency-Key': makeId('key'),
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        // Tauri 的二进制传输会覆盖 Content-Type，业务格式必须使用独立元数据头。
+        'X-Upload-Content-Type': `multipart/form-data; boundary=${boundary}`,
         'X-Project-Id': id,
       },
     }).catch((error: unknown) => {
@@ -191,7 +192,7 @@ class TauriApi implements StudioApi {
     for (let attempt = 0; asset.status === 'processing' && attempt < 30; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       asset = this.unwrap<{ asset: Asset }>(
-        await invoke<CommandReply>('get_asset', { assetId: asset.id }),
+        await invoke<CommandReply>('get_asset', { assetId: asset.id }, { headers: this.headers() }),
         '素材查询失败。',
       ).asset;
     }

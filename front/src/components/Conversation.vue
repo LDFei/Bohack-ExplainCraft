@@ -31,6 +31,7 @@ const props = defineProps<{
   assets: Asset[];
   selectedAssets: string[];
   busy: boolean;
+  uploadBlocked?: boolean;
   pending: boolean;
   uploading: { name: string; percent: number } | null;
   historical: boolean;
@@ -43,11 +44,12 @@ const emit = defineEmits<{
   'update:settings': [settings: Settings];
   send: [];
   new: [];
+  endTopic: [];
   upload: [files: FileList | File[]];
   removeAsset: [id: string];
   stop: [];
   retry: [jobId: string];
-  answer: [jobId: string, value: string];
+  answer: [jobId: string, value: string, questionId: string];
   example: [text: string];
   view: [versionId: string];
   panel: [tab: string];
@@ -94,7 +96,12 @@ watch(
   () => [
     props.messages.length,
     props.messages.at(-1)?.text,
-    Object.values(props.jobs).find((job) => job.status === 'running')?.progress_percent,
+    Object.values(props.jobs)
+      .map(
+        (job) =>
+          `${job.id}:${job.progress_percent}:${job.question?.id}:${job.logs?.length}:${job.logs?.at(-1)?.message}`,
+      )
+      .join('|'),
   ],
   async () => {
     await nextTick();
@@ -129,19 +136,18 @@ function keydown(event: KeyboardEvent) {
     emit('send');
   }
 }
-/**
- * 将下拉框修改作为完整 settings 对象交给父组件；时长必须由字符串转成数字。
- */
-function updateSetting(key: keyof Settings, event: Event) {
-  const value = (event.target as HTMLSelectElement).value;
-  emit('update:settings', {
-    ...props.settings,
-    [key]: key === 'target_duration_seconds' ? Number(value) : value,
-  });
+/** 仅当前等待中的问题可以回答，历史问题卡片不会误提交到下一步。 */
+function activeQuestion(jobId?: string, questionId?: string) {
+  const job = jobId ? props.jobs[jobId] : undefined;
+  if (job?.status !== 'waiting_input' || !job.question) return null;
+  return !questionId || questionId === job.question.id ? job.question : null;
 }
-/**
- * 根据消息卡片引用的版本 ID 查找成片元数据；不存在时返回 undefined，模板跳过该卡片。
- */
+/** 按真实成片长度展示分秒，避免所有结果都标为固定三十秒。 */
+function videoDuration(milliseconds: number) {
+  const seconds = Math.round(milliseconds / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+/** 根据消息引用查找成片，缺少版本时跳过预览卡片。 */
 function version(id?: string) {
   return props.versions.find((item) => item.id === id);
 }
@@ -187,7 +193,7 @@ function jobLabel(job: Job) {
         : job.status === 'cancelling'
           ? '正在停止制作…'
           : job.status === 'waiting_input'
-            ? '等你补充一个小信息'
+            ? '请选择下一步创作方式'
             : job.current_stage
               ? stageLabels[job.current_stage]
               : '正在安排你的创作';
@@ -199,12 +205,12 @@ function jobLabel(job: Job) {
 function openFile(event: Event) {
   const element = event.target as HTMLInputElement;
   const files = Array.from(element.files ?? []);
-  if (files.length) emit('upload', files);
+  if (files.length && !props.uploadBlocked) emit('upload', files);
   element.value = '';
 }
 /** 只有真实文件进入上传拖放状态，布局拖动仍交给工作台处理。 */
 function dragOverFiles(event: DragEvent) {
-  if (event.dataTransfer?.types.includes('Files')) {
+  if (!props.uploadBlocked && event.dataTransfer?.types.includes('Files')) {
     event.preventDefault();
     dragging.value = true;
   }
@@ -212,7 +218,8 @@ function dragOverFiles(event: DragEvent) {
 /** 接收拖入文件并清理提示；实际校验、处理和保存继续交给父级上传流程。 */
 function drop(event: DragEvent) {
   dragging.value = false;
-  if (event.dataTransfer?.files.length && !props.pending) emit('upload', event.dataTransfer.files);
+  if (event.dataTransfer?.files.length && !props.pending && !props.uploadBlocked)
+    emit('upload', event.dataTransfer.files);
 }
 defineExpose({
   /**
@@ -264,6 +271,32 @@ defineExpose({
         <h2>AI Copilot</h2>
         <span>让每一个想法，有声有色</span>
       </div>
+      <div class="conversation-actions">
+        <button
+          class="text-button"
+          :disabled="pending || !!uploading"
+          aria-label="新建话题"
+          @click="emit('new')"
+        >
+          <Icon
+            name="plus"
+            :size="14"
+          />
+          新建
+        </button>
+        <button
+          class="text-button"
+          :disabled="pending || !!uploading || (!hasMessages && !busy && !draft)"
+          aria-label="结束此次话题"
+          @click="emit('endTopic')"
+        >
+          <Icon
+            name="stop"
+            :size="13"
+          />
+          结束
+        </button>
+      </div>
       <span class="copilot-status">
         <i />
         {{ busy ? '创作中' : '就绪' }}
@@ -276,18 +309,6 @@ defineExpose({
       />
       当前项目上下文
       <span>{{ versions.length ? `v${versions.length}` : '新创作' }}</span>
-      <button
-        v-if="versions.length"
-        class="context-new"
-        title="另开一个项目制作新视频，不和当前作品混在一起"
-        @click="emit('new')"
-      >
-        <Icon
-          name="plus"
-          :size="11"
-        />
-        新做一个
-      </button>
     </div>
     <!-- 对话区独立滚动，角色决定气泡样式，blocks 决定业务卡片。 -->
     <div
@@ -338,8 +359,8 @@ defineExpose({
                 :size="21"
               />
             </span>
-            <strong>{{ sample.label }}</strong>
-            <small>{{ sample.hint }}</small>
+            <strong>{{ themes[sample.theme].label }}</strong>
+            <small>{{ themes[sample.theme].summary }}</small>
             <Icon
               name="arrowRight"
               :size="16"
@@ -511,8 +532,12 @@ defineExpose({
                   <div class="progress-track">
                     <span :style="{ width: `${jobs[block.job_id]!.progress_percent ?? 0}%` }" />
                   </div>
-                  <div class="stage-grid">
-                    <span
+                  <ol
+                    class="stage-grid stage-details"
+                    aria-label="制作步骤与实时反馈"
+                    aria-live="polite"
+                  >
+                    <li
                       v-for="stage in jobs[block.job_id]!.stages"
                       :key="stage.key"
                       :class="stage.status"
@@ -530,9 +555,43 @@ defineExpose({
                         v-else
                         class="stage-dot"
                       />
-                      {{ stageLabels[stage.key] }}
-                    </span>
-                  </div>
+                      <div>
+                        <strong>{{ stageLabels[stage.key] }}</strong>
+                        <p v-if="stage.message">{{ stage.message }}</p>
+                        <ol
+                          v-if="jobs[block.job_id]!.logs?.some((log) => log.stage === stage.key)"
+                          class="stage-logs"
+                        >
+                          <li
+                            v-for="log in jobs[block.job_id]!.logs?.filter(
+                              (log) => log.stage === stage.key,
+                            ).reverse()"
+                            :key="log.id"
+                            :class="log.level"
+                          >
+                            <time v-if="log.created_at">{{ messageTime(log.created_at) }}</time>
+                            <span>{{ log.message }}</span>
+                          </li>
+                        </ol>
+                      </div>
+                    </li>
+                  </ol>
+                  <ol
+                    v-if="jobs[block.job_id]!.logs?.some((log) => log.stage == null)"
+                    class="stage-logs general-stage-logs"
+                    aria-label="任务日志"
+                  >
+                    <li
+                      v-for="log in jobs[block.job_id]!.logs?.filter(
+                        (log) => log.stage == null,
+                      ).reverse()"
+                      :key="log.id"
+                      :class="log.level"
+                    >
+                      <time>{{ messageTime(log.created_at) }}</time>
+                      <span>{{ log.message }}</span>
+                    </li>
+                  </ol>
                 </details>
                 <button
                   v-else-if="block.type === 'video' && version(block.video_version_id)"
@@ -558,7 +617,7 @@ defineExpose({
                       }}
                     </strong>
                     <span>
-                      00:30
+                      {{ videoDuration(version(block.video_version_id)!.duration_ms) }}
                       <span class="inline-dot">·</span>
                       720p
                       <span class="inline-dot">·</span>
@@ -585,14 +644,59 @@ defineExpose({
                 </button>
                 <form
                   v-else-if="
-                    block.type === 'question' && block.job_id && jobs[block.job_id]?.question
+                    block.type === 'question' && activeQuestion(block.job_id, block.question_id)
                   "
+                  :key="activeQuestion(block.job_id, block.question_id)!.id"
                   class="question-card"
-                  @submit.prevent="emit('answer', block.job_id!, answers[block.job_id!] ?? '')"
+                  @submit.prevent="
+                    emit(
+                      'answer',
+                      block.job_id!,
+                      answers[activeQuestion(block.job_id, block.question_id)!.id] ?? '',
+                      activeQuestion(block.job_id, block.question_id)!.id,
+                    )
+                  "
                 >
-                  <strong>{{ jobs[block.job_id]!.question!.prompt }}</strong>
+                  <span
+                    class="question-step"
+                    v-if="activeQuestion(block.job_id, block.question_id)!.step"
+                  >
+                    创作选择 · {{ activeQuestion(block.job_id, block.question_id)!.step }} /
+                    {{ activeQuestion(block.job_id, block.question_id)!.total_steps ?? '—' }}
+                  </span>
+                  <strong>{{ activeQuestion(block.job_id, block.question_id)!.prompt }}</strong>
+                  <div
+                    v-if="
+                      activeQuestion(block.job_id, block.question_id)!.input_type ===
+                      'single_select'
+                    "
+                    class="question-options"
+                    role="radiogroup"
+                    :aria-label="activeQuestion(block.job_id, block.question_id)!.prompt"
+                  >
+                    <label
+                      v-for="option in activeQuestion(block.job_id, block.question_id)!.options"
+                      :key="option.value"
+                      class="question-option"
+                      :class="{
+                        selected:
+                          answers[activeQuestion(block.job_id, block.question_id)!.id] ===
+                          option.value,
+                      }"
+                    >
+                      <input
+                        type="radio"
+                        :name="activeQuestion(block.job_id, block.question_id)!.id"
+                        :value="option.value"
+                        v-model="answers[activeQuestion(block.job_id, block.question_id)!.id]"
+                        :disabled="pending"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  </div>
                   <input
-                    v-model="answers[block.job_id!]"
+                    v-else
+                    v-model="answers[activeQuestion(block.job_id, block.question_id)!.id]"
                     aria-label="补充信息"
                     placeholder="填写你的回答…"
                     maxlength="5000"
@@ -600,9 +704,12 @@ defineExpose({
                   />
                   <button
                     class="button primary small"
-                    :disabled="pending || !answers[block.job_id!]?.trim()"
+                    :disabled="
+                      pending ||
+                      !answers[activeQuestion(block.job_id, block.question_id)!.id]?.trim()
+                    "
                   >
-                    继续制作
+                    确认选择并继续
                     <Icon
                       name="arrowRight"
                       :size="14"
@@ -813,7 +920,7 @@ defineExpose({
             <button
               class="icon-button attach-button"
               aria-label="上传图片、视频或音频"
-              :disabled="pending || historical"
+              :disabled="pending || historical || uploadBlocked"
               @click="fileInput?.click()"
             >
               <Icon
@@ -822,82 +929,7 @@ defineExpose({
               />
             </button>
             <span class="tool-divider" />
-            <label class="composer-select">
-              <Icon
-                name="clock"
-                :size="14"
-              />
-              <select
-                :value="settings.target_duration_seconds"
-                aria-label="目标视频时长"
-                :disabled="busy || pending || historical || intent === 'chat'"
-                @change="updateSetting('target_duration_seconds', $event)"
-              >
-                <option
-                  v-for="seconds in [15, 30, 60, 120, 180, 300].filter(
-                    (value) =>
-                      value >= caps.duration_range_seconds.min &&
-                      value <= caps.duration_range_seconds.max,
-                  )"
-                  :key="seconds"
-                  :value="seconds"
-                >
-                  {{ seconds }} 秒
-                </option>
-              </select>
-              <Icon
-                name="down"
-                :size="11"
-              />
-            </label>
-            <label class="composer-select">
-              <Icon
-                name="ratio"
-                :size="14"
-              />
-              <select
-                :value="settings.aspect_ratio"
-                aria-label="视频画面比例"
-                :disabled="busy || pending || historical || intent === 'chat'"
-                @change="updateSetting('aspect_ratio', $event)"
-              >
-                <option
-                  v-for="ratio in caps.aspect_ratios"
-                  :key="ratio"
-                  :value="ratio"
-                >
-                  {{ ratio === '9:16' ? '竖屏' : ratio === '16:9' ? '横屏' : '方形' }}
-                </option>
-              </select>
-              <Icon
-                name="down"
-                :size="11"
-              />
-            </label>
-            <label class="composer-select style-select">
-              <Icon
-                name="palette"
-                :size="14"
-              />
-              <select
-                :value="settings.style_id"
-                aria-label="视频风格"
-                :disabled="busy || pending || historical || intent === 'chat'"
-                @change="updateSetting('style_id', $event)"
-              >
-                <option
-                  v-for="style in caps.styles"
-                  :key="style.id"
-                  :value="style.id"
-                >
-                  {{ style.name }}
-                </option>
-              </select>
-              <Icon
-                name="down"
-                :size="11"
-              />
-            </label>
+            <span class="skill-flow-hint">时长与风格将在创作对话中逐步选择</span>
           </div>
           <button
             v-if="busy"

@@ -25,7 +25,8 @@
     "format:python": "uv run --frozen --only-dev ruff format .",
     "format:check": "npm run format:check:web && npm run format:check:python",
     "format:check:web": "prettier --check .",
-    "format:check:python": "uv run --frozen --only-dev ruff format --check ."
+    "format:check:python": "uv run --frozen --only-dev ruff format --check .",
+    "test:workflow-ui": "node scripts/verify-guided-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -33,6 +34,7 @@
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.0",

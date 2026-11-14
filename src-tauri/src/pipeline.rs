@@ -89,6 +89,7 @@ fn requested_duration_seconds(text: &str) -> Option<u32> {
 }
 
 /// 检测明确超过 300 秒的需求，不能用时长上限静默截断。
+#[cfg(test)]
 fn duration_exceeds_limit(text: &str) -> bool {
     text.char_indices().any(|(start, _)| {
         let tail = &text[start..];
@@ -185,14 +186,19 @@ fn provider_error(stage: StageKey, error: ProviderError) -> Stop {
     })
 }
 
-/// 配音指纹：旁白、音色、语速、语言、时长都相同时可以复用已生成的配音。
+/// 配音指纹：来源、旁白、音色、语速、语言、时长都相同时可以复用。
 ///
 /// 只取 SHA-256 的前 12 字节，足以区分同一镜头的不同版本。
 fn narration_key(shot: &Shot, audio: &AudioSettings, language: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!(
-        "{}|{}|{}|{}|{}",
-        shot.narration, audio.voice_id, audio.speech_rate, language, shot.duration_ms
+        "{}|{}|{}|{}|{}|{}",
+        shot.narration,
+        audio.voice_id,
+        audio.speech_rate,
+        language,
+        shot.duration_ms,
+        audio.voice_source
     ));
     hex::encode(&hasher.finalize()[..12])
 }
@@ -239,7 +245,12 @@ fn context(draft: &Draft, input: &JobInput) -> ProductionContext {
     ProductionContext {
         brief: draft.brief.clone(),
         settings: draft.settings.clone(),
-        user_text: input.text.clone(),
+        user_text: format!(
+            "{}\n{}\n{}",
+            input.text,
+            crate::skills::policy("production"),
+            crate::skills::template_recipe(&input.text)
+        ),
         answers: input.answers.clone(),
         speech_rate: draft.audio.speech_rate,
     }
@@ -356,6 +367,7 @@ impl Runner {
         future: impl Future<Output = ProviderResult<T>>,
     ) -> Step<T> {
         let started = std::time::Instant::now();
+        self.feedback(Some(stage), "info", format!("{label} 开始"))?;
         let job = self.tag();
         tokio::select! {
             _ = self.cancel.cancelled() => {
@@ -365,9 +377,11 @@ impl Runner {
             result = crate::metrics::operation(&self.state, &self.job_id, self.attempt, stage, label, future) => match result {
                 Ok(value) => {
                     tracing::info!(target: "job", "{job}   · {label} 完成，用时 {}", elapsed(started));
+                    self.feedback(Some(stage),"info",format!("{label} 完成，用时 {}",elapsed(started)))?;
                     Ok(value)
                 }
                 Err(error) => {
+                    self.feedback(Some(stage),"warn",format!("{label}：{}",error.message))?;
                     tracing::warn!(
                         target: "job",
                         "{job}   · {label} 失败（{}，用时 {}）：{}",
@@ -501,6 +515,295 @@ impl Runner {
         })
     }
 
+    /// 写入脱敏执行记录和事件；只保留最近两百条，刷新和重启均可恢复。
+    fn feedback(
+        &self,
+        stage: Option<StageKey>,
+        level: &str,
+        message: impl Into<String>,
+    ) -> Step<()> {
+        let message = message.into();
+        self.guarded(|t, job, _| {
+            job.job.logs.push(JobLog {
+                id: make_id("log"),
+                stage,
+                message: message.clone(),
+                created_at: now_iso(),
+                level: level.into(),
+            });
+            if job.job.logs.len() > 200 {
+                job.job.logs.drain(..job.job.logs.len() - 200);
+            }
+            ops::emit_job_updated(t, &job.job, &message)
+        })
+    }
+
+    /// 无明确回答就暂停；模型输出不能代替用户的阶段授权。
+    fn decision(&self, input: &JobInput, step: &str, prompt: String) -> Step<String> {
+        if let Some(value) = crate::skills::choice(input, step) {
+            return Ok(value.into());
+        }
+        let mut q = crate::skills::question(step, prompt, self.state.config.question_ttl_seconds);
+        if step == "duration" {
+            if let Some(seconds) = requested_duration_seconds(&input.text) {
+                if !q.options.iter().any(|o| o.value == seconds.to_string()) {
+                    q.options.push(QuestionOption {
+                        value: seconds.to_string(),
+                        label: format!("采用你提出的 {seconds} 秒"),
+                    });
+                }
+            }
+        }
+        self.pause_choice(q)?;
+        Err(Stop::Paused)
+    }
+
+    /// 把问题、消息和活动任务在同一个受 fencing 保护的事务内保存。
+    fn pause_choice(&self, q: Question) -> Step<()> {
+        self.guarded(|t, job, project| crate::skills::pause(t, job, project, q))?;
+        Err(Stop::Paused)
+    }
+
+    /// 应用技能引导的基础选择；每次恢复重新读取已保存的回答，绝不自动确认。
+    fn guided_setup(&self, input: &mut JobInput, draft: &mut Draft) -> Step<()> {
+        let before = draft.clone();
+        let style = self.decision(
+            input,
+            "style",
+            "先选择这支视频的视觉风格。每一步确认后才会继续。".into(),
+        )?;
+        draft.settings.style_id = style;
+        let duration = self.decision(
+            input,
+            "duration",
+            "这支视频希望讲多长？也可以交给内容规划推荐。".into(),
+        )?;
+        if let Ok(seconds) = duration.parse::<u32>() {
+            draft.settings.target_duration_seconds = seconds.clamp(15, 300);
+        }
+        draft.settings.visual_format = self.decision(
+            input,
+            "visual",
+            "选择用哪种代码画面制作视频。基础成片不会调用剪辑库。".into(),
+        )?;
+        self.decision(input,"voice","选择旁白来源：API、本地 breezeTTS2，或不用旁白只配 BGM。API/本地配音超时会自动退回 BGM 并在步骤中说明。".into())?;
+        let mut voice = crate::skills::voice_mode(input).to_string();
+        if voice == "breeze" {
+            let config = self.state.model_config.load();
+            if !crate::breeze_model::status(&config).installed {
+                match crate::skills::choice(input, "breeze_install") {
+                    Some("choose_api") => voice = "api".into(),
+                    Some("bgm") => voice = "bgm".into(),
+                    _ => {
+                        let mut q=crate::skills::question("voice","尚未找到完整的 breezeTTS2 模型（约5.2GB）。是否打开下载设置？下载需你再次点击同意，装好后再继续。".into(),self.state.config.question_ttl_seconds);
+                        q.id = crate::skills::question_id("breeze_install");
+                        q.options = vec![
+                            ("download", "打开模型下载设置"),
+                            ("ready", "模型已就绪，继续"),
+                            ("choose_api", "改用 API 配音"),
+                            ("bgm", "不用配音，纯 BGM"),
+                        ]
+                        .into_iter()
+                        .map(|(value, label)| QuestionOption {
+                            value: value.into(),
+                            label: label.into(),
+                        })
+                        .collect();
+                        return self.pause_choice(q);
+                    }
+                }
+            }
+        }
+        draft.audio.narration_enabled = voice != "bgm" && !input.voice_fallback;
+        draft.audio.voice_source = if input.voice_fallback {
+            "bgm".into()
+        } else {
+            voice
+        };
+        let music = if let Some(value) = crate::skills::choice(input, "music") {
+            value.to_string()
+        } else {
+            let mut q = crate::skills::question(
+                "music",
+                "选择背景音乐来源。上传音频可先进入素材库；等待选择期间可以上传。".into(),
+                self.state.config.question_ttl_seconds,
+            );
+            if !draft.audio.narration_enabled {
+                q.options.retain(|o| o.value != "none");
+            }
+            if input.text.contains("vibe-knowledge-awards") {
+                q.options.insert(
+                    0,
+                    QuestionOption {
+                        value: "fixed".into(),
+                        label: "使用 Vibe 模板示例 BGM（可选）".into(),
+                    },
+                );
+            }
+            return self.pause_choice(q);
+        };
+        draft.audio.music_mode =
+            if music == "fixed" || (music == "none" && !draft.audio.narration_enabled) {
+                "auto"
+            } else {
+                &music
+            }
+            .into();
+        if music == "upload" {
+            let project_id = self.project_id().map_err(Stop::from)?;
+            let (assets, _) = self
+                .state
+                .db
+                .read(|c| db::list_assets(c, &project_id, None, 10000, db::AssetScope::Uploads))
+                .map_err(Stop::from)?;
+            let audio: Vec<_> = assets
+                .into_iter()
+                .filter(|a| a.asset.kind == "audio" && a.asset.status == "ready")
+                .collect();
+            let selected = crate::skills::choice(input, "music_asset");
+            if let Some(asset) = audio.iter().find(|a| Some(a.asset.id.as_str()) == selected) {
+                draft.audio.music_asset_id = Some(asset.asset.id.clone());
+            } else {
+                let mut q = crate::skills::question(
+                    "music",
+                    if audio.is_empty() {
+                        "请先在素材库上传一份音频，再点“已上传，刷新音频列表”。"
+                    } else {
+                        "选择用哪份已上传音频作为 BGM。"
+                    }
+                    .into(),
+                    self.state.config.question_ttl_seconds,
+                );
+                q.id = crate::skills::question_id("music_asset");
+                q.options = audio
+                    .iter()
+                    .map(|a| QuestionOption {
+                        value: a.asset.id.clone(),
+                        label: a.asset.file_name.clone(),
+                    })
+                    .collect();
+                if q.options.is_empty() {
+                    q.options.push(QuestionOption {
+                        value: "ready".into(),
+                        label: "已上传，刷新音频列表".into(),
+                    });
+                }
+                return self.pause_choice(q);
+            }
+        } else {
+            draft.audio.music_asset_id = None;
+            draft.audio.music_id = None;
+        }
+        if before.settings != draft.settings {
+            draft.invalidated_stages =
+                merge_stages(&draft.invalidated_stages, &StageKey::Planning.and_after());
+            if let Some(brief) = &mut draft.brief {
+                brief.style = draft.settings.style_id.clone();
+            }
+        }
+        if before.audio != draft.audio {
+            draft.invalidated_stages =
+                merge_stages(&draft.invalidated_stages, &StageKey::Audio.and_after());
+            if before.audio.music_mode != draft.audio.music_mode
+                || before.audio.music_asset_id != draft.audio.music_asset_id
+            {
+                draft.audio.resolved_music_asset_id = None;
+            }
+        }
+        let first = input.skill_version.is_none();
+        input.skill_version = Some(crate::skills::version());
+        if before != *draft || first {
+            let draft = draft.clone();
+            let input = input.clone();
+            self.guarded(|t, job, project| {
+                job.input = input;
+                Self::save_draft(t, job, project, &draft)
+            })?;
+        }
+        Ok(())
+    }
+
+    /// 从当前任务读取项目归属，不接受前端或模型传入的任意路径。
+    fn project_id(&self) -> Result<String, ApiError> {
+        self.state.db.read(|c| {
+            Ok(db::load_job(c, &self.job_id)?
+                .ok_or_else(ApiError::fenced)?
+                .job
+                .project_id)
+        })
+    }
+
+    /// 基础成片发布后才处理可选剪辑，同意之前绝不初始化或执行 Quercus 工具。
+    async fn post_edit(&self, job: &JobRow, project: &ProjectRow) -> Step<()> {
+        let choice = self.decision(
+            &job.input,
+            "post_edit",
+            "基础视频已制作完成，可以先预览。是否现在调用 Quercus 剪辑库进一步处理？".into(),
+        )?;
+        if choice == "skip" || job.input.post_edit_applied {
+            self.decision(
+                &job.input,
+                "delivery",
+                "成片已保存在历史版本中。确认交付并结束本次制作？".into(),
+            )?;
+            return self.guarded(|t, job, project| {
+                job.input.awaiting_post_edit = false;
+                job.job.status = JobStatus::Succeeded;
+                job.job.finished_at = Some(now_iso());
+                job.job.question = None;
+                ops::release_project(t, project)?;
+                if let Some(id) = &job.assistant_message_id {
+                    ops::finish_message(
+                        t,
+                        id,
+                        Some(if job.input.post_edit_applied {
+                            "剪辑后成片已交付，原始版本也已保留。"
+                        } else {
+                            "已保留基础成片，本次话题制作完成；没有调用剪辑库。"
+                        }),
+                        "completed",
+                        |b| b.retain(|v| v["type"] != "question"),
+                    )?;
+                }
+                ops::emit_job_updated(t, &job.job, "已完成交付")?;
+                t.emit(
+                    &project.project.id,
+                    "job.completed",
+                    json!({"job_id":job.job.id}),
+                )?;
+                Ok(())
+            });
+        }
+        let plan = project.artifacts.edit_plan.clone().ok_or_else(|| {
+            Stop::Failed(JobError {
+                code: "MISSING_PLAN".into(),
+                message: "缺少基础视频时间线，请先重新生成。".into(),
+                retryable: false,
+                failed_stage: Some(StageKey::Edit),
+            })
+        })?;
+        self.set_stage(
+            &[StageKey::Edit, StageKey::Render],
+            "running",
+            Some("已获确认，正在调用 Quercus"),
+        )?;
+        let renderer =
+            crate::providers::quercus::QuercusRenderer::new(&self.state.model_config.load());
+        let output = self
+            .call(
+                StageKey::Render,
+                "Quercus 可选剪辑",
+                renderer.render(RenderRequest {
+                    ctx: context(&project.draft, &job.input),
+                    inputs: self.plan_inputs(&plan)?,
+                    plan: plan.clone(),
+                }),
+            )
+            .await?;
+        let video = self.store_asset(&project.project.id, &output).await?;
+        self.publish(project.draft.clone(), video, plan, false)
+    }
+
     // ---------- generate / revise ----------
 
     /// generate / revise 的完整制作流程。
@@ -519,22 +822,28 @@ impl Runner {
             })
             .map_err(Stop::from)?;
         let project_id = project.project.id.clone();
+        if job
+            .input
+            .skill_version
+            .as_ref()
+            .is_some_and(|version| version != &crate::skills::version())
+        {
+            return Err(Stop::Failed(JobError {
+                code: "SKILL_VERSION_CHANGED".into(),
+                message: "本次制作使用的技能版本已更新，请结束此话题并按新规则重新开始。".into(),
+                retryable: false,
+                failed_stage: None,
+            }));
+        }
+        if job.input.awaiting_post_edit {
+            return self.post_edit(&job, &project).await;
+        }
         let kind = job.job.kind;
         let mut input = job.input.clone();
         let mut draft = project.draft.clone();
         let mut artifacts = project.artifacts.clone();
         let providers = self.state.providers.clone();
-        if duration_exceeds_limit(&input.text) {
-            return Err(Stop::Failed(JobError {
-                code: "DURATION_TOO_LONG".into(),
-                message: "单个作品最长支持 300 秒，请缩短目标时长后重试。".into(),
-                retryable: false,
-                failed_stage: Some(StageKey::Planning),
-            }));
-        }
-        if let Some(seconds) = requested_duration_seconds(&input.text) {
-            draft.settings.target_duration_seconds = seconds;
-        }
+        self.guided_setup(&mut input, &mut draft)?;
 
         // 开场白（恢复执行时不重复）。
         let opening = match &job.assistant_message_id {
@@ -570,7 +879,14 @@ impl Runner {
                     }),
                 )
                 .await?;
+            let approved_settings = draft.settings.clone();
+            let approved_audio = draft.audio.clone();
             draft = revision.draft;
+            draft.settings = approved_settings;
+            draft.audio.narration_enabled = approved_audio.narration_enabled;
+            draft.audio.voice_source = approved_audio.voice_source;
+            draft.audio.music_mode = approved_audio.music_mode;
+            draft.audio.music_asset_id = approved_audio.music_asset_id;
             draft.invalidated_stages =
                 merge_stages(&draft.invalidated_stages, &revision.invalidated);
             input.revision_applied = true;
@@ -607,8 +923,19 @@ impl Runner {
                     let selected_duration = draft.settings.target_duration_seconds;
                     draft.brief = Some(plan.brief);
                     draft.settings = plan.settings;
-                    // 界面选择或用户原话中的时长已经由前端保存；策划模型无权覆盖这一明确参数。
-                    draft.settings.target_duration_seconds = selected_duration;
+                    // 时长来自已经落库的对话选择；策划模型只能建议自动模式的时长。
+                    if crate::skills::choice(&input, "duration") != Some("auto") {
+                        draft.settings.target_duration_seconds = selected_duration;
+                    }
+                    draft.settings.style_id = crate::skills::choice(&input, "style")
+                        .unwrap_or("minimal")
+                        .into();
+                    draft.settings.visual_format = crate::skills::choice(&input, "visual")
+                        .unwrap_or("svg")
+                        .into();
+                    if let Some(brief) = &mut draft.brief {
+                        brief.style = draft.settings.style_id.clone();
+                    }
                     draft
                         .invalidated_stages
                         .retain(|s| *s != StageKey::Planning);
@@ -639,6 +966,20 @@ impl Runner {
             self.set_stage(&[StageKey::Planning], "skipped", None)?;
         }
 
+        self.decision(
+            &input,
+            "plan",
+            format!(
+                "创作方案：{}\n目标时长：{}秒；风格：{}；画面：{}。确认后才写文案。",
+                artifacts
+                    .plan_summary
+                    .as_deref()
+                    .unwrap_or("沿用已确认的创作主题"),
+                draft.settings.target_duration_seconds,
+                draft.settings.style_id,
+                draft.settings.visual_format
+            ),
+        )?;
         let ctx = context(&draft, &input);
 
         // 2. 文案（llm1）
@@ -664,6 +1005,19 @@ impl Runner {
         } else {
             self.set_stage(&[StageKey::Script], "skipped", None)?;
         }
+
+        self.decision(
+            &input,
+            "script",
+            format!(
+                "文案已完成：\n{}\n确认后才规划分镜。",
+                draft
+                    .script
+                    .as_ref()
+                    .map(|s| s.text.as_str())
+                    .unwrap_or_default()
+            ),
+        )?;
 
         // 3. 分镜（llm1）
         if draft.shots.is_empty() || draft.invalidated_stages.contains(&StageKey::Storyboard) {
@@ -701,19 +1055,46 @@ impl Runner {
                 &draft.invalidated_stages,
                 &[StageKey::Visuals, StageKey::Audio],
             );
+            // 时长预算须在用户看到分镜之前完成，确认之后不能再暗中截断内容。
+            fit_draft_narration(&mut draft);
             self.commit_stage(StageKey::Storyboard, &draft, "分镜已完成")?;
             self.say("脚本与分镜已准备好，接下来让画面和声音相遇。")?;
         } else {
             self.set_stage(&[StageKey::Storyboard], "skipped", None)?;
+            let before_fit = draft.clone();
+            fit_draft_narration(&mut draft);
+            if before_fit != draft {
+                draft.invalidated_stages =
+                    merge_stages(&draft.invalidated_stages, &StageKey::Audio.and_after());
+                self.commit_stage(StageKey::Storyboard, &draft, "已按配音时长校对分镜，请确认")?;
+            }
         }
 
-        // 用户本次附带的素材：图片 / 视频依次放进镜头，音频作为背景音乐。
+        // 只把附带的图片 / 视频放进镜头；音频来源由音乐技能确认。
         if !input.attachments_applied && !input.asset_ids.is_empty() {
             self.apply_attachments(&mut draft, &mut input)?;
         }
 
-        fit_draft_narration(&mut draft);
-
+        self.decision(
+            &input,
+            "storyboard",
+            format!(
+                "分镜已完成，共{}个镜头：\n{}",
+                draft.shots.len(),
+                draft
+                    .shots
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| format!("{}. {} — {}", i + 1, s.visual_prompt, s.narration))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        )?;
+        self.decision(
+            &input,
+            "production",
+            "确认开始制作画面与音频？本步骤会调用你选定的模型。".into(),
+        )?;
         self.state.db.write(|conn| {
             conn.execute("UPDATE generation_runs SET config = json_set(config, '$.settings', json(?1), '$.shot_count', ?2) WHERE job_id = ?3",
                 rusqlite::params![serde_json::to_string(&draft.settings).unwrap_or_default(), draft.shots.len() as i64, self.job_id])?;
@@ -767,7 +1148,7 @@ impl Runner {
                 .prepare_audio(&project_id, &ctx, &draft, &artifacts)
                 .await;
             if r.is_ok() {
-                self.set_stage(&[StageKey::Audio], "succeeded", Some("配音与音乐已就绪"))?;
+                self.set_stage(&[StageKey::Audio], "succeeded", Some("声音与音乐已就绪"))?;
             }
             r
         };
@@ -799,6 +1180,18 @@ impl Runner {
                 return Err(stop);
             }
         };
+        let fallback = self
+            .state
+            .db
+            .read(|c| Ok(db::load_job(c, &self.job_id)?.is_some_and(|j| j.input.voice_fallback)))
+            .map_err(Stop::from)?;
+        if fallback {
+            draft.audio.narration_enabled = false;
+            draft.audio.voice_source = "bgm".into();
+            if draft.audio.music_mode == "none" {
+                draft.audio.music_mode = "auto".into();
+            }
+        }
         if need_visuals || need_audio {
             let mut new_assets: Vec<AssetRow> = vec![];
             for (shot_id, asset) in visuals {
@@ -844,7 +1237,7 @@ impl Runner {
             })?;
         }
 
-        // 6. 剪辑方案（llm1）
+        // 6. 确定性安排镜头顺序；可选剪辑必须等初版之后确认。
         self.set_stage(&[StageKey::Edit], "running", None)?;
         // 关闭配音时忽略历史配音产物，避免旧版本的声音混进新成片。
         let narration_map: HashMap<String, (String, i64)> = if draft.audio.narration_enabled {
@@ -866,20 +1259,21 @@ impl Runner {
                 .and_then(|row| row.asset.duration_ms),
             None => None,
         };
-        let mut plan = self
-            .call(
-                StageKey::Edit,
-                "llm1 生成剪辑方案",
-                providers.load().script.edit_plan(EditRequest {
-                    draft: draft.clone(),
-                    narration: narration_map,
-                    music_duration_ms,
-                }),
-            )
-            .await?;
+        // 首次交付使用确定性时间线，不调用模型剪辑代理或 Quercus 工具。
+        let mut plan = crate::providers::siliconflow::timeline(&EditRequest {
+            draft: draft.clone(),
+            narration: narration_map,
+            music_duration_ms,
+        });
+        plan.ops = crate::providers::edit_ops::ops_from_plan(&plan);
         draft.invalidated_stages.retain(|s| *s != StageKey::Edit);
         artifacts.edit_plan = Some(plan.clone());
-        self.commit_artifacts(StageKey::Edit, &draft, &artifacts, "剪辑方案已完成")?;
+        self.commit_artifacts(
+            StageKey::Edit,
+            &draft,
+            &artifacts,
+            "镜头顺序已安排，尚未调用剪辑库",
+        )?;
 
         // 7. 调色、特效与字幕：按用户选择的预设写入剪辑方案。
         self.set_stage(&[StageKey::Finishing], "running", None)?;
@@ -901,16 +1295,26 @@ impl Runner {
             .invalidated_stages
             .retain(|s| *s != StageKey::Finishing);
         artifacts.edit_plan = Some(plan.clone());
-        self.commit_artifacts(StageKey::Finishing, &draft, &artifacts, "调色与字幕已完成")?;
+        self.commit_artifacts(
+            StageKey::Finishing,
+            &draft,
+            &artifacts,
+            "字幕已准备；可选转场与调色等待成片后的剪辑选择",
+        )?;
 
-        // 8. 渲染输出（剪辑库）
+        self.decision(
+            &input,
+            "render",
+            "画面与声音已就绪。确认合成为基础成片？此时不会调用剪辑库。".into(),
+        )?;
+        // 8. 基础视频编码
         self.set_stage(&[StageKey::Render], "running", None)?;
         let inputs = self.plan_inputs(&plan)?;
         let ctx = context(&draft, &input);
         let output = self
             .call(
                 StageKey::Render,
-                "剪辑库 渲染成片",
+                "基础视频编码（未调用剪辑库）",
                 providers.load().renderer.render(RenderRequest {
                     ctx,
                     plan: plan.clone(),
@@ -919,7 +1323,7 @@ impl Runner {
             )
             .await?;
         let video = self.store_asset(&project_id, &output).await?;
-        self.publish(draft, video, plan)
+        self.publish(draft, video, plan, true)
     }
 
     /// 提交一个阶段的草稿产物：阶段成功、草稿版本 + 1。
@@ -975,6 +1379,9 @@ impl Runner {
                     .map(|(value, label)| QuestionOption { value, label })
                     .collect(),
                 expires_at: iso(now() + chrono::Duration::seconds(ttl)),
+                skill_id: None,
+                step: None,
+                total_steps: None,
             };
             job.job.status = JobStatus::WaitingInput;
             for stage in &mut job.job.stages {
@@ -1023,7 +1430,7 @@ impl Runner {
             .map_err(Stop::from)
     }
 
-    /// 把用户附带的素材放进草稿：图片 / 视频依次作为镜头画面，音频作为背景音乐。
+    /// 把用户附带的图片 / 视频依次放进镜头；音频必须经过音乐技能明确选择。
     ///
     /// 完成后在任务输入中记下 `attachments_applied`，重试或恢复时不会重复放入。
     fn apply_attachments(&self, draft: &mut Draft, input: &mut JobInput) -> Step<()> {
@@ -1031,12 +1438,7 @@ impl Runner {
         let mut shot_index = 0;
         for attachment in attachments {
             if attachment.kind == "audio" {
-                draft.audio.music_mode = "upload".into();
-                draft.audio.music_id = None;
-                draft.audio.music_asset_id = Some(attachment.asset_id.clone());
-                draft.audio.resolved_music_asset_id = None;
-                draft.invalidated_stages =
-                    merge_stages(&draft.invalidated_stages, &[StageKey::Audio]);
+                continue;
             } else if let Some(shot) = draft.shots.get_mut(shot_index) {
                 shot.asset_ids = vec![attachment.asset_id.clone()];
                 shot_index += 1;
@@ -1049,7 +1451,7 @@ impl Runner {
             Self::save_draft(t, job, project, &saved_draft)?;
             ops::emit_job_updated(t, &job.job, "已放入你上传的素材")
         })?;
-        tracing::info!(target: "job", "{}   · 已把用户上传的素材放入分镜 / 背景音乐", self.tag());
+        tracing::info!(target: "job", "{}   · 已把用户上传的画面素材放入分镜", self.tag());
         Ok(())
     }
 
@@ -1077,7 +1479,12 @@ impl Runner {
                 let media = self
                     .call(
                         StageKey::Visuals,
-                        &format!("llm1 生成 SVG 画面（镜头 {}/{}）", index + 1, count),
+                        &format!(
+                            "生成 {} 画面（镜头 {}/{}）",
+                            ctx.settings.visual_format.to_uppercase(),
+                            index + 1,
+                            count
+                        ),
                         self.state.providers.load().visual.generate_shot(request),
                     )
                     .await?;
@@ -1103,10 +1510,41 @@ impl Runner {
                 failed_stage: Some(StageKey::Audio),
             }));
         }
+        let input = self
+            .state
+            .db
+            .read(|c| {
+                Ok(db::load_job(c, &self.job_id)?
+                    .ok_or_else(ApiError::fenced)?
+                    .input)
+            })
+            .map_err(Stop::from)?;
+        let mode = crate::skills::voice_mode(&input);
+        let config = self.state.model_config.load();
+        let voice: std::sync::Arc<dyn VoiceModel> = if mode == "breeze" {
+            std::sync::Arc::new(
+                crate::providers::breeze::BreezeTts::new(&config).map_err(|e| {
+                    provider_error(
+                        StageKey::Audio,
+                        ProviderError::unavailable(format!("本地配音配置不完整：{e}")),
+                    )
+                })?,
+            )
+        } else if config.provider_llm4 == "siliconflow"
+            || (config.qwen_tts.api_key.is_empty() && !config.siliconflow_tts.api_key.is_empty())
+        {
+            std::sync::Arc::new(crate::providers::openai::OpenAiSpeech::siliconflow(&config))
+        } else {
+            std::sync::Arc::new(crate::providers::openai::OpenAiSpeech::qwen(&config))
+        };
+        let timeout_seconds = config
+            .voice_timeout_seconds
+            .unwrap_or(if mode == "breeze" { 90 } else { 45 })
+            .clamp(1, 600);
         // 配音（llm4，逐句）与背景音乐（llm3，异步生成）互不依赖，同时进行：
         // 本地 TTS 每句数十秒、云端音乐需排队，串行会白白多等几分钟。
         let narration = async {
-            let mut narrations = vec![];
+            let mut narrations: Vec<(String, String, AssetRow)> = vec![];
             // 关闭配音时字幕承担全部讲解，成片只保留背景音乐。
             if !draft.audio.narration_enabled {
                 return Ok::<_, Stop>(narrations);
@@ -1125,13 +1563,44 @@ impl Runner {
                     language: draft.settings.language.clone(),
                     target_duration_ms: shot.duration_ms,
                 };
-                let media = self
+                let result = self
                     .call(
                         StageKey::Audio,
-                        &format!("llm4 配音（{}字）", shot.narration.chars().count()),
-                        self.state.providers.load().voice.synthesize(request),
+                        &format!(
+                            "{}配音（{}字，超时{}秒）",
+                            if mode == "breeze" { "本地" } else { "API" },
+                            shot.narration.chars().count(),
+                            timeout_seconds
+                        ),
+                        voice_with_deadline(
+                            voice.as_ref(),
+                            request,
+                            std::time::Duration::from_secs(timeout_seconds),
+                        ),
                     )
-                    .await?;
+                    .await;
+                let media = match result {
+                    Ok(media) => media,
+                    Err(Stop::Failed(error)) if error.code == "VOICE_TIMEOUT" => {
+                        // 丢弃本轮不完整旁白，持久化回退；恢复后不再次调用同一超时配音。
+                        for (_, _, asset) in &narrations {
+                            let _ = tokio::fs::remove_file(&asset.storage_path).await;
+                        }
+                        self.guarded(|t, job, project| {
+                            job.input.voice_fallback = true;
+                            project.draft.audio.narration_enabled = false;
+                            project.draft.audio.voice_source = "bgm".into();
+                            ops::emit_job_updated(t, &job.job, "配音超时，已按约定切换纯 BGM")
+                        })?;
+                        self.feedback(
+                            Some(StageKey::Audio),
+                            "warn",
+                            "配音超时：已停用本轮所有旁白，使用字幕与 BGM 继续制作。",
+                        )?;
+                        return Ok(vec![]);
+                    }
+                    Err(error) => return Err(error),
+                };
                 let media = self
                     .call(
                         StageKey::Audio,
@@ -1155,6 +1624,40 @@ impl Runner {
                 return Ok::<_, Stop>((None, false));
             }
             let total: i64 = draft.shots.iter().map(|s| s.duration_ms).sum();
+            if crate::skills::choice(&input, "music") == Some("fixed") {
+                let path = self
+                    .state
+                    .config
+                    .demo_media_dir
+                    .join("vibe-knowledge-awards/we-never.mp3");
+                if !path.is_file() {
+                    return Err(provider_error(
+                        StageKey::Audio,
+                        ProviderError::invalid("Vibe 示例音乐缺失，请重新选择自动配乐或上传音频。"),
+                    ));
+                }
+                let media = MediaOutput {
+                    data: MediaData::Path(path),
+                    file_name: "Vibe 示例 BGM.mp3".into(),
+                    mime_type: "audio/mpeg".into(),
+                    kind: "audio".into(),
+                    source: "library".into(),
+                    width: None,
+                    height: None,
+                    duration_ms: None,
+                };
+                self.feedback(
+                    Some(StageKey::Audio),
+                    "info",
+                    "按你的选择使用 Vibe 模板示例 BGM。",
+                )?;
+                return Ok((
+                    Some(MusicChoice::New(Box::new(
+                        self.store_asset(project_id, &media).await?,
+                    ))),
+                    true,
+                ));
+            }
             let music = match audio.music_mode.as_str() {
                 "none" => None,
                 "upload" => audio.music_asset_id.clone().map(MusicChoice::Existing),
@@ -1169,7 +1672,7 @@ impl Runner {
                         .call(
                             StageKey::Audio,
                             "llm3 背景音乐",
-                            self.state.providers.load().music.compose(request),
+                            crate::providers::procedural::ProceduralMusic.compose(request),
                         )
                         .await?;
                     Some(MusicChoice::New(Box::new(
@@ -1180,8 +1683,32 @@ impl Runner {
             Ok((music, true))
         };
         let (narrations, music) = tokio::join!(narration, music);
-        let (music, music_changed) = music?;
-        Ok((narrations?, music, music_changed))
+        let (mut music, mut music_changed) = music?;
+        let narrations = narrations?;
+        let fallback = self
+            .state
+            .db
+            .read(|c| Ok(db::load_job(c, &self.job_id)?.is_some_and(|j| j.input.voice_fallback)))
+            .map_err(Stop::from)?;
+        if fallback && music.is_none() && draft.audio.resolved_music_asset_id.is_none() {
+            let media = self
+                .call(
+                    StageKey::Audio,
+                    "超时回退：生成本地 BGM",
+                    crate::providers::procedural::ProceduralMusic.compose(MusicRequest {
+                        ctx: ctx.clone(),
+                        mode: "auto".into(),
+                        track_id: None,
+                        duration_ms: draft.shots.iter().map(|s| s.duration_ms).sum(),
+                    }),
+                )
+                .await?;
+            music = Some(MusicChoice::New(Box::new(
+                self.store_asset(project_id, &media).await?,
+            )));
+            music_changed = true;
+        }
+        Ok((narrations, music, music_changed))
     }
 
     /// 收集剪辑方案中引用的全部素材的本地路径，交给渲染器。
@@ -1208,7 +1735,13 @@ impl Runner {
     }
 
     /// 发布新成片：创建不可变版本，任务成功，释放项目。
-    fn publish(&self, mut draft: Draft, video: AssetRow, edit_plan: EditPlan) -> Step<()> {
+    fn publish(
+        &self,
+        mut draft: Draft,
+        video: AssetRow,
+        edit_plan: EditPlan,
+        offer_edit: bool,
+    ) -> Step<()> {
         draft.invalidated_stages.clear();
         self.guarded(move |t, job, project| {
             db::insert_asset(t, &video)?;
@@ -1255,10 +1788,10 @@ impl Runner {
                 }
             }
             if let Some(id) = job.assistant_message_id.clone() {
-                let text = if job.job.kind == JobKind::Revise {
-                    "新版本准备好了，之前的作品也已经保留。可以切换对比，或继续告诉我想调整的地方。"
+                let text = if offer_edit {
+                    "基础成片已准备好，可以先预览，再选择是否使用剪辑库。之前的版本会保留。"
                 } else {
-                    "你的短片准备好了！画面、配音和音乐都安排好了。还想调整哪里，继续告诉我就好。"
+                    "剪辑后版本已准备好，基础版本也已保留。预览满意后请确认交付。"
                 };
                 let usage =
                     crate::metrics::completion_summary(t, &job.job.id, &job.job.created_at, &created)?;
@@ -1283,7 +1816,16 @@ impl Runner {
                 json!({ "project_id": project.project.id, "job_id": job.job.id, "video_version_id": version.id }),
             )?;
             ops::emit_job_updated(t, &job.job, "成片已完成")?;
-            t.emit(&project.project.id, "job.completed", json!({ "job_id": job.job.id }))?;
+            if offer_edit {
+                job.input.awaiting_post_edit=true;
+                let q=crate::skills::question("post_edit","基础成片已准备好，可以先预览。是否使用 Quercus 剪辑库继续处理？".into(),self.state.config.question_ttl_seconds);
+                crate::skills::pause(t,job,project,q)?;
+            } else {
+                job.input.post_edit_applied=true;
+                job.input.awaiting_post_edit=true;
+                let q=crate::skills::question("delivery","可选剪辑已完成，新旧版本均已保留。确认交付并结束本次制作？".into(),self.state.config.question_ttl_seconds);
+                crate::skills::pause(t,job,project,q)?;
+            }
             Ok(version.version_number)
         })
         .map(|number| {
@@ -1470,10 +2012,7 @@ impl Runner {
             self.call(
                 StageKey::Render,
                 "剪辑库 导出工程包",
-                self.state
-                    .providers
-                    .load()
-                    .renderer
+                crate::providers::quercus::QuercusRenderer::new(&self.state.model_config.load())
                     .export_bundle(ProjectBundleRequest {
                         source: source.storage_path.clone().into(),
                         plan: plan.expect("bundle plan checked"),
@@ -1486,7 +2025,7 @@ impl Runner {
         } else {
             self.call(
                 StageKey::Render,
-                "剪辑库 导出成片",
+                "导出基础成片",
                 self.state.providers.load().renderer.export(ExportRequest {
                     source: source.storage_path.clone().into(),
                     duration_ms: source.asset.duration_ms.unwrap_or(version.duration_ms),

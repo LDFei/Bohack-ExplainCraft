@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "mode": "guided",
+  "name": "ExplainCraft guided production",
+  "steps": [
+    {
+      "id": "style",
+      "skill": "style.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "warm",
+          "label": "温暖手绘"
+        },
+        {
+          "value": "minimal",
+          "label": "极简信息图"
+        },
+        {
+          "value": "cinematic",
+          "label": "电影叙事"
+        },
+        {
+          "value": "energetic",
+          "label": "高能卡点"
+        }
+      ]
+    },
+    {
+      "id": "duration",
+      "skill": "duration.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "15",
+          "label": "15 秒 · 一个结论"
+        },
+        {
+          "value": "30",
+          "label": "30 秒 · 简短讲解"
+        },
+        {
+          "value": "60",
+          "label": "60 秒 · 完整展开"
+        },
+        {
+          "value": "120",
+          "label": "120 秒 · 深度说明"
+        },
+        {
+          "value": "auto",
+          "label": "根据内容推荐时长"
+        }
+      ]
+    },
+    {
+      "id": "visual",
+      "skill": "visual.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "svg",
+          "label": "SVG 动画 · 矢量图解"
+        },
+        {
+          "value": "html",
+          "label": "HTML 动画 · 页面与排版"
+        }
+      ]
+    },
+    {
+      "id": "voice",
+      "skill": "voice.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "api",
+          "label": "API 配音"
+        },
+        {
+          "value": "breeze",
+          "label": "本地 breezeTTS2 配音"
+        },
+        {
+          "value": "bgm",
+          "label": "不用配音，只保留 BGM"
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "skill": "music.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "auto",
+          "label": "程序化背景音乐"
+        },
+        {
+          "value": "none",
+          "label": "不使用背景音乐"
+        },
+        {
+          "value": "upload",
+          "label": "使用已上传音频"
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "skill": "plan.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "确认创作方案，开始写文案"
+        }
+      ]
+    },
+    {
+      "id": "script",
+      "skill": "script.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "确认文案，继续"
+        }
+      ]
+    },
+    {
+      "id": "storyboard",
+      "skill": "storyboard.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "确认分镜，继续"
+        }
+      ]
+    },
+    {
+      "id": "production",
+      "skill": "production.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "开始制作镜头"
+        }
+      ]
+    },
+    {
+      "id": "render",
+      "skill": "render.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "渲染初版视频"
+        }
+      ]
+    },
+    {
+      "id": "post_edit",
+      "skill": "post-edit.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "skip",
+          "label": "保留初版，不使用剪辑库"
+        },
+        {
+          "value": "quercus",
+          "label": "使用 Quercus 剪辑库继续剪辑"
+        }
+      ]
+    },
+    {
+      "id": "delivery",
+      "skill": "delivery.md",
+      "requires_confirmation": true,
+      "options": [
+        {
+          "value": "continue",
+          "label": "确认交付"
+        }
+      ]
+    }
+  ],
+  "template_options": {
+    "vibe": {
+      "music": [
+        {
+          "value": "fixed",
+          "label": "使用 Vibe 示例 BGM"
+        }
+      ]
+    }
+  },
+  "rules": {
+    "implicit_approval": false,
+    "renderer_before_edit": "svg-html-ffmpeg",
+    "post_edit_library": "quercus",
+    "voice_timeout_fallback": "bgm",
+    "breeze_download_requires_confirmation": true,
+    "duration_bounds_seconds": {
+      "min": 15,
+      "max": 300
+    },
+    "scene_recipes": "shotcraft/recipes.json"
+  }
+}

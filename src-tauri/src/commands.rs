@@ -270,11 +270,24 @@ pub async fn upload_asset(
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("上传必须使用原始字节。".into());
     };
+    let mut headers = request.headers().clone();
+    // Tauri 的 fetch IPC 把 Content-Type 固定为 application/octet-stream。
+    // 业务 multipart 格式通过独立头传递，再在进入 Axum 之前恢复；兼容旧调用方。
+    let content_type = headers
+        .remove("x-upload-content-type")
+        .or_else(|| headers.get(axum::http::header::CONTENT_TYPE).cloned())
+        .filter(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.starts_with("multipart/form-data;") && value.contains("boundary=")
+            })
+        })
+        .ok_or_else(|| "上传缺少文件格式信息，请重新选择文件。".to_string())?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type);
     let response = route(
         state.inner().clone(),
         Method::POST,
         format!("/api/v1/projects/{project_id}/assets"),
-        request.headers().clone(),
+        headers,
         bytes.clone(),
     )
     .await?;
@@ -285,7 +298,16 @@ pub async fn upload_asset(
         .await
         .map_err(|error| error.to_string())?
         .to_bytes();
-    let body = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    // multipart 提取器等框架错误可能是纯文本，不能再把解析异常显示成上传原因。
+    let body = serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+        json!({
+            "error": {
+                "code": "UPLOAD_REQUEST_FAILED",
+                "message": if status == 413 { "文件过大，请压缩后再上传。" } else { "上传内容无法处理，请重新选择文件。" },
+                "retryable": status >= 500,
+            }
+        })
+    });
     Ok(CommandReply { status, body })
 }
 
@@ -1139,6 +1161,35 @@ mod tests {
                 .read(|conn| db::load_job(conn, &job_id))
                 .unwrap()
                 .expect("任务存在");
+            // 深度验收作为测试用户逐项确认，生产工作流没有跳过技能的开关。
+            if current.job.status == crate::models::JobStatus::WaitingInput {
+                let q = current.job.question.as_ref().expect("等待中的问题");
+                let value = match q.skill_id.as_deref() {
+                    Some("style") => "minimal",
+                    Some("duration") => "15",
+                    Some("visual") => "svg",
+                    Some("voice") => "api",
+                    Some("music") => "none",
+                    Some("post_edit") => "skip",
+                    _ => "continue",
+                };
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "idempotency-key",
+                    crate::util::make_id("smoke-answer").parse().unwrap(),
+                );
+                let reply = dispatch(
+                    state.clone(),
+                    Method::POST,
+                    format!("/api/v1/jobs/{job_id}/answers"),
+                    headers,
+                    json!({"question_id":q.id,"value":value}),
+                )
+                .await
+                .unwrap();
+                assert_eq!(reply.status, 202, "技能确认失败：{}", reply.body);
+                continue;
+            }
             if matches!(
                 current.job.status,
                 crate::models::JobStatus::Succeeded
@@ -1261,6 +1312,169 @@ mod tests {
             reply.body["data"]["draft"]["audio"]["narration_enabled"],
             false
         );
+    }
+
+    /// 按真实 WebView 的原始字节协议上传，验证 Tauri 覆盖 Content-Type 后仍可解析文件。
+    #[tokio::test]
+    async fn raw_upload_restores_multipart_metadata_and_preserves_idempotency() {
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        use tauri::webview::InvokeRequest;
+
+        /// 测试真实注册的 command，而不是直接绕过 IPC 调用上传处理器。
+        fn invoke(
+            window: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+            command: &str,
+            body: InvokeBody,
+            headers: HeaderMap,
+        ) -> Value {
+            tauri::test::get_ipc_response(
+                window,
+                InvokeRequest {
+                    cmd: command.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: if cfg!(windows) {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
+                    body,
+                    headers,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap()
+        }
+
+        let state = test_state();
+        let app = tauri::test::mock_builder()
+            .manage(state.clone())
+            .invoke_handler(crate::command_handler())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let window = tauri::WebviewWindowBuilder::new(&app, "upload-test", Default::default())
+            .build()
+            .unwrap();
+        let mut create_headers = HeaderMap::new();
+        create_headers.insert("authorization", "Bearer upload-owner".parse().unwrap());
+        create_headers.insert("idempotency-key", "upload-create-project".parse().unwrap());
+        let created = invoke(
+            &window,
+            "create_project",
+            InvokeBody::Json(json!({})),
+            create_headers,
+        );
+        assert_eq!(created["status"], 201);
+        let project_id = created["body"]["data"]["project"]["id"].as_str().unwrap();
+
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut bytes =
+            b"--upload-regression\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
+                .to_vec();
+        bytes.extend_from_slice("中文素材.png".as_bytes());
+        bytes.extend_from_slice(b"\"\r\nContent-Type: image/png\r\n\r\n");
+        bytes.extend_from_slice(png.get_ref());
+        bytes.extend_from_slice(b"\r\n--upload-regression--\r\n");
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer upload-owner".parse().unwrap());
+        headers.insert("idempotency-key", "same-raw-upload".parse().unwrap());
+        headers.insert("x-project-id", project_id.parse().unwrap());
+        headers.insert("content-type", "application/octet-stream".parse().unwrap());
+        headers.insert(
+            "x-upload-content-type",
+            "multipart/form-data; boundary=upload-regression"
+                .parse()
+                .unwrap(),
+        );
+        let uploaded = invoke(
+            &window,
+            "upload_asset",
+            InvokeBody::Raw(bytes.clone()),
+            headers.clone(),
+        );
+        assert_eq!(uploaded["status"], 201, "{uploaded}");
+        let asset = &uploaded["body"]["data"]["asset"];
+        assert_eq!(asset["file_name"], "中文素材.png");
+        assert_eq!(asset["status"], "ready");
+        assert_eq!(asset["kind"], "image");
+        assert_eq!(asset["width"], 2);
+        assert_eq!(asset["size_bytes"], png.get_ref().len());
+        let replay = invoke(
+            &window,
+            "upload_asset",
+            InvokeBody::Raw(bytes.clone()),
+            headers.clone(),
+        );
+        assert_eq!(replay["body"]["data"]["asset"]["id"], asset["id"]);
+        assert_eq!(
+            state
+                .db
+                .read(|conn| db::count_uploads(conn, project_id))
+                .unwrap(),
+            1
+        );
+
+        // 等待 BGM 选择时必须可以上传；执行中的任务仍保持素材集合稳定。
+        state.db.write(|conn| {
+            conn.execute(
+                "INSERT INTO jobs (id, project_id, kind, status, stages, input, checkpoint_revision, created_at)
+                 VALUES ('upload-waiting-job', ?1, 'generate', 'waiting_input', '[]', '{\"text\":\"\"}', 1, ?2)",
+                rusqlite::params![project_id, crate::util::now_iso()],
+            )?;
+            conn.execute("UPDATE projects SET active_job_id = 'upload-waiting-job' WHERE id = ?1", [project_id])?;
+            Ok(())
+        }).unwrap();
+        headers.insert("idempotency-key", "upload-while-waiting".parse().unwrap());
+        let waiting_upload = invoke(
+            &window,
+            "upload_asset",
+            InvokeBody::Raw(bytes.clone()),
+            headers.clone(),
+        );
+        assert_eq!(waiting_upload["status"], 201, "{waiting_upload}");
+        for status in ["queued", "running", "cancelling"] {
+            state
+                .db
+                .write(|conn| {
+                    conn.execute(
+                        "UPDATE jobs SET status = ?1 WHERE id = 'upload-waiting-job'",
+                        [status],
+                    )?;
+                    Ok(())
+                })
+                .unwrap();
+            headers.insert(
+                "idempotency-key",
+                format!("upload-while-{status}").parse().unwrap(),
+            );
+            let blocked = invoke(
+                &window,
+                "upload_asset",
+                InvokeBody::Raw(bytes.clone()),
+                headers.clone(),
+            );
+            assert_eq!(blocked["status"], 409, "{status}: {blocked}");
+        }
+        assert_eq!(
+            state
+                .db
+                .read(|conn| db::count_uploads(conn, project_id))
+                .unwrap(),
+            2
+        );
+        headers.insert(
+            "authorization",
+            "Bearer another-upload-user".parse().unwrap(),
+        );
+        let forbidden = invoke(&window, "upload_asset", InvokeBody::Raw(bytes), headers);
+        assert_eq!(forbidden["status"], 404);
     }
 
     /// command 调度不启动监听器，也能读取真实 SQLite 后端能力。

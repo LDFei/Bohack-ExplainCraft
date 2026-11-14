@@ -26,7 +26,7 @@ import type { ModelSettings, ProviderSetting } from '../services/settings.ts';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
 
-const props = defineProps<{ open: boolean }>();
+const props = defineProps<{ open: boolean; focusBreeze?: boolean }>();
 const emit = defineEmits<{ close: []; saved: [persisted: boolean]; resetLayout: [] }>();
 const { general, saveSettings } = useAppSettings();
 const { selectedTheme, setTheme, persistenceError } = useTheme();
@@ -106,10 +106,20 @@ watch(
     theme.value = selectedTheme.value;
     error.value = '';
     resetDone.value = false;
-    tab.value = 'general';
+    tab.value = props.focusBreeze ? 'apis' : 'general';
     loading.value = true;
     try {
       providerForm.value = await getModelSettings();
+      // 从创作问题进入时只定位下载界面，不保存配置、更不会自动发起大文件下载。
+      if (props.focusBreeze)
+        providerForm.value.voice = {
+          ...providerForm.value.voice,
+          ...providerPreset('breeze', 'voice'),
+          provider: 'breeze',
+          apiKey: null,
+          hasApiKey: false,
+          voiceId: 'voice_warm',
+        };
       void loadVoices();
       void refreshBreezeModel();
     } catch (reason) {
@@ -673,7 +683,10 @@ async function save() {
             <small v-if="modelStatus.music">{{ modelStatus.music }}</small>
           </div>
         </details>
-        <details class="api-module">
+        <details
+          class="api-module"
+          :open="focusBreeze"
+        >
           <summary><strong>配音</strong></summary>
           <div class="api-module-fields">
             <label class="field-label">

@@ -479,6 +479,11 @@ impl ScriptModel for GlmScript {
             ctx.settings.target_duration_seconds,
             style_text(&ctx.settings.style_id),
         );
+        let user = format!(
+            "{}\n宿主已处理用户确认。只输出当前要求的JSON，遵守以下阶段规则：\n{}",
+            user,
+            crate::skills::policy("plan")
+        );
         let value = self
             .client
             .chat_json(
@@ -522,6 +527,11 @@ impl ScriptModel for GlmScript {
              第一句吸引注意，最后一句收尾点题。不要出现镜头说明、括号或表情符号。\n\
              输出 JSON：{{\"title\": 不超过15字的标题, \"lines\": [{count} 句解说词]}}",
             brief.subject, brief.audience, brief.purpose, brief.style, request.ctx.user_text,
+        );
+        let user = format!(
+            "{}\n宿主已处理用户确认。只输出当前要求的JSON，遵守以下阶段规则：\n{}",
+            user,
+            crate::skills::policy("script")
         );
         let value = self
             .client
@@ -588,6 +598,11 @@ impl ScriptModel for GlmScript {
             settings.aspect_ratio,
             settings.target_duration_seconds,
             numbered.join("\n"),
+        );
+        let user = format!(
+            "{}\n宿主已处理用户确认。只输出当前要求的JSON，遵守以下阶段规则：\n{}",
+            user,
+            crate::skills::policy("storyboard")
         );
         let value = self
             .client
@@ -893,7 +908,7 @@ impl ScriptModel for GlmScript {
 }
 
 /// 根据草稿与配音时长生成时间线（剪辑方案中除指令外的部分）。
-fn timeline(request: &EditRequest) -> EditPlan {
+pub(crate) fn timeline(request: &EditRequest) -> EditPlan {
     let draft: &Draft = &request.draft;
     let transition = if draft.finishing.effect_preset_id == "fade" {
         "fade"
@@ -1057,6 +1072,24 @@ fn validate_ops(ops: &[EditOp], plan: &EditPlan) -> Result<(), String> {
 impl VisualModel for GlmScript {
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
         let (width, height) = crate::util::dimensions(&request.ctx.settings.aspect_ratio);
+        if request.ctx.settings.visual_format == "html" {
+            let prompt=format!("输出离线 HTML 片段：{}x{}，{}ms。画面：{}。只允许<style>、HTML文本布局和内联SVG，动画用CSS关键帧；禁止脚本、事件、iframe、外链、图片资源和meta。代码不加Markdown。用户已确认风格：{}。镜头配方：{}",width,height,request.shot.duration_ms,request.shot.visual_prompt,request.ctx.settings.style_id,crate::skills::template_recipe(&request.ctx.user_text));
+            let code=self.client.chat(&self.access,"你用HTML/CSS制作确定性的动画镜头。只生成当前画面，不询问、不自动下载，不调用剪辑工具。",&prompt,12000).await?;
+            let html = code
+                .trim()
+                .trim_start_matches("```html")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim();
+            return crate::html_animation::render(
+                html,
+                request.shot.duration_ms.max(1000),
+                width as u32,
+                height as u32,
+                request.shot_index,
+            )
+            .await;
+        }
         let prompt = format!(
             "为以下镜头绘制 {}×{} 的 SVG 动画：{}\n风格：{}\n镜头时长：{} 毫秒。\n\
              只输出完整 SVG，不要 Markdown。使用 rect/circle/ellipse/path/text 和 SMIL animate/animateTransform；\
@@ -1071,6 +1104,12 @@ impl VisualModel for GlmScript {
                 .map(|brief| brief.style.as_str())
                 .unwrap_or("温暖"),
             request.shot.duration_ms,
+        );
+        let prompt = format!(
+            "{}\n{}\n{}",
+            prompt,
+            crate::skills::policy("visual"),
+            crate::skills::template_recipe(&request.ctx.user_text)
         );
         let text = self
             .client

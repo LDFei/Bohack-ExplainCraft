@@ -23,6 +23,7 @@
 #![allow(dead_code)]
 
 pub mod breeze;
+pub mod direct;
 pub mod edit_ops;
 pub mod encoding;
 pub mod openai;
@@ -388,6 +389,23 @@ pub trait VoiceModel: Send + Sync {
     async fn synthesize(&self, request: VoiceRequest) -> ProviderResult<MediaOutput>;
 }
 
+/// 配音服务的统一截止时间；超时用稳定错误码供流水线执行已约定的 BGM 回退。
+pub async fn voice_with_deadline(
+    model: &dyn VoiceModel,
+    request: VoiceRequest,
+    deadline: std::time::Duration,
+) -> ProviderResult<MediaOutput> {
+    tokio::time::timeout(deadline, model.synthesize(request))
+        .await
+        .unwrap_or_else(|_| {
+            Err(ProviderError {
+                code: "VOICE_TIMEOUT",
+                message: "配音服务超时，将按约定改为纯 BGM。".into(),
+                retryable: false,
+            })
+        })
+}
+
 // ---------- 剪辑库 / 渲染 ----------
 
 /// 渲染请求。
@@ -468,6 +486,25 @@ pub struct Providers {
     pub renderer: Arc<dyn Renderer>,
 }
 
+/// 本地模型按实际合成请求初始化，缺参考音时仍能打开应用并选择下载或 BGM。
+struct DeferredBreeze {
+    /// 当前供应商快照，不在初始化时读取参考音或连接 ComfyUI。
+    config: Config,
+}
+
+#[async_trait]
+impl VoiceModel for DeferredBreeze {
+    /// 仅在用户已经选择本地配音、实际请求合成时验证参考音配置。
+    async fn synthesize(&self, request: VoiceRequest) -> ProviderResult<MediaOutput> {
+        let provider = breeze::BreezeTts::new(&self.config).map_err(|_| {
+            ProviderError::unavailable(
+                "本地配音还需要可用的参考音与转写，请在设置中完成配置后重试。",
+            )
+        })?;
+        provider.synthesize(request).await
+    }
+}
+
 impl Providers {
     /// 按配置中的名称创建各环节的供应商。
     ///
@@ -517,16 +554,36 @@ impl Providers {
                 other => anyhow::bail!("PROVIDER_LLM3 不支持供应商 `{other}`"),
             },
             voice: match config.provider_llm4.as_str() {
-                "breeze" => Arc::new(breeze::BreezeTts::new(config)?),
+                "breeze" => Arc::new(DeferredBreeze {
+                    config: config.clone(),
+                }),
                 "qwen" | "aliyun" => Arc::new(openai::OpenAiSpeech::qwen(config)),
                 "siliconflow" => Arc::new(openai::OpenAiSpeech::siliconflow(config)),
                 "indextts" => Arc::new(openai::OpenAiSpeech::indextts(config)),
                 other => anyhow::bail!("PROVIDER_LLM4 不支持供应商 `{other}`"),
             },
             renderer: match config.provider_renderer.as_str() {
-                "quercus" => Arc::new(quercus::QuercusRenderer::new(config)),
+                "direct" | "quercus" => Arc::new(direct::DirectRenderer::new(config)),
                 other => anyhow::bail!("PROVIDER_RENDERER 不支持供应商 `{other}`"),
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+
+    /// 缺模型或参考音时必须允许打开应用，用户才能看到下载、改 API 或 BGM 选择。
+    #[test]
+    fn breeze_can_be_selected_before_local_voice_is_installed() {
+        let mut config = Config::from_env();
+        config.provider_llm1 = "siliconflow".into();
+        config.provider_llm3 = "procedural".into();
+        config.provider_llm4 = "breeze".into();
+        config.provider_renderer = "direct".into();
+        config.breeze_voice_male.clear();
+        config.breeze_voice_female.clear();
+        assert!(Providers::from_config(&config).is_ok());
     }
 }

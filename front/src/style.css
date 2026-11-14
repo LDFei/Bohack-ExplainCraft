@@ -4300,3 +4300,115 @@ p {
     width: 100%;
   }
 }
+
+/* 创作问答与后端制作反馈共享紧凑卡片，所有选择都保留原生键盘操作。 */
+.conversation-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.conversation-actions .text-button {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 10px;
+}
+.question-step,
+.skill-flow-hint {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.question-options {
+  display: grid;
+  gap: 7px;
+}
+.question-option {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.7;
+  cursor: pointer;
+}
+.question-option.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.question-card .question-option input[type='radio'] {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.stage-details {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  list-style: none;
+}
+.stage-details > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.stage-details > li > .stage-dot,
+.stage-details > li > svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.stage-details strong {
+  font-weight: 500;
+}
+.stage-details p {
+  margin-top: 4px;
+  line-height: 1.7;
+  color: var(--secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stage-logs {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+  margin-top: 7px;
+  padding: 0;
+  list-style: none;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.stage-logs li {
+  display: flex;
+  flex-direction: column;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  color: var(--secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stage-logs time {
+  font-size: 9px;
+  color: var(--muted);
+}
+.general-stage-logs {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.stage-logs .warn {
+  border-left-color: var(--accent);
+}
+.stage-logs .error {
+  color: var(--danger);
+  border-left-color: var(--danger);
+}

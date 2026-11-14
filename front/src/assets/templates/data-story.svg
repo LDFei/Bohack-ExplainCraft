@@ -1,0 +1,54 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 960 540"
+>
+  <title>Shotcraft 数据叙事示意</title>
+  <rect
+    width="960"
+    height="540"
+    fill="#f5eee8"
+  />
+  <text
+    x="70"
+    y="83"
+    fill="#944d38"
+    font-size="19"
+    letter-spacing="4"
+  >
+    SHOTCRAFT · DATA IN MOTION
+  </text>
+  <text
+    x="70"
+    y="151"
+    fill="#362c28"
+    font-size="42"
+  >
+    让变化，成为故事。
+  </text>
+  <g
+    stroke="#d7c8be"
+    stroke-width="2"
+  >
+    <path d="M110 215v210h700M110 355h700M110 285h700" />
+  </g>
+  <path
+    d="m110 405 140-18 140-31 140-56 140-70 140-94"
+    fill="none"
+    stroke="#c35e45"
+    stroke-width="7"
+  />
+  <circle
+    cx="810"
+    cy="136"
+    r="11"
+    fill="#c35e45"
+  />
+  <text
+    x="70"
+    y="484"
+    fill="#78665c"
+    font-size="18"
+  >
+    问题 / 图表变化 / 结论与边界 · 示例数据，非事实统计
+  </text>
+</svg>
