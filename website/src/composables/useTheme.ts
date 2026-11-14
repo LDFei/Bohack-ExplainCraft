@@ -26,6 +26,12 @@ export const themeOptions = [
     subtitle: "清爽的蓝调，让思路更加清晰",
     tag: "清爽理性",
   },
+  {
+    id: "forest",
+    name: "松墨创作室",
+    subtitle: "沉静的墨绿，让内容显得可信",
+    tag: "沉静学术",
+  },
 ] as const;
 export type ThemeId = (typeof themeOptions)[number]["id"];
 export const DEFAULT_THEME: ThemeId = "silver";
