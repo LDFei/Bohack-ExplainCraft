@@ -10,6 +10,21 @@ import { mediaUrl } from "../domain/assets.ts";
 import { DOWNLOAD_URL } from "../domain/links.ts";
 import ThemeSwitcher from "./ThemeSwitcher.vue";
 const activePath = ref<"generic" | "vibe">("generic");
+/** 首页展示用的分镜示例，与示例成片一致。 */
+const SCRIPT_SHOTS = [
+  { line: "光速对谁都是一样的。", frame: "光路生长 · 数字 299,792", len: 4 },
+  {
+    line: "为了守住这条规则，时间只好让步。",
+    frame: "1905 论文 · 红色印章",
+    len: 8,
+  },
+  {
+    line: "光在车厢里上下走，在站台上斜着走。",
+    frame: "光钟 · 斜向路径",
+    len: 13,
+  },
+  { line: "GPS 每天校准三十八微秒。", frame: "卫星轨道 · μs 计数", len: 12 },
+];
 /** 模板示例分镜：用现有成片静帧，说明这一系列的镜头结构。 */
 const vibeShots = [
   { label: "选 Vibe 模板", dur: "新建", img: "vibe-step-1.jpg" },
@@ -35,25 +50,25 @@ function syncMotion() {
 }
 onMounted(() => media.addEventListener("change", syncMotion));
 let audio: HTMLAudioElement | null = null;
-/** 试听官网内置的背景音乐；桌面端的配音能力由 Rust 后端供应商提供。 */
+/** 试听成片里的一句旁白；播放一次即停，不循环。 */
 async function toggleMusic() {
   mediaError.value = "";
   if (musicPlaying.value) {
     stopMusic();
     return;
   }
-  audio = new Audio(mediaUrl("ambient.wav"));
+  audio = new Audio(mediaUrl("rule-line.m4a"));
   audio.onended = stopMusic;
   audio.onerror = () => {
     stopMusic();
-    mediaError.value = "示例音乐暂时无法读取，请稍后重试。";
+    mediaError.value = "示例旁白暂时无法读取，请稍后重试。";
   };
   try {
     await audio.play();
     musicPlaying.value = true;
   } catch {
     stopMusic();
-    mediaError.value = "请再次点击试听示例配乐。";
+    mediaError.value = "请再次点击试听这句旁白。";
   }
 }
 /** 离开首页或切换到视频预览时释放音频，避免听不到控件却仍然播放。 */
@@ -375,7 +390,7 @@ onBeforeUnmount(() => {
           <BentoGrid>
             <BentoGridItem
               title="讲清知识点"
-              description="说出知识点，生成分镜脚本；文案和镜头都能改。"
+              description="说出知识点，生成分镜脚本；每一镜的画面、字幕、时长都能改。"
               wide
             >
               <template #header>
@@ -389,19 +404,26 @@ onBeforeUnmount(() => {
                     <span>
                       <Icon name="file" :size="14" />
                       分镜脚本
-                      <small>4 个镜头</small>
+                      <small>4 个镜头 · 70 秒</small>
                     </span>
+                    <div class="script-timeline" aria-hidden="true">
+                      <i
+                        v-for="(shot, index) in SCRIPT_SHOTS"
+                        :key="'t' + index"
+                        :style="{ flex: shot.len }"
+                      />
+                    </div>
                     <div
-                      v-for="(line, index) in [
-                        '光速对谁都不变。',
-                        '运动越快，时间走得越慢。',
-                        '引力，是时空的弯曲。',
-                      ]"
-                      :key="line"
+                      v-for="(shot, index) in SCRIPT_SHOTS"
+                      :key="shot.line"
+                      class="script-shot"
                     >
                       <i>{{ String(index + 1).padStart(2, "0") }}</i>
-                      <p>{{ line }}</p>
-                      <small>{{ index ? "08" : "07" }}s</small>
+                      <div>
+                        <p>{{ shot.line }}</p>
+                        <em>{{ shot.frame }}</em>
+                      </div>
+                      <small>{{ shot.len }}s</small>
                     </div>
                   </div>
                 </div>
@@ -418,7 +440,7 @@ onBeforeUnmount(() => {
             </BentoGridItem>
             <BentoGridItem
               title="配好声音"
-              description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
+              description="配置音色、语速与背景音乐；点一下，听成片里的一句旁白。"
             >
               <template #header>
                 <div class="feature-audio" :class="{ playing: musicPlaying }">
@@ -436,7 +458,7 @@ onBeforeUnmount(() => {
                       }"
                     />
                   </div>
-                  <small>示例配乐 · 非 TTS 音色</small>
+                  <small>「为了守住这条规则，时间，只好让步。」</small>
                 </div>
               </template>
               <template #icon>
@@ -452,7 +474,7 @@ onBeforeUnmount(() => {
                     :name="musicPlaying ? 'pause' : 'headphones'"
                     :size="13"
                   />
-                  {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
+                  {{ musicPlaying ? "停止播放" : "试听这句旁白" }}
                 </button>
               </template>
             </BentoGridItem>
