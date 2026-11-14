@@ -157,18 +157,18 @@ onBeforeUnmount(() => {
               </div>
               <div class="product-stage">
                 <div class="product-stage-heading">
-                  <span>咖啡店的温柔早晨</span>
+                  <span>一束光，讲清楚相对论</span>
                   <span>16:9 · 30s</span>
                 </div>
                 <button
                   class="product-video-button"
-                  aria-label="预览咖啡店示例视频"
+                  aria-label="预览相对论示例视频"
                   @click="openPreview"
                 >
                   <video
                     ref="heroVideo"
-                    :src="mediaUrl('coffee-16x9.mp4')"
-                    :poster="mediaUrl('coffee-shop.jpg')"
+                    :src="mediaUrl('relativity-card.mp4')"
+                    :poster="mediaUrl('relativity-spacetime.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -177,10 +177,6 @@ onBeforeUnmount(() => {
                     preload="metadata"
                     aria-hidden="true"
                   />
-                  <span class="product-film-title">
-                    <small>A LITTLE MOMENT, A GOOD STORY</small>
-                    一杯咖啡的慢时光
-                  </span>
                   <span class="product-play">
                     <Icon name="play" :size="19" />
                   </span>
@@ -199,10 +195,10 @@ onBeforeUnmount(() => {
                     <span>视频</span>
                     <i
                       v-for="image in [
-                        'coffee-shop',
-                        'coffee-brew',
-                        'coffee-cup',
-                        'coffee-detail',
+                        'rel-thumb-1',
+                        'rel-thumb-2',
+                        'rel-thumb-3',
+                        'rel-thumb-4',
                       ]"
                       :key="image"
                     >
@@ -227,8 +223,8 @@ onBeforeUnmount(() => {
                 <Icon name="sparkles" :size="17" />
               </span>
               <div>
-                <strong>你的故事，由你定义。</strong>
-                <p>“第二个镜头换成咖啡特写，节奏再慢一点。”</p>
+                <strong>你的讲解，由你定义。</strong>
+                <p>“第二个镜头停在光速那一帧，节奏再慢一点。”</p>
               </div>
               <Icon name="arrowUp" :size="16" />
             </div>
@@ -272,7 +268,7 @@ onBeforeUnmount(() => {
               <div class="feature-script">
                 <div class="script-prompt">
                   <Icon name="sparkles" :size="14" />
-                  帮我做一个温暖的咖啡店短片。
+                  用一束光，讲清楚相对论。
                   <span>↵</span>
                 </div>
                 <div class="script-result">
@@ -283,9 +279,9 @@ onBeforeUnmount(() => {
                   </span>
                   <div
                     v-for="(line, index) in [
-                      '城市醒来之前，先留一点时间给自己。',
-                      '听水流与咖啡相遇，让熟悉的香气慢慢散开。',
-                      '一杯刚刚好的温度，装下生活的小小美好。',
+                      '光速对谁都不变。',
+                      '运动越快，时间走得越慢。',
+                      '引力，是时空的弯曲。',
                     ]"
                     :key="line"
                   >
@@ -354,8 +350,8 @@ onBeforeUnmount(() => {
               <div class="feature-motion">
                 <video
                   ref="motionVideo"
-                  :src="mediaUrl('travel-16x9.mp4')"
-                  :poster="mediaUrl('travel-mountain.jpg')"
+                  :src="mediaUrl('relativity-card.mp4')"
+                  :poster="mediaUrl('relativity-spacetime.jpg')"
                   :autoplay="!reducedMotion"
                   muted
                   loop
@@ -367,7 +363,7 @@ onBeforeUnmount(() => {
                   <Icon name="video" :size="12" />
                   本地动态示例
                 </span>
-                <small>去山野，找回自己</small>
+                <small>一束光，讲清楚相对论</small>
               </div>
             </template>
             <template #icon>
@@ -388,11 +384,14 @@ onBeforeUnmount(() => {
             <template #header>
               <div class="feature-preview">
                 <div class="preview-example">
-                  <img :src="mediaUrl('coffee-cup.jpg')" alt="咖啡店示例画面" />
+                  <img
+                    :src="mediaUrl('relativity-spacetime.jpg')"
+                    alt="相对论示例画面"
+                  />
                   <button aria-label="播放预览示例" @click="openPreview">
                     <Icon name="play" :size="18" />
                   </button>
-                  <span>一杯咖啡的慢时光</span>
+                  <span>一束光，讲清楚相对论</span>
                 </div>
                 <div class="feature-export">
                   <span>
@@ -482,7 +481,7 @@ onBeforeUnmount(() => {
     </footer>
     <Modal
       :open="previewOpen"
-      title="一杯咖啡的慢时光"
+      title="一束光，讲清楚相对论"
       subtitle="内置示例成片 · 30 秒 · 720p MP4"
       wide
       @close="closePreview"
@@ -490,7 +489,7 @@ onBeforeUnmount(() => {
       <video
         ref="player"
         class="landing-modal-video"
-        :src="mediaUrl('coffee-16x9.mp4')"
+        :src="mediaUrl('relativity-16x9.mp4')"
         controls
         autoplay
         playsinline
