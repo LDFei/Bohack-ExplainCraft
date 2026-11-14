@@ -13,7 +13,7 @@ mod db;
 mod error;
 mod media;
 mod models;
-#[cfg(feature = "quercus")]
+
 mod oak;
 mod ops;
 mod pipeline;

@@ -20,6 +20,8 @@
 `FFMPEG_DIR=/opt/homebrew`，并通过 `brew install ffmpeg mpg123 zstd` 安装编解码库；Linux 还需要
 `libmpg123-dev` 和 `libzstd-dev`。Quercus 固定为 0.7.2，其 Unix 链接配置位于根目录 `.cargo/config.toml`。
 Windows 的依赖准备见下文。
+该配置也为 RustRover 和直接执行的 Cargo 命令提供 `FFMPEG_DIR=/opt/homebrew` 默认值；
+非 Homebrew 环境可显式设置自己的 `FFMPEG_DIR`，会覆盖这个默认值。
 
 ```bash
 cd front
@@ -88,8 +90,11 @@ Tauri 会初始化进程内后端并打开工作台，所有业务操作都通�
 这是给 LLM 的工具调用格式，真实模型可以直接按这个格式输出。渲染器 `quercus`（`src/providers/quercus.rs`）逐条把指令翻译成
 [quercus-engine](https://docs.rs/quercus-engine-rs) 的 `EditCommand`，在它的非线性剪辑工程里搭出时间线，最后导出
 H.264 / AAC 的 MP4。
-每段旁白都有独立片段 ID。字幕会生成 SRT 和透明 PNG，再按时间区间烧录到 Quercus 成片；
-不启用会覆盖黑色画面的 Quercus 原生 Text 字幕层。
+每段旁白都有独立片段 ID。字幕会生成 SRT 和透明 PNG，直接放到 Quercus 视频轨，
+与画面在同一次编码中输出，不再进行字幕二次编码，也不启用会覆盖黑屏的原生 Text 字幕层。
+SVG 镜头默认优先使用 VideoToolbox / NVENC / QSV / AMF，失败后回退到 `libx264 veryfast`；
+日志会打印实际编码器。可用 `FFMPEG_HW_ENCODER=software` 强制软件编码，或指定
+`videotoolbox` / `nvenc` / `qsv` / `amf`。Quercus 自身也按同样顺序尝试硬件编码。
 同规格 MP4 导出直接复用已渲染文件；选择工程包时还会保存 OVE / OTIO / FCPXML，
 连同全部相关素材、上传文件和独立字幕打入使用相对路径的 ZIP。
 

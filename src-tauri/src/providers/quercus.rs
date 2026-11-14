@@ -17,7 +17,9 @@ use quercus_engine_rs::codec::{Codec, Format};
 use quercus_engine_rs::edit::EditCommand;
 use quercus_engine_rs::editor::{EditorSession, TrackKind};
 use quercus_engine_rs::node::NodeId;
-use quercus_engine_rs::render::{manager_init, manager_is_initialized, RenderBackend};
+use quercus_engine_rs::render::{
+    gpu_init, gpu_kind, manager_init, manager_is_initialized, GpuBackend, RenderBackend,
+};
 use quercus_engine_rs::task::{export, save_otio, EncodingParams, Task, TaskState};
 use quercus_engine_rs::types::Rational;
 
@@ -115,12 +117,16 @@ fn wait_for_task(task: &Task, context: &str, timeout: Duration) -> ProviderResul
     }
 }
 
-/// 执行剪辑指令搭建无黑屏字幕层的画面与声音。调用方必须持有 [`ENGINE_LOCK`]。
+/// 执行剪辑指令搭建画面、声音和透明字幕轨。调用方必须持有 [`ENGINE_LOCK`]。
 fn build_session(
     ops: &[EditOp],
     inputs: &HashMap<String, PathBuf>,
     work_dir: &Path,
+    subtitles: Option<&str>,
 ) -> ProviderResult<BuiltSession> {
+    // 在首帧前显式创建共享 GPU 上下文，避免时间线合成停留在 CPU/读回路径。
+    let gpu_available = gpu_init(GpuBackend::Auto);
+    tracing::info!(target: "job", "  · quercus GPU 合成初始化：available={gpu_available}，backend={:?}", gpu_kind());
     // 多线程渲染后端：不依赖外部 worker 进程；只需初始化一次。
     if !manager_is_initialized() && !manager_init(RenderBackend::Threads) {
         return Err(render_error("初始化渲染管理器", "manager_init 返回 false"));
@@ -222,6 +228,35 @@ fn build_session(
 
     let (sequence, width, height, fps) =
         sequence.ok_or_else(|| render_error("导出", "指令中没有 create_sequence"))?;
+    if let Some(srt) = subtitles {
+        let cues = parse_srt(srt)?;
+        for (index, cue) in cues.iter().enumerate() {
+            let overlay = work_dir.join("subtitles").join(format!("{index:03}.png"));
+            crate::svg_animation::write_subtitle_overlay(
+                &cue.text,
+                width as u32,
+                height as u32,
+                &overlay,
+            )?;
+            let footage = session
+                .project()
+                .import_footage(&overlay.to_string_lossy())
+                .ok_or_else(|| {
+                    render_error("导入透明字幕", format!("无法导入 {}", overlay.display()))
+                })?;
+            session
+                .execute(EditCommand::PlaceFootageClip {
+                    footage,
+                    kind: TrackKind::Video,
+                    track_index: 1,
+                    in_ts: ms_to_frames(cue.start_ms, fps),
+                    out_ts: ms_to_frames(cue.end_ms, fps),
+                    media_in_ts: 0,
+                })
+                .map_err(|error| render_error("放置透明字幕", error))?;
+            tracing::info!(target: "job", "  · quercus 字幕 {} 放到视频轨 1：{}～{}ms", index + 1, cue.start_ms, cue.end_ms);
+        }
+    }
     Ok(BuiltSession {
         session,
         sequence,
@@ -316,85 +351,6 @@ fn parse_srt(srt: &str) -> ProviderResult<Vec<SubtitleCue>> {
     Ok(cues)
 }
 
-/// 用透明 PNG 烧录字幕，绕开 Quercus 原生 Text 字幕层覆盖黑屏的问题。
-fn burn_subtitles(
-    clean: &Path,
-    output: &Path,
-    srt: &str,
-    work_dir: &Path,
-    width: i32,
-    height: i32,
-    total_ms: i64,
-) -> ProviderResult<()> {
-    let cues = parse_srt(srt)?;
-    if cues.is_empty() {
-        std::fs::copy(clean, output).map_err(|e| render_error("复制无字幕成片", e))?;
-        return Ok(());
-    }
-    let mut command = std::process::Command::new(
-        std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
-    );
-    command
-        .arg("-y")
-        .arg("-loglevel")
-        .arg("warning")
-        .arg("-stats")
-        .arg("-i")
-        .arg(clean);
-    for (index, cue) in cues.iter().enumerate() {
-        let overlay = work_dir.join(format!("subtitle-{index:03}.png"));
-        crate::svg_animation::write_subtitle_overlay(
-            &cue.text,
-            width as u32,
-            height as u32,
-            &overlay,
-        )?;
-        command.arg("-loop").arg("1").arg("-i").arg(overlay);
-    }
-    let mut graph = String::new();
-    for (index, cue) in cues.iter().enumerate() {
-        let input = if index == 0 {
-            "[0:v]".to_string()
-        } else {
-            format!("[sub{}]", index - 1)
-        };
-        graph.push_str(&format!(
-            "{}[{}:v]overlay=0:0:enable='between(t,{:.3},{:.3})'[sub{}]{}",
-            input,
-            index + 1,
-            cue.start_ms as f64 / 1000.0,
-            cue.end_ms as f64 / 1000.0,
-            index,
-            if index + 1 == cues.len() { "" } else { ";" }
-        ));
-    }
-    tracing::info!(target: "job", "  · FFmpeg 开始烧录 {} 段透明 PNG 字幕", cues.len());
-    let output_label = format!("[sub{}]", cues.len() - 1);
-    let status = command
-        .arg("-filter_complex")
-        .arg(graph)
-        .arg("-map")
-        .arg(output_label)
-        .arg("-map")
-        .arg("0:a?")
-        .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"])
-        .args(["-pix_fmt", "yuv420p", "-c:a", "copy"])
-        .arg("-t")
-        .arg(format!("{:.3}", total_ms.max(1) as f64 / 1000.0))
-        .args(["-movflags", "+faststart"])
-        .arg(output)
-        .status()
-        .map_err(|e| render_error("启动字幕烧录", e))?;
-    if !status.success() || !output.is_file() {
-        return Err(render_error(
-            "字幕烧录",
-            format!("FFmpeg 退出状态 {status}"),
-        ));
-    }
-    tracing::info!(target: "job", "  · FFmpeg 字幕烧录完成，原音轨保持不变");
-    Ok(())
-}
-
 /// 在 quercus 中执行一组剪辑指令并导出成片。
 fn execute_ops(
     ops: &[EditOp],
@@ -403,27 +359,15 @@ fn execute_ops(
     total_ms: i64,
     subtitles: Option<&str>,
 ) -> ProviderResult<()> {
+    let started = Instant::now();
     tracing::info!(target: "job", "  · quercus 等待剪辑引擎锁");
     let _guard = ENGINE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     tracing::info!(target: "job", "  · quercus 已获得剪辑引擎锁，开始搭建时间线");
     let work_dir = output.with_extension("work");
-    let built = build_session(ops, inputs, &work_dir)?;
-    if let Some(srt) = subtitles {
-        let clean = output.with_extension("clean.mp4");
-        export_built_session(&built, &clean, total_ms)?;
-        burn_subtitles(
-            &clean,
-            output,
-            srt,
-            &work_dir,
-            built.width,
-            built.height,
-            total_ms,
-        )?;
-        let _ = std::fs::remove_file(clean);
-    } else {
-        export_built_session(&built, output, total_ms)?;
-    }
+    let built = build_session(ops, inputs, &work_dir, subtitles)?;
+    tracing::info!(target: "job", "  · quercus 时间线搭建完成，用时 {:.1}s；开始单次成片编码", started.elapsed().as_secs_f64());
+    export_built_session(&built, output, total_ms)?;
+    tracing::info!(target: "job", "  · quercus 成片完成，总耗时 {:.1}s（无字幕二次编码）", started.elapsed().as_secs_f64());
     let _ = std::fs::remove_dir_all(work_dir);
     Ok(())
 }
@@ -564,7 +508,7 @@ fn export_project_bundle(
     }
     tracing::info!(target: "job", "  · quercus 等待剪辑引擎锁以保存工程包");
     let _guard = ENGINE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let built = build_session(&ops, &staged_inputs, &staging)?;
+    let built = build_session(&ops, &staged_inputs, &staging, subtitles.as_deref())?;
     let ove = staging.join("project.ove");
     let ove_name = ove
         .to_str()
@@ -710,6 +654,16 @@ impl Renderer for QuercusRenderer {
 mod tests {
     use super::*;
 
+    /// 首帧前应能建立非 CPU 的共享合成后端；无 GPU 的构建环境允许回退。
+    #[test]
+    fn initializes_gpu_compositing_backend() {
+        let available = gpu_init(GpuBackend::Auto);
+        println!("GPU available={available}, backend={:?}", gpu_kind());
+        if available {
+            assert_ne!(gpu_kind(), Some(GpuBackend::Cpu));
+        }
+    }
+
     /// 生成一秒双声道正弦波，便于逐段确认每一路旁白都进入最终混音。
     fn write_tone(path: &Path, frequency: f64) {
         let sample_rate = 48_000_u32;
@@ -769,12 +723,12 @@ mod tests {
     }
 
     /// 读取成片中间帧的平均 RGB 亮度，防止字幕层把整幅画面覆盖成黑色。
-    fn frame_brightness(path: &Path, root: &Path) -> f64 {
+    fn frame_brightness(path: &Path, root: &Path, start: f64) -> f64 {
         let frame = root.join("frame.png");
         let status = std::process::Command::new(
             std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()),
         )
-        .args(["-v", "error", "-y", "-ss", "0.5", "-i"])
+        .args(["-v", "error", "-y", "-ss", &start.to_string(), "-i"])
         .arg(path)
         .args(["-frames:v", "1"])
         .arg(&frame)
@@ -831,7 +785,7 @@ mod tests {
 
     /// 三段旁白都进入混音，三段字幕正常显示且不会把画面覆盖成黑色。
     #[tokio::test]
-    async fn mixes_every_narration_and_burns_subtitles_without_black_frames() {
+    async fn mixes_every_narration_and_overlays_subtitles_without_black_frames() {
         let root = std::env::temp_dir().join(format!("quercus-multi-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("测试目录");
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 568"><rect width="320" height="568" fill="#eeeeee"/></svg>"##;
@@ -896,11 +850,13 @@ mod tests {
         let srt = "1\n00:00:00,000 --> 00:00:01,000\n第一段字幕\n\n2\n00:00:01,000 --> 00:00:02,000\n第二段字幕\n\n3\n00:00:02,000 --> 00:00:03,000\n第三段字幕\n\n";
         let output = root.join("mixed.mp4");
         execute_ops(&ops, &inputs, &output, 3000, Some(srt)).expect("多轨字幕成片");
-        let brightness = frame_brightness(&output, &root);
-        assert!(
-            (120.0..235.0).contains(&brightness),
-            "字幕黑屏或未实际叠加，平均亮度为 {brightness}"
-        );
+        for start in [0.5, 1.5, 2.5] {
+            let brightness = frame_brightness(&output, &root, start);
+            assert!(
+                (120.0..235.0).contains(&brightness),
+                "{start}s 字幕黑屏或未实际叠加，平均亮度为 {brightness}"
+            );
+        }
         for start in [0.2, 1.2, 2.2] {
             let volume = mean_volume(&output, start);
             assert!(

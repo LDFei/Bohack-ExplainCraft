@@ -1,5 +1,11 @@
 # Quercus 0.7.2 的 mpglib 与 OCIO/minizip 依赖未被上游完整转发。
 # Windows 使用预构建 FFmpeg，不走这条 Unix mpglib 链接路径。
+
+# 为 RustRover 和直接执行的 cargo 提供 macOS Homebrew 默认值。
+# CI、Windows 脚本或开发者显式设置的 FFMPEG_DIR 始终优先。
+[env]
+FFMPEG_DIR = { value = "/opt/homebrew", force = false }
+
 [target.'cfg(target_os = "macos")']
 rustflags = [
     "-L",

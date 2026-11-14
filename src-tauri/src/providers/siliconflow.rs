@@ -158,7 +158,7 @@ impl SiliconFlow {
     }
 
     /// 使用 OpenAI tool_calls 驱动 50 个 Quercus 工具，返回最终剪辑指令。
-    #[cfg(feature = "quercus")]
+
     async fn chat_agent(
         &self,
         access: &ModelAccess,
@@ -689,7 +689,7 @@ impl ScriptModel for GlmScript {
             plan.total_ms,
             if plan.effect_preset_id == "fade" { "相邻镜头之间加交叉淡化" } else { "直接硬切，不加转场" },
         );
-        #[cfg(feature = "quercus")]
+
         let agent_ops = self
             .client
             .chat_agent(
@@ -700,8 +700,6 @@ impl ScriptModel for GlmScript {
             .await
             .ok()
             .flatten();
-        #[cfg(not(feature = "quercus"))]
-        let agent_ops: Option<Vec<EditOp>> = None;
         let ops = match agent_ops {
             Some(ops) if validate_ops(&ops, &plan).is_ok() => ops,
             _ => match self

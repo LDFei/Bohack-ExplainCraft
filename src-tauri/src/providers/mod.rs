@@ -24,9 +24,10 @@
 
 pub mod breeze;
 pub mod edit_ops;
+pub mod encoding;
 pub mod openai;
 pub mod procedural;
-#[cfg(feature = "quercus")]
+
 pub mod quercus;
 pub mod siliconflow;
 
@@ -502,12 +503,8 @@ impl Providers {
                 other => anyhow::bail!("PROVIDER_LLM4 不支持供应商 `{other}`"),
             },
             renderer: match config.provider_renderer.as_str() {
-                #[cfg(feature = "quercus")]
+                
                 "quercus" => Arc::new(quercus::QuercusRenderer::new(config)),
-                #[cfg(not(feature = "quercus"))]
-                "quercus" => {
-                    anyhow::bail!("PROVIDER_RENDERER=quercus 需要以 `--features quercus` 编译后端")
-                }
                 other => anyhow::bail!("PROVIDER_RENDERER 不支持供应商 `{other}`"),
             },
         })

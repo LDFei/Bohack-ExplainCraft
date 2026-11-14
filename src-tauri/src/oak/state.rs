@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use quercus_engine_rs::editor::EditorSession;
-use quercus_engine_rs::render::{self, RenderBackend};
+use quercus_engine_rs::render::{self, GpuBackend, RenderBackend};
 use quercus_engine_rs::task::{Task, TaskState};
 use serde_json::{json, Value};
 
@@ -81,6 +81,8 @@ impl ServerState {
         if self.render_ready && render::manager_is_initialized() {
             return Ok(());
         }
+        let gpu_available = render::gpu_init(GpuBackend::Auto);
+        tracing::info!(target: "job", "Quercus 工具 GPU 合成初始化：available={gpu_available}，backend={:?}", render::gpu_kind());
         let _ = render::manager_init(RenderBackend::Threads);
         if !render::manager_is_initialized() {
             return Err("failed to initialize the Quercus render manager".to_string());

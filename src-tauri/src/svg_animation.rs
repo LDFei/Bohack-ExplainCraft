@@ -340,36 +340,41 @@ fn render_blocking(
             })?;
     }
     let output = work.with_extension("mp4");
-    let status = Command::new(std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()))
-        .args([
-            "-y",
-            "-loglevel",
-            "error",
-            "-framerate",
-            &fps.to_string(),
-            "-i",
-        ])
-        .arg(work.join("frame-%06d.png"))
-        .args([
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-r",
-            "30",
-            "-movflags",
-            "+faststart",
-        ])
-        .arg(&output)
-        .status()
-        .map_err(|_| ProviderError::render_failed("未找到 FFmpeg，无法渲染 SVG 动画"))?;
-    if !status.success() || !output.is_file() {
+    crate::providers::encoding::encode_h264("SVG 动画", |encoder| {
+        let mut command =
+            Command::new(std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into()));
+        command
+            .args([
+                "-y",
+                "-loglevel",
+                "warning",
+                "-framerate",
+                &fps.to_string(),
+                "-i",
+            ])
+            .arg(work.join("frame-%06d.png"));
+        encoder.apply(&mut command);
+        command
+            .args([
+                "-pix_fmt",
+                "yuv420p",
+                "-color_range",
+                "tv",
+                "-r",
+                "30",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&output)
+            .status()
+    })?;
+    if !output.is_file() {
         return Err(ProviderError::render_failed("FFmpeg 编码 SVG 动画失败"));
     }
     Ok(output)
 }
 
-/// 把一段字幕绘制成全画幅透明 PNG，供 FFmpeg 按时间区间叠加。
+/// 把一段字幕绘制成全画幅透明 PNG，供 Quercus 按时间区间放到视频轨。
 ///
 /// 不依赖 FFmpeg 的 libass/drawtext 插件；字体加载与 SVG 镜头共用，中文环境一致。
 pub fn write_subtitle_overlay(
