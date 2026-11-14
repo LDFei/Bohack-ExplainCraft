@@ -10,11 +10,26 @@ import { mediaUrl } from "../domain/assets.ts";
 import { DOWNLOAD_URL } from "../domain/links.ts";
 import ThemeSwitcher from "./ThemeSwitcher.vue";
 const activePath = ref<"generic" | "vibe">("generic");
+/** 首页展示用的分镜示例，与示例成片一致。 */
+const SCRIPT_SHOTS = [
+  { line: "光速对谁都是一样的。", frame: "光路生长 · 数字 299,792", len: 4 },
+  {
+    line: "为了守住这条规则，时间只好让步。",
+    frame: "1905 论文 · 红色印章",
+    len: 8,
+  },
+  {
+    line: "光在车厢里上下走，在站台上斜着走。",
+    frame: "光钟 · 斜向路径",
+    len: 13,
+  },
+  { line: "GPS 每天校准三十八微秒。", frame: "卫星轨道 · μs 计数", len: 12 },
+];
 /** 模板示例分镜：用现有成片静帧，说明这一系列的镜头结构。 */
 const vibeShots = [
   { label: "选 Vibe 模板", dur: "新建", img: "vibe-step-1.jpg" },
   { label: "AI 生成提示词", dur: "自动", img: "vibe-step-2.jpg" },
-  { label: "成品", dur: "30s", img: "vibe-step-3.jpg" },
+  { label: "成品", dur: "70s", img: "vibe-step-3.jpg" },
 ];
 const previewOpen = ref(false),
   musicPlaying = ref(false),
@@ -35,25 +50,25 @@ function syncMotion() {
 }
 onMounted(() => media.addEventListener("change", syncMotion));
 let audio: HTMLAudioElement | null = null;
-/** 试听官网内置的背景音乐；桌面端的配音能力由 Rust 后端供应商提供。 */
+/** 试听成片里的一句旁白；播放一次即停，不循环。 */
 async function toggleMusic() {
   mediaError.value = "";
   if (musicPlaying.value) {
     stopMusic();
     return;
   }
-  audio = new Audio(mediaUrl("ambient.wav"));
+  audio = new Audio(mediaUrl("rule-line.m4a"));
   audio.onended = stopMusic;
   audio.onerror = () => {
     stopMusic();
-    mediaError.value = "示例音乐暂时无法读取，请稍后重试。";
+    mediaError.value = "示例旁白暂时无法读取，请稍后重试。";
   };
   try {
     await audio.play();
     musicPlaying.value = true;
   } catch {
     stopMusic();
-    mediaError.value = "请再次点击试听示例配乐。";
+    mediaError.value = "请再次点击试听这句旁白。";
   }
 }
 /** 离开首页或切换到视频预览时释放音频，避免听不到控件却仍然播放。 */
@@ -164,18 +179,18 @@ onBeforeUnmount(() => {
               </div>
               <div class="product-stage">
                 <div class="product-stage-heading">
-                  <span>一束光，讲清楚相对论</span>
-                  <span>16:9 · 30s</span>
+                  <span>运气是什么形状</span>
+                  <span>16:9 · 34s</span>
                 </div>
                 <button
                   class="product-video-button"
-                  aria-label="预览相对论示例视频"
+                  aria-label="预览生日悖论示例视频"
                   @click="openPreview"
                 >
                   <video
                     ref="heroVideo"
-                    :src="mediaUrl('relativity-card.mp4')"
-                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :src="mediaUrl('relativity-16x9.mp4')"
+                    :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -192,9 +207,9 @@ onBeforeUnmount(() => {
                   <Icon name="play" :size="10" />
                   <span>
                     00:{{ String(Math.floor(heroTime)).padStart(2, "0") }}
-                    <small>/ 00:30</small>
+                    <small>/ 00:34</small>
                   </span>
-                  <i><b :style="{ width: `${(heroTime / 30) * 100}%` }" /></i>
+                  <i><b :style="{ width: `${(heroTime / 34) * 100}%` }" /></i>
                   <Icon name="fullscreen" :size="11" />
                 </div>
                 <div class="product-timeline">
@@ -375,33 +390,55 @@ onBeforeUnmount(() => {
           <BentoGrid>
             <BentoGridItem
               title="讲清知识点"
-              description="说出知识点，生成分镜脚本；文案和镜头都能改。"
+              description="说出知识点，生成分镜脚本；每一镜的画面、字幕、时长都能改。"
               wide
             >
               <template #header>
                 <div class="feature-script">
-                  <div class="script-prompt">
-                    <Icon name="sparkles" :size="14" />
-                    用一束光，讲清楚相对论。
-                    <span>↵</span>
+                  <div class="script-left">
+                    <div class="script-prompt">
+                      <Icon name="sparkles" :size="14" />
+                      一次看运气，一万次看规律。
+                      <span>↵</span>
+                    </div>
+                    <div class="script-meta">
+                      <span>
+                        <Icon name="check" :size="11" />
+                        已生成 4 个镜头
+                      </span>
+                      <span>34 秒</span>
+                      <span>已同步到时间线</span>
+                    </div>
+                    <div class="script-hints">
+                      <i>换一种讲法</i>
+                      <i>再短一点</i>
+                      <i>加点比喻</i>
+                    </div>
                   </div>
                   <div class="script-result">
                     <span>
                       <Icon name="file" :size="14" />
                       分镜脚本
-                      <small>4 个镜头</small>
+                      <small>4 个镜头 · 34 秒</small>
                     </span>
+                    <div class="script-timeline" aria-hidden="true">
+                      <i
+                        v-for="(shot, index) in SCRIPT_SHOTS"
+                        :key="'t' + index"
+                        :style="{ flex: shot.len }"
+                      />
+                    </div>
                     <div
-                      v-for="(line, index) in [
-                        '光速对谁都不变。',
-                        '运动越快，时间走得越慢。',
-                        '引力，是时空的弯曲。',
-                      ]"
-                      :key="line"
+                      v-for="(shot, index) in SCRIPT_SHOTS"
+                      :key="shot.line"
+                      class="script-shot"
                     >
                       <i>{{ String(index + 1).padStart(2, "0") }}</i>
-                      <p>{{ line }}</p>
-                      <small>{{ index ? "08" : "07" }}s</small>
+                      <div>
+                        <p>{{ shot.line }}</p>
+                        <em>{{ shot.frame }}</em>
+                      </div>
+                      <small>{{ shot.len }}s</small>
                     </div>
                   </div>
                 </div>
@@ -418,7 +455,7 @@ onBeforeUnmount(() => {
             </BentoGridItem>
             <BentoGridItem
               title="配好声音"
-              description="配置音色、语速与背景音乐，由桌面端生成配音和配乐。"
+              description="配置音色、语速与背景音乐；点一下，听成片里的一句旁白。"
             >
               <template #header>
                 <div class="feature-audio" :class="{ playing: musicPlaying }">
@@ -436,7 +473,7 @@ onBeforeUnmount(() => {
                       }"
                     />
                   </div>
-                  <small>示例配乐 · 非 TTS 音色</small>
+                  <small>「为了守住这条规则，时间，只好让步。」</small>
                 </div>
               </template>
               <template #icon>
@@ -452,7 +489,7 @@ onBeforeUnmount(() => {
                     :name="musicPlaying ? 'pause' : 'headphones'"
                     :size="13"
                   />
-                  {{ musicPlaying ? "停止试听" : "试听示例配乐" }}
+                  {{ musicPlaying ? "停止播放" : "试听这句旁白" }}
                 </button>
               </template>
             </BentoGridItem>
@@ -464,8 +501,8 @@ onBeforeUnmount(() => {
                 <div class="feature-motion">
                   <video
                     ref="motionVideo"
-                    :src="mediaUrl('relativity-card.mp4')"
-                    :poster="mediaUrl('relativity-spacetime.jpg')"
+                    :src="mediaUrl('relativity-16x9.mp4')"
+                    :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted
                     loop
@@ -477,7 +514,7 @@ onBeforeUnmount(() => {
                     <Icon name="video" :size="12" />
                     本地动态示例
                   </span>
-                  <small>一束光，讲清楚相对论</small>
+                  <small>运气是什么形状</small>
                 </div>
               </template>
               <template #icon>
@@ -500,12 +537,12 @@ onBeforeUnmount(() => {
                   <div class="preview-example">
                     <img
                       :src="mediaUrl('relativity-spacetime.jpg')"
-                      alt="相对论示例画面"
+                      alt="生日悖论示例画面"
                     />
                     <button aria-label="播放预览示例" @click="openPreview">
                       <Icon name="play" :size="18" />
                     </button>
-                    <span>一束光，讲清楚相对论</span>
+                    <span>运气是什么形状</span>
                   </div>
                   <div class="feature-export">
                     <span>
@@ -515,7 +552,7 @@ onBeforeUnmount(() => {
                     <strong>每个细节，都值得确认。</strong>
                     <div>
                       <span>MP4</span>
-                      <span>720p</span>
+                      <span>1080p</span>
                       <span>30 fps</span>
                     </div>
                     <a :href="DOWNLOAD_URL">
@@ -556,8 +593,8 @@ onBeforeUnmount(() => {
     </footer>
     <Modal
       :open="previewOpen"
-      title="一束光，讲清楚相对论"
-      subtitle="内置示例成片 · 30 秒 · 720p MP4"
+      title="运气是什么形状"
+      subtitle="内置示例成片 · 34 秒 · 1080p MP4"
       wide
       @close="closePreview"
     >
