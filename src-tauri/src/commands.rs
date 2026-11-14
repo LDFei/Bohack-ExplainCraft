@@ -489,6 +489,62 @@ pub async fn preview_asset(
     )
     .await
 }
+/// 定位当前版本成片的真实本地文件。
+///
+/// 路径由后端从项目归属、版本和素材存储记录解析；前端不得自行拼接。
+#[tauri::command]
+pub async fn video_location(
+    state: State<'_, AppState>,
+    request: IpcRequest<'_>,
+    project_id: String,
+    version_id: String,
+) -> Result<crate::file_location::VideoFileLocation, String> {
+    let user =
+        user_from_headers(state.inner(), request.headers()).map_err(|error| error.message)?;
+    let storage_dir = state.config.storage_dir.clone();
+    let location = state
+        .db
+        .read(|conn| {
+            crate::file_location::locate(conn, &storage_dir, &project_id, &version_id, &user.0)
+        })
+        .map_err(|error| error.message)?;
+    tracing::info!(
+        target: "media",
+        "成片位置：项目 {} 版本 {} → {}",
+        project_id,
+        version_id,
+        location.path
+    );
+    Ok(location)
+}
+
+/// 在系统文件管理器中定位当前版本成片。
+#[tauri::command]
+pub async fn reveal_video_file(
+    state: State<'_, AppState>,
+    request: IpcRequest<'_>,
+    project_id: String,
+    version_id: String,
+) -> Result<(), String> {
+    let user =
+        user_from_headers(state.inner(), request.headers()).map_err(|error| error.message)?;
+    let storage_dir = state.config.storage_dir.clone();
+    let location = state
+        .db
+        .read(|conn| {
+            crate::file_location::locate(conn, &storage_dir, &project_id, &version_id, &user.0)
+        })
+        .map_err(|error| error.message)?;
+    tracing::info!(
+        target: "media",
+        "打开成片所在位置：项目 {} 版本 {} → {}",
+        project_id,
+        version_id,
+        location.path
+    );
+    crate::file_location::reveal(&location).await
+}
+
 /// 检查本机工具与已配置模型，不展示敏感配置。
 #[tauri::command]
 pub async fn runtime_status(state: State<'_, AppState>) -> Result<Value, String> {

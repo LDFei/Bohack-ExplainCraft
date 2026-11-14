@@ -12,6 +12,7 @@ mod commands;
 mod config;
 mod db;
 mod error;
+mod file_location;
 mod media;
 mod metrics;
 mod models;
@@ -30,6 +31,7 @@ mod state;
 mod svg_animation;
 mod util;
 mod vibe;
+mod visual_plan;
 mod voice_reference;
 mod worker;
 
@@ -186,6 +188,8 @@ fn command_handler<R: tauri::Runtime>(
         commands::export_video,
         commands::download_asset,
         commands::preview_asset,
+        commands::video_location,
+        commands::reveal_video_file,
         commands::runtime_status,
         commands::upload_breeze_reference,
         commands::project_events,

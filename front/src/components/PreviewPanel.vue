@@ -15,6 +15,7 @@ import type {
   VideoVersion,
 } from '../domain/types.ts';
 import Icon from './Icon.vue';
+import { api } from '../services/api.ts';
 import { useSignedPlayback } from '../composables/useSignedPlayback.ts';
 import VideoTimeline from './VideoTimeline.vue';
 import PanelDragHandle from './PanelDragHandle.vue';
@@ -92,6 +93,17 @@ const tab = ref('script'),
   video = ref<HTMLVideoElement | null>(null),
   playing = ref(false),
   mediaError = ref(false);
+/** 当前版本的本地文件位置；只在用户展开浮层时按需查询后端。 */
+type VideoFileLocation = {
+  path: string;
+  directory: string;
+  fileName: string;
+  exists: boolean;
+};
+const locationOpen = ref(false),
+  locationLoading = ref(false),
+  locationError = ref(''),
+  fileLocation = ref<VideoFileLocation | null>(null);
 const { url: playbackUrl, renew: renewPlayback } = useSignedPlayback(
   video,
   () => props.version?.video_asset_id,
@@ -140,9 +152,59 @@ watch(
     playing.value = false;
     emit('playing', false);
     stopAudition();
+    // 文件位置必须跟随当前选中版本；切换后旧路径立即失效。
+    fileLocation.value = null;
+    locationError.value = '';
+    if (locationOpen.value) void loadVideoLocation();
   },
   { immediate: true },
 );
+/**
+ * 查询当前版本的真实成片路径；后端会校验项目、版本、素材归属与文件存在性。
+ */
+async function loadVideoLocation() {
+  const version = props.version;
+  if (!version) return;
+  locationLoading.value = true;
+  locationError.value = '';
+  try {
+    const location = await api.videoLocation(props.projectId, version.id);
+    // 异步返回时版本可能已经切换，丢弃旧结果。
+    if (props.version?.id === version.id) fileLocation.value = location;
+  } catch (error) {
+    if (props.version?.id === version.id) {
+      locationError.value = error instanceof Error ? error.message : '无法定位当前版本的成片文件。';
+    }
+  } finally {
+    locationLoading.value = false;
+  }
+}
+async function toggleVideoLocation() {
+  locationOpen.value = !locationOpen.value;
+  if (locationOpen.value && !fileLocation.value) await loadVideoLocation();
+}
+/** 复制后端返回的绝对路径，避免前端拼出与真实存储不一致的路径。 */
+async function copyVideoPath() {
+  if (!fileLocation.value) return;
+  try {
+    await navigator.clipboard.writeText(fileLocation.value.path);
+    emit('notify', '已复制成片路径。');
+  } catch {
+    emit('notify', '复制失败，请手动选择路径文本。');
+  }
+}
+/** 交由后端用独立参数唤起系统文件管理器，不把路径交给 shell。 */
+async function openVideoFolder() {
+  const version = props.version;
+  if (!version) return;
+  locationError.value = '';
+  try {
+    await api.revealVideo(props.projectId, version.id);
+    emit('notify', '已打开成片所在文件夹。');
+  } catch (error) {
+    locationError.value = error instanceof Error ? error.message : '无法打开文件管理器。';
+  }
+}
 // 来自其他页面的新修订仅在本地没有未保存编辑时回填；否则由保存时的冲突检测处理。
 watch(
   () => props.revision,
@@ -1202,6 +1264,61 @@ defineExpose({ openTab, seek, canUndo, canRedo, undo, redo });
         <span v-if="version">v{{ version.version_number }}</span>
       </div>
       <div class="preview-actions">
+        <!-- 文件位置浮层：只展示后端解析出的当前版本真实路径，不猜测目录。 -->
+        <div class="file-location">
+          <button
+            class="button secondary"
+            :disabled="!version"
+            :aria-expanded="locationOpen"
+            aria-controls="video-file-location"
+            @click="toggleVideoLocation"
+          >
+            <Icon
+              name="folder"
+              :size="16"
+            />
+            文件位置
+          </button>
+          <div
+            v-if="locationOpen"
+            id="video-file-location"
+            class="file-location-popover"
+            role="dialog"
+            aria-label="当前视频文件位置"
+          >
+            <span class="file-location-title">v{{ version?.version_number }} 成片文件</span>
+            <p
+              v-if="locationLoading"
+              class="file-location-hint"
+            >
+              正在读取本地路径…
+            </p>
+            <p
+              v-else-if="locationError"
+              class="file-location-hint error"
+              role="alert"
+            >
+              {{ locationError }}
+            </p>
+            <template v-else-if="fileLocation">
+              <code class="file-location-path">{{ fileLocation.path }}</code>
+              <div class="file-location-buttons">
+                <button
+                  class="button secondary"
+                  @click="copyVideoPath"
+                >
+                  复制路径
+                </button>
+                <button
+                  class="button secondary"
+                  @click="openVideoFolder"
+                >
+                  打开所在文件夹
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
         <button
           class="button secondary"
           :disabled="!version || pending"

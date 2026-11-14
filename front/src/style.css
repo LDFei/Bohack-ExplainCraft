@@ -1707,6 +1707,62 @@ p {
   font-size: 9px;
   padding: 5px 8px;
 }
+/* 文件位置浮层向上展开，不改变底栏高度；长路径在浮层内换行。 */
+.file-location {
+  position: relative;
+}
+.file-location-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(340px, calc(100vw - 36px));
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 24%);
+}
+.file-location-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 9px;
+  color: var(--muted);
+}
+.file-location-path {
+  display: block;
+  max-height: 92px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--accent-wash);
+  color: var(--secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.file-location-hint {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.file-location-hint.error {
+  color: var(--danger, #d66);
+}
+.file-location-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.file-location-buttons .button {
+  flex: 1;
+  justify-content: center;
+  font-size: 9px;
+  padding: 5px 6px;
+}
 .preview-actions > .primary {
   background: transparent;
   color: var(--accent);

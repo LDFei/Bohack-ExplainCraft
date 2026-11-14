@@ -591,6 +591,9 @@ impl ScriptModel for GlmScript {
              \"visual_prompt\": 受控图解 JSON 字符串（格式见下）, \
              \"shot_size\": 景别（远景/全景/中景/近景/特写）, \"camera_motion\": 运镜（推/拉/摇/移/固定）, \
              \"duration_ms\": 该镜头毫秒数}}]}}，镜头数与解说词句数相同，时长总和约等于总时长。\n\
+             设计每个镜头前先在心里回答：这一镜让学生理解什么？画面里有哪些知识实体（对象/变量/角色）？\
+             它们之间是什么关系（包含、比较、依赖、作用、传递）？随着解说推进，哪个实体的位置、数值、状态或关系会改变？\
+             这一镜对应推理链的第几步？观众看完最终应该理解什么？答案落进 title、labels、states 与 conclusion，不要写成说明文字。\n\
              visual_prompt 是受约束的图解规格，不是自由画面描述：\n\
              {{\"kind\":\"hook|comparison|mechanism|cycle|conclusion\",\"title\":\"不超过22字的准确标题\",\
              \"labels\":[\"节点1\",\"节点2\"],\"note\":\"示意或来源\",\"visual\":{{...}}}}\n\
@@ -598,11 +601,18 @@ impl ScriptModel for GlmScript {
              1) \"search\"：在有序空间里查找某个值（二分/折半）时使用。\
              {{\"type\":\"search\",\"domain\":{{\"from\":起始整数,\"to\":结束整数}},\"target\":目标整数,\"conclusion\":\"结论\"}}；\
              只提供真实区间与目标，宿主会本地计算每一步中点与排除区间，禁止自己编造比较过程。\n\
-             2) \"states\"：一般知识机制。每个状态对应一条真实推理。\
+             2) \"states\"：一般知识机制。每个状态是一条真实推理步骤。\
              {{\"type\":\"states\",\"states\":[{{\"caption\":\"这一步的推理\",\
              \"objects\":[{{\"text\":\"对象\",\"emphasis\":\"accent|plain|dim\"}}]}}],\"conclusion\":\"最终结论\"}}；\
-             用 2～5 个状态展示对象如何出现、移动、合并或消失，不要把整段解说拆成矩形文字框。\n\
-             没有合适的图解时省略 visual 字段。",
+             规则：\n\
+             - 每个镜头用 3～5 个状态，至少 3 个。参考节奏：每 1～3 秒要有一处有效变化。\n\
+             - 相邻状态之间必须有实质推进：对象出现、消失、位置调整、emphasis 由 plain 变 accent 再变 dim，\
+             或 caption 反映新的推理。相邻状态完全一样等于没有教学信息，会被画面检查判为无效。\n\
+             - objects 只放知识实体（如 客户端、服务端、SYN、加速度），不放整句话；\
+             禁止把解说的每个分句做成一个矩形文字卡片依次出现。\n\
+             - caption 用一句话概括这一步的推理，不要复述解说词。\n\
+             - 状态推进对应解说顺序；最后一个状态用 conclusion 呈现观众应获得的最终理解。\n\
+             没有合适的图解时省略 visual 字段（画面改由模型自由绘制，但仍须体现实体与随时间推进的变化）。",
             request.brief.subject,
             request.brief.style,
             settings.aspect_ratio,
@@ -1085,7 +1095,28 @@ impl VisualModel for GlmScript {
     async fn generate_shot(&self, request: VisualRequest) -> ProviderResult<MediaOutput> {
         let (width, height) = crate::util::dimensions(&request.ctx.settings.aspect_ratio);
         if request.ctx.settings.visual_format == "html" {
-            let prompt=format!("输出离线 HTML 片段：{}x{}，{}ms。画面：{}。只允许<style>、HTML文本布局和内联SVG，动画用CSS关键帧；禁止脚本、事件、iframe、外链、图片资源和meta。代码不加Markdown。用户已确认风格：{}。镜头配方：{}",width,height,request.shot.duration_ms,request.shot.visual_prompt,request.ctx.settings.style_id,crate::skills::template_recipe(&request.ctx.user_text));
+            let prompt = format!(
+                "为这一个镜头撰写离线 HTML/CSS 动画：{width}×{height}，{ms} 毫秒。\n\
+                 解说词：{narration}\n\
+                 画面规格：{visual}\n\
+                 画面目标：让观众看到知识实体（对象/变量/角色）之间的关系在解说推进中真实改变，\
+                 而不是依次换掉几块文字卡片。\n\
+                 要求：\n\
+                 - 开头呈现初始状态，中段按解说顺序推进，结尾落在结论；每 1～3 秒至少一处有效变化。\n\
+                 - 变化必须是教学信息：位置移动、数值改变、关系线连接/断开、状态切换、强调转移。\n\
+                 - 禁止用装饰性粒子、无意义缩放、闪烁、随机运动或转场铺满时间来制造「动画感」。\n\
+                 - 文字只放标签、数值与结论，不堆砌整段句子；字号统一，颜色与风格一致，四周留安全边距。\n\
+                 - 只允许 <style>、HTML 文本布局和内联 SVG，动画只用 CSS 关键帧（animation）且总时长 = {ms} 毫秒；\
+                 禁止脚本、事件、iframe、外链、图片资源、meta、@import 和外部字体。\n\
+                 - 只输出 HTML 片段，不加 Markdown。风格：{style}。镜头配方：{recipe}",
+                width = width,
+                height = height,
+                ms = request.shot.duration_ms,
+                narration = request.shot.narration,
+                visual = request.shot.visual_prompt,
+                style = request.ctx.settings.style_id,
+                recipe = crate::skills::template_recipe(&request.ctx.user_text),
+            );
             let code=self.client.chat(&self.access,"你用HTML/CSS制作确定性的动画镜头。只生成当前画面，不询问、不自动下载，不调用剪辑工具。",&prompt,12000).await?;
             let html = code
                 .trim()
@@ -1103,26 +1134,36 @@ impl VisualModel for GlmScript {
             .await;
         }
         let prompt = format!(
-            "为以下镜头绘制 {}×{} 的 SVG 动画：{}\n风格：{}\n镜头时长：{} 毫秒。\n\
-             只输出完整 SVG，不要 Markdown。使用 rect/circle/ellipse/path/text 和 SMIL animate/animateTransform；\
-             禁止 script、foreignObject、image、animateMotion、外链和 CSS 动画。",
-            width,
-            height,
-            request.shot.visual_prompt,
-            request
+            "为这一个镜头绘制 {width}×{height} 的 SVG 动画，时长 {ms} 毫秒。\n\
+             解说词：{narration}\n\
+             画面规格：{visual}\n\
+             画面目标：让观众看到知识实体（对象/变量/角色）之间的关系在解说推进中真实改变，\
+             而不是依次换掉几块文字卡片。\n\
+             要求：\n\
+             - 开头呈现初始状态，中段按解说顺序推进，结尾落在结论；每 1～3 秒至少一处有效变化。\n\
+             - 变化必须是教学信息：位置移动、数值改变、关系线连接/断开、状态切换、强调转移。\
+             用 animateTransform 移动对象，用 animate 改变数值文本、颜色、透明度或线段属性。\n\
+             - 禁止用装饰性粒子、无意义缩放、闪烁、随机运动或转场铺满时间来制造「动画感」。\n\
+             - 文字只放标签、数值与结论，不堆砌整段句子；字号统一，颜色与背景对比清晰，四周留安全边距。\n\
+             - 动画时间轴用 begin/dur/fill 明确写出，总时长 = {ms} 毫秒。\n\
+             - 只输出完整 SVG，不要 Markdown；使用 rect/circle/ellipse/path/line/polygon/text 和 SMIL \
+             子元素 animate/animateTransform/animate 或 set；禁止 script、foreignObject、image、\
+             animateMotion、外链和 CSS 动画。\n\
+             风格：{style}。镜头配方：{recipe}",
+            width = width,
+            height = height,
+            ms = request.shot.duration_ms,
+            narration = request.shot.narration,
+            visual = request.shot.visual_prompt,
+            style = request
                 .ctx
                 .brief
                 .as_ref()
                 .map(|brief| brief.style.as_str())
                 .unwrap_or("温暖"),
-            request.shot.duration_ms,
+            recipe = crate::skills::template_recipe(&request.ctx.user_text),
         );
-        let prompt = format!(
-            "{}\n{}\n{}",
-            prompt,
-            crate::skills::policy("visual"),
-            crate::skills::template_recipe(&request.ctx.user_text)
-        );
+        let prompt = format!("{}\n{}", prompt, crate::skills::policy("visual"));
         let text = self
             .client
             .chat(

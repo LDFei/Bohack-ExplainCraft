@@ -1796,7 +1796,11 @@ impl Runner {
         Ok(())
     }
 
-    /// llm1：为没有画面的镜头生成 SVG 动画（用户上传的素材保留）。
+    /// llm1：为没有画面的镜头准备动画（用户上传的素材保留）。
+    ///
+    /// 每个镜头独立路由：可计算的搜索轨迹与充分的状态演变用受控渲染；
+    /// 语义稀疏或缺少图解的长镜头交给模型生成，并检查画面是否真的随时间变化；
+    /// 失败、内容不完整或检查不通过时回退到受控渲染，单镜头失败不影响其他镜头。
     async fn prepare_visuals(
         &self,
         project_id: &str,
@@ -1805,32 +1809,69 @@ impl Runner {
         rhythm: Option<&crate::rhythm::Rhythm>,
     ) -> Step<Vec<(String, AssetRow)>> {
         let count = draft.shots.len();
-        // 各镜头互不依赖，并发生成（云端文生图单张约 20 秒）；任一失败则整体失败，重试时只补缺失的镜头。
+        let vibe = crate::vibe::enabled(&ctx.settings, &ctx.user_text);
+        let format = ctx.settings.visual_format.as_str();
+        let offset_of = |index: usize| draft.shots[..index].iter().map(|s| s.duration_ms).sum();
+        // 模型生成本身较慢且计入 API 消耗，限制同时最多两个镜头在生成；
+        // 受控渲染仍然并发，不占用这个名额。
+        let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+        // 各镜头互不依赖，并发生成；重试时只补缺失的镜头。
         let jobs = draft
             .shots
             .iter()
             .enumerate()
             .filter(|(_, shot)| shot.asset_ids.is_empty())
-            .map(|(index, shot)| async move {
-                let request = VisualRequest {
-                    ctx: ctx.clone(),
-                    shot: shot.clone(),
-                    shot_index: index,
-                    shot_count: count,
-                };
-                let media = self
-                    .call(
-                        StageKey::Visuals,
-                        &format!(
-                            "生成 {} 画面（镜头 {}/{}）",
-                            ctx.settings.visual_format.to_uppercase(),
-                            index + 1,
-                            count
-                        ),
-                        async {
-                            if crate::vibe::enabled(&ctx.settings, &ctx.user_text) {
-                                let offset =
-                                    draft.shots[..index].iter().map(|s| s.duration_ms).sum();
+            .map(|(index, shot)| {
+                let gate = gate.clone();
+                async move {
+                    let request = VisualRequest {
+                        ctx: ctx.clone(),
+                        shot: shot.clone(),
+                        shot_index: index,
+                        shot_count: count,
+                    };
+                    let route =
+                        crate::visual_plan::route(&shot.visual_prompt, shot.duration_ms, vibe);
+                    self.feedback(
+                        Some(StageKey::Visuals),
+                        "info",
+                        format!("镜头 {}/{} 画面路线：{}", index + 1, count, route.label()),
+                    )?;
+                    let offset = offset_of(index);
+                    let subtitles = draft.finishing.subtitles_enabled;
+                    let media = match route {
+                        crate::visual_plan::VisualRoute::Generate => {
+                            // 等待生成名额；名额只在模型调用与检查期间占用。
+                            let _permit = gate.acquire().await.ok();
+                            match self
+                                .generated_shot(&request, shot, index, count, format)
+                                .await?
+                            {
+                                Some(media) => media,
+                                None => {
+                                    // 模型失败、返回内容不完整或画面几乎不变：回退受控渲染。
+                                    // 没有可用图解时会退回固定布局，日志里能看出这次是兜底。
+                                    self.call(
+                                        StageKey::Visuals,
+                                        &format!("回退受控画面（镜头 {}/{}）", index + 1, count),
+                                        crate::vibe::render(
+                                            shot,
+                                            index,
+                                            count,
+                                            &ctx.settings,
+                                            rhythm,
+                                            offset,
+                                            subtitles,
+                                        ),
+                                    )
+                                    .await?
+                                }
+                            }
+                        }
+                        _ => {
+                            self.call(
+                                StageKey::Visuals,
+                                &format!("{}（镜头 {}/{}）", route.label(), index + 1, count),
                                 crate::vibe::render(
                                     shot,
                                     index,
@@ -1838,23 +1879,129 @@ impl Runner {
                                     &ctx.settings,
                                     rhythm,
                                     offset,
-                                    draft.finishing.subtitles_enabled,
-                                )
-                                .await
-                            } else {
-                                self.state
-                                    .providers
-                                    .load()
-                                    .visual
-                                    .generate_shot(request)
-                                    .await
-                            }
-                        },
-                    )
-                    .await?;
-                Ok::<_, Stop>((shot.id.clone(), self.store_asset(project_id, &media).await?))
+                                    subtitles,
+                                ),
+                            )
+                            .await?
+                        }
+                    };
+                    Ok::<_, Stop>((shot.id.clone(), self.store_asset(project_id, &media).await?))
+                }
             });
         futures::future::join_all(jobs).await.into_iter().collect()
+    }
+
+    /// 模型生成单个镜头，并检查成片是否包含有效的画面变化。
+    ///
+    /// 返回 `None` 表示该镜头需要回退：调用失败、模型返回内容不完整、
+    /// 文件无法解码、时长/画幅不符合预期，或帧间检查确认画面几乎静止。
+    /// 所有原因都写入任务日志。只重试一次；抽帧不可用时会记录「未验证」，不阻断其他镜头。
+    async fn generated_shot(
+        &self,
+        request: &VisualRequest,
+        shot: &Shot,
+        index: usize,
+        count: usize,
+        format: &str,
+    ) -> Step<Option<MediaOutput>> {
+        let label = |attempt: usize| {
+            format!(
+                "模型生成 {} 动画（镜头 {}/{}，第 {} 次）",
+                format.to_uppercase(),
+                index + 1,
+                count,
+                attempt
+            )
+        };
+        let mut last: Option<String> = None;
+        for attempt in 1..=2 {
+            let result = self
+                .call(
+                    StageKey::Visuals,
+                    &label(attempt),
+                    self.state
+                        .providers
+                        .load()
+                        .visual
+                        .generate_shot(VisualRequest {
+                            ctx: request.ctx.clone(),
+                            shot: request.shot.clone(),
+                            shot_index: request.shot_index,
+                            shot_count: request.shot_count,
+                        }),
+                )
+                .await;
+            let media = match result {
+                Ok(media) => media,
+                Err(Stop::Failed(_)) => return Ok(None),
+                Err(other) => return Err(other),
+            };
+            match self.visual_problem(&media, shot).await {
+                None => return Ok(Some(media)),
+                Some(reason) => last = Some(reason),
+            }
+        }
+        let reason = last.unwrap_or_else(|| "模型没有返回可用动画。".into());
+        self.feedback(
+            Some(StageKey::Visuals),
+            "warn",
+            format!(
+                "镜头 {}/{} 模型动画不可用：{reason} 已回退到受控渲染。",
+                index + 1,
+                count
+            ),
+        )?;
+        Ok(None)
+    }
+
+    /// 检查模型生成的镜头成片；`None` 表示通过，否则返回可读的回退原因。
+    ///
+    /// 时长、画幅、音频和有效变化都来自真实文件，不依据模型自述。
+    async fn visual_problem(&self, media: &MediaOutput, shot: &Shot) -> Option<String> {
+        if media.kind != "video" || media.mime_type != "video/mp4" {
+            return Some("输出不是 MP4 视频。".into());
+        }
+        let data = match &media.data {
+            MediaData::Path(path) => match tokio::fs::read(path).await {
+                Ok(bytes) => bytes,
+                Err(error) => return Some(format!("无法读取动画文件：{error}")),
+            },
+            MediaData::Bytes(bytes) => bytes.clone(),
+        };
+        if data.len() < 4096 {
+            return Some("动画文件为空。".into());
+        }
+        // 检查需要真实文件；写入项目存储前先放到系统临时目录。
+        let path = std::env::temp_dir().join(format!(
+            "explaincraft-check-{}.mp4",
+            crate::util::make_id("shot")
+        ));
+        if tokio::fs::write(&path, &data).await.is_err() {
+            return Some("无法暂存动画用于检查。".into());
+        }
+        let probe = self.state.media.probe(&path).await;
+        let duration = probe.duration_ms.unwrap_or_default();
+        let problem = if !probe.ok {
+            Some("动画无法解码。".into())
+        } else if (duration - shot.duration_ms).abs() > 400 {
+            Some(format!(
+                "动画时长 {duration}ms 与镜头 {}ms 不一致。",
+                shot.duration_ms
+            ))
+        } else if probe.width.is_none() || probe.height.is_none() {
+            Some("动画缺少视频画面。".into())
+        } else {
+            match crate::visual_plan::media_has_motion(&path, shot.duration_ms).await {
+                Some(true) => None,
+                Some(false) => Some("画面在多个时间点几乎不变，未体现推进。".into()),
+                None => {
+                    tracing::warn!(target: "job", "镜头动画无法抽帧检查，记录为未验证。");
+                    None
+                }
+            }
+        };
+        let _ = tokio::fs::remove_file(&path).await;
+        problem
     }
 
     /// 音乐先准备、分析并保存，之后才审阅分镜和渲染动画；恢复不重复生成音乐。

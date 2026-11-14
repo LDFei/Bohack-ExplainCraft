@@ -53,6 +53,11 @@ interface StudioApi {
   ): Promise<void>;
   listVersions(id: string): Promise<VideoVersion[]>;
   getVersion(id: string, versionId: string): Promise<VideoVersion>;
+  videoLocation(
+    id: string,
+    versionId: string,
+  ): Promise<{ path: string; directory: string; fileName: string; exists: boolean }>;
+  revealVideo(id: string, versionId: string): Promise<void>;
   exportVideo(
     id: string,
     versionId: string,
@@ -256,6 +261,36 @@ class TauriApi implements StudioApi {
       { projectId: id, versionId, resolution, includeProject },
       makeId('key'),
     );
+  }
+
+  /** 查询当前版本成片的真实本地路径；路径只由后端解析。 */
+  async videoLocation(id: string, versionId: string) {
+    try {
+      return await invoke<{
+        path: string;
+        directory: string;
+        fileName: string;
+        exists: boolean;
+      }>('video_location', { projectId: id, versionId }, { headers: this.headers() });
+    } catch (error) {
+      throw new StudioError(
+        'IPC_ERROR',
+        typeof error === 'string' ? error : '无法定位当前版本的成片文件。',
+      );
+    }
+  }
+
+  /** 在系统文件管理器中定位当前版本成片。 */
+  async revealVideo(id: string, versionId: string) {
+    try {
+      await invoke('reveal_video_file', { projectId: id, versionId }, { headers: this.headers() });
+    } catch (error) {
+      if (error instanceof StudioError) throw error;
+      throw new StudioError(
+        'IPC_ERROR',
+        typeof error === 'string' ? error : '无法打开文件管理器，请检查系统权限。',
+      );
+    }
   }
 
   /** 预览使用播放签名，后台为上传视频缓存兼容格式。 */

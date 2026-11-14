@@ -34,6 +34,14 @@ await page.addInitScript(() => {
   const state = { calls: [], rows: {}, played: [], paused: 0, created: 0 };
   window.__review = state;
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
+  // 复制路径只验证调用与内容，不依赖浏览器剪贴板权限。
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {
+      writeText: async (text) => {
+        state.copied = text;
+      },
+    },
+  });
   // 媒体行为只记录调用；不让浏览器测试访问示例音轨或真实供应商。
   window.Audio = class {
     constructor(url) {
@@ -339,6 +347,18 @@ await page.addInitScript(() => {
           return ok({ draft: row.draft, draft_revision: row.project.draft_revision });
         case 'download_asset':
           return ok({ download_url: '/media/ambient.wav', file_name: '上传音乐.wav' });
+        // 文件位置由后端解析；替身返回固定真实路径，界面不得自行拼接。
+        case 'video_location':
+          if (args.projectId !== 'project' || args.versionId !== 'version-1')
+            throw new Error(`unexpected location args: ${JSON.stringify(args)}`);
+          return {
+            path: '/Users/demo/Library/Application Support/lingjing/storage/project/rendered-video.mp4',
+            directory: '/Users/demo/Library/Application Support/lingjing/storage/project',
+            fileName: '最终成片.mp4',
+            exists: true,
+          };
+        case 'reveal_video_file':
+          return undefined;
         case 'get_model_settings':
           return {
             script: {
@@ -389,19 +409,34 @@ await page.addInitScript(() => {
 
 try {
   await page.goto(`${base}/studio.html#/projects/project`);
+  // 当前版本的真实文件位置：只调用后端查询，不在前端拼接路径。
+  const previewPanel = page.getByLabel('视频作品与设置');
+  await previewPanel.waitFor();
+  await previewPanel.getByRole('button', { name: '文件位置', exact: true }).click();
+  const locationPath =
+    '/Users/demo/Library/Application Support/lingjing/storage/project/rendered-video.mp4';
+  await page.getByText(locationPath, { exact: true }).waitFor();
+  await page.getByRole('button', { name: '复制路径', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__review.copied), locationPath);
+  await page.getByRole('button', { name: '打开所在文件夹', exact: true }).click();
+  assert.ok(
+    await page.evaluate(() =>
+      window.__review.calls.some(
+        (c) => c.command === 'reveal_video_file' && c.args.versionId === 'version-1',
+      ),
+    ),
+  );
   await page.getByRole('button', { name: '极简信息图', exact: true }).click();
   await page.getByRole('button', { name: '30 秒', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '确认选择并继续' }).count(), 0);
   assert.equal(await page.getByLabel('目标视频时长').count(), 0);
   await page.getByRole('button', { name: '30 秒', exact: true }).click();
   await page.getByRole('button', { name: '从本地选择音乐', exact: true }).waitFor();
-  await page
-    .locator('.question-card input[type=file]')
-    .setInputFiles({
-      name: '我的节奏.wav',
-      mimeType: 'audio/wav',
-      buffer: Buffer.from('RIFF-local-browser-test'),
-    });
+  await page.locator('.question-card input[type=file]').setInputFiles({
+    name: '我的节奏.wav',
+    mimeType: 'audio/wav',
+    buffer: Buffer.from('RIFF-local-browser-test'),
+  });
   await page
     .locator('.local-music-list')
     .getByRole('button', { name: /我的节奏.wav/ })

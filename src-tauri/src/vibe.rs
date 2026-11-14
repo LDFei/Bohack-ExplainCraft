@@ -84,6 +84,28 @@ pub fn describe(raw: &str) -> String {
                     .join(" → ");
                 return format!("{} · {}", s.title, steps);
             }
+            // 状态演变同样展开每一步推理，审阅时能看到对象如何推进。
+            if let Some(visual) = s.visual.as_ref().filter(|v| v.kind == "states") {
+                let steps: Vec<&str> = visual
+                    .states
+                    .iter()
+                    .map(|state| state.caption.trim())
+                    .filter(|caption| !caption.is_empty())
+                    .collect();
+                if !steps.is_empty() {
+                    return format!("{} · {}", s.title, steps.join(" → "));
+                }
+                let objects: Vec<&str> = visual
+                    .states
+                    .iter()
+                    .flat_map(|state| state.objects.iter())
+                    .map(|object| object.text.trim())
+                    .filter(|text| !text.is_empty())
+                    .collect();
+                if !objects.is_empty() {
+                    return format!("{} · {}", s.title, objects.join(" → "));
+                }
+            }
             format!("{} · {}", s.title, s.labels.join(" → "))
         })
         .unwrap_or_else(|_| raw.into())
@@ -341,6 +363,12 @@ pub fn scene_svg(
         if let Some(svg) = data_svg(&scene, visual, shot, accent, subtitles, &beats) {
             return svg;
         }
+        // 图解规格不完整或状态不足时回落固定布局；记录原因，避免静默降级。
+        tracing::warn!(
+            target: "job",
+            "受控图解规格无法渲染（type={}），回退固定布局",
+            visual.kind
+        );
     }
     let mut svg=format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"720\" height=\"1280\" viewBox=\"0 0 720 1280\"><rect width=\"720\" height=\"1280\" fill=\"#0B1120\"/><g font-family=\"PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif\">");
     for x in (0..720).step_by(60) {
@@ -502,6 +530,44 @@ fn key_times(times: &[i64], total: i64) -> String {
         .join(";")
 }
 
+/// 逐状态取值的关键帧：每个值保持到下一次切换前 `transition` 毫秒，再短促过渡到新值。
+///
+/// 返回 `(values, keyTimes)`。过渡短促，避免整段时间都在缓慢漂移，
+/// 让画面里的强调、位置变化与旁白的推理步骤对齐。
+fn state_keyframes(
+    values: &[String],
+    starts: &[i64],
+    transition: i64,
+    total: i64,
+) -> (Vec<String>, String) {
+    let mut frames = Vec::with_capacity(values.len() * 2);
+    let mut times = Vec::with_capacity(values.len() * 2);
+    frames.push(values[0].clone());
+    times.push(0i64);
+    for index in 1..values.len() {
+        let switch = starts[index];
+        // 过渡不早于上一状态的起点，避免极短状态下关键帧倒序。
+        let begin = (switch - transition).max(starts[index - 1] + 1);
+        frames.push(values[index - 1].clone());
+        times.push(begin);
+        frames.push(values[index].clone());
+        times.push(switch);
+    }
+    (frames, key_times(&times, total))
+}
+
+/// 强调级别的图形配色：`(描边, 填充, 文字)`。
+///
+/// 强调对象用更亮的填充与主题色描边，在深色画布上有明确的面积级对比，
+/// 不依赖闪烁或装饰光效；降级对象压暗，形成真实的注意力转移。
+fn emphasis_colors<'a>(emphasis: &str, accent: &'a str) -> (&'a str, &'a str, &'a str) {
+    match emphasis {
+        "accent" => (accent, "#173F5F", "#F4F7FF"),
+        "dim" => ("#243350", "#0D1622", "#6F7E9C"),
+        _ => ("#34435A", "#101B2C", "#E6EDF9"),
+    }
+}
+
 /// 深色画布与标题；新布局不使用页眉、页码和装饰网格。
 fn open_canvas(title: &str, accent: &str) -> String {
     let mut svg = String::from(
@@ -604,11 +670,7 @@ fn search_svg(
 
     // 10×10 网格呈现完整搜索空间；更大范围自动加列，但不超过 200 个格子。
     let size = trace.size as usize;
-    let columns = if size <= 100 {
-        10
-    } else {
-        20
-    };
+    let columns = if size <= 100 { 10 } else { 20 };
     let rows = (size + columns - 1) / columns;
     let grid_x = 40.;
     let cell_w = 640. / columns as f64;
@@ -616,7 +678,13 @@ fn search_svg(
     let grid_y = 206.;
     let cell_x = |index: usize| grid_x + (index % columns) as f64 * cell_w;
     let cell_y = |index: usize| grid_y + (index / columns) as f64 * cell_h;
-    let font = if columns >= 20 { 16. } else if columns >= 16 { 19. } else { 25. };
+    let font = if columns >= 20 {
+        16.
+    } else if columns >= 16 {
+        19.
+    } else {
+        25.
+    };
 
     let mut svg = open_canvas(&scene.title, accent);
     svg.push_str(&format!(
@@ -804,10 +872,7 @@ fn search_svg(
         &format!("二分查找 · {} 次", trace.steps.len()),
         "start",
     ));
-    for (y, width, color) in [
-        (868., chart_w, "#2A3A55"),
-        (916., binary_w, accent),
-    ] {
+    for (y, width, color) in [(868., chart_w, "#2A3A55"), (916., binary_w, accent)] {
         svg.push_str(&format!(
             "<rect x=\"{chart_x}\" y=\"{y}\" width=\"0\" height=\"{linear_h}\" rx=\"6\" fill=\"{color}\">\
              <animate attributeName=\"width\" values=\"0;{width:.2}\" keyTimes=\"0;1\" begin=\"{summary_at}ms\" dur=\"700ms\" fill=\"freeze\"/>\
@@ -815,13 +880,21 @@ fn search_svg(
         ));
     }
 
-    let conclusion = if scene.visual.as_ref().is_some_and(|v| !v.conclusion.trim().is_empty()) {
+    let conclusion = if scene
+        .visual
+        .as_ref()
+        .is_some_and(|v| !v.conclusion.trim().is_empty())
+    {
         scene
             .visual
             .as_ref()
             .map(|v| v.conclusion.trim().chars().take(26).collect::<String>())
             .unwrap_or_default()
-    } else if trace.steps.last().is_some_and(|s| s.verdict == std::cmp::Ordering::Equal) {
+    } else if trace
+        .steps
+        .last()
+        .is_some_and(|s| s.verdict == std::cmp::Ordering::Equal)
+    {
         format!(
             "{} 次比较命中 {} · 复杂度 O(log n)",
             trace.steps.len(),
@@ -916,28 +989,68 @@ fn states_svg(
         let first_state = locations.iter().position(|slot| slot.is_some())?;
         let first_slot = locations[first_state]?;
         let width = (name.chars().count() as f64 * 26. + 64.).clamp(260., 600.);
-        let emphasis = visual.states[first_state]
+        // 每个状态里这个对象的位置、强调级别与是否在场；强调切换是这一步的可见推进。
+        let mut slot = first_slot;
+        let mut deltas: Vec<String> = Vec::with_capacity(locations.len());
+        for location in &locations {
+            if let Some(current) = location {
+                slot = *current;
+            }
+            deltas.push(format!("0 {:.2}", slot_y(slot) - slot_y(first_slot)));
+        }
+        // 对象离场后沿用最后一次的强调级别，让它淡出时不突变成另一种样式。
+        let mut last = visual.states[first_state]
             .objects
             .get(first_slot)
-            .map(|object| object.emphasis.as_str())
-            .unwrap_or("plain");
-        let (stroke, fill, text_color) = match emphasis {
-            "accent" => (accent, "#12283A", "#F4F7FF"),
-            "dim" => ("#2A3A55", "#101B2C", "#8594B2"),
-            _ => ("#34435A", "#101B2C", "#E6EDF9"),
-        };
-        let deltas: Vec<String> = {
-            let mut slot = first_slot;
-            locations
-                .iter()
-                .map(|location| {
-                    if let Some(current) = location {
-                        slot = *current;
+            .map(|object| object.emphasis.clone())
+            .unwrap_or_else(|| "plain".into());
+        let resolved: Vec<String> = locations
+            .iter()
+            .enumerate()
+            .map(|(state, location)| {
+                if let Some(current) = location {
+                    if let Some(emphasis) = visual.states[state]
+                        .objects
+                        .get(*current)
+                        .map(|object| object.emphasis.clone())
+                        .filter(|emphasis| !emphasis.is_empty())
+                    {
+                        last = emphasis;
                     }
-                    format!("0 {:.2}", slot_y(slot) - slot_y(first_slot))
-                })
-                .collect()
-        };
+                }
+                last.clone()
+            })
+            .collect();
+        // 强调切换用短促过渡；只有强调变化、位置不变的对象也能被看见。
+        let transition = (state_len / 5).clamp(140, 360);
+        let color_of = |emphasis: &str| emphasis_colors(emphasis, accent);
+        let (strokes, stroke_times) = state_keyframes(
+            &resolved.iter().map(|e| color_of(e).0.into()).collect::<Vec<_>>(),
+            &starts,
+            transition,
+            total,
+        );
+        let (fills, fill_times) = state_keyframes(
+            &resolved.iter().map(|e| color_of(e).1.into()).collect::<Vec<_>>(),
+            &starts,
+            transition,
+            total,
+        );
+        let (widths, width_times) = state_keyframes(
+            &resolved
+                .iter()
+                .map(|e| if e == "accent" { "4" } else { "2" }.to_string())
+                .collect::<Vec<_>>(),
+            &starts,
+            transition,
+            total,
+        );
+        let (text_colors, text_times) = state_keyframes(
+            &resolved.iter().map(|e| color_of(e).2.into()).collect::<Vec<_>>(),
+            &starts,
+            transition,
+            total,
+        );
         let opacities: Vec<&str> = locations
             .iter()
             .map(|location| if location.is_some() { "1" } else { "0" })
@@ -946,22 +1059,37 @@ fn states_svg(
             "<g opacity=\"{}\">\
              <animate attributeName=\"opacity\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
              <animateTransform attributeName=\"transform\" type=\"translate\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
-             <rect x=\"{:.2}\" y=\"{:.2}\" width=\"{width:.2}\" height=\"76\" rx=\"16\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"2\"/>",
+             <rect x=\"{:.2}\" y=\"{:.2}\" width=\"{width:.2}\" height=\"76\" rx=\"16\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\">\
+             <animate attributeName=\"fill\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             <animate attributeName=\"stroke\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             <animate attributeName=\"stroke-width\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             </rect>",
             opacities[0],
             opacities.join(";"),
             key_times(&starts, total),
             deltas.join(";"),
             key_times(&starts, total),
             360. - width / 2.,
-            slot_y(first_slot)
+            slot_y(first_slot),
+            fills[0],
+            strokes[0],
+            widths[0],
+            fills.join(";"),
+            fill_times,
+            strokes.join(";"),
+            stroke_times,
+            widths.join(";"),
+            width_times,
         ));
-        svg.push_str(&text(
-            360.,
+        svg.push_str(&format!(
+            "<text x=\"360\" y=\"{:.2}\" font-size=\"27\" font-weight=\"700\" fill=\"{}\" text-anchor=\"middle\">{}\
+             <animate attributeName=\"fill\" values=\"{}\" keyTimes=\"{}\" begin=\"0ms\" dur=\"{total}ms\" fill=\"freeze\"/>\
+             </text>",
             slot_y(first_slot) + 49.,
-            27.,
-            text_color,
-            name,
-            "middle",
+            text_colors[0],
+            escape(name),
+            text_colors.join(";"),
+            text_times,
         ));
         svg.push_str("</g>");
     }
@@ -1056,10 +1184,16 @@ mod tests {
         let trace = visual.search_trace().expect("合法区间应得到真实轨迹");
         let mids: Vec<i64> = trace.steps.iter().map(|step| step.value).collect();
         assert_eq!(mids, vec![50, 75, 62, 68, 71, 73, 74]);
-        assert_eq!(trace.steps.last().unwrap().verdict, std::cmp::Ordering::Equal);
+        assert_eq!(
+            trace.steps.last().unwrap().verdict,
+            std::cmp::Ordering::Equal
+        );
         // 区间每一步都真实收缩，最后只剩命中的那个数字。
         assert_eq!(
-            (trace.steps.last().unwrap().lo, trace.steps.last().unwrap().hi),
+            (
+                trace.steps.last().unwrap().lo,
+                trace.steps.last().unwrap().hi
+            ),
             (73, 73)
         );
         // 模型编造的步骤字段不会被读取：即使额外给出 steps 也不影响结果。
