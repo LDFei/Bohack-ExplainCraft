@@ -145,6 +145,7 @@ fn context(draft: &Draft, input: &JobInput) -> ProductionContext {
         settings: draft.settings.clone(),
         user_text: input.text.clone(),
         answers: input.answers.clone(),
+        speech_rate: draft.audio.speech_rate,
     }
 }
 
@@ -188,6 +189,16 @@ impl Runner {
     pub async fn run(self) {
         let loaded = self.state.db.read(|conn| db::load_job(conn, &self.job_id));
         let Ok(Some(job)) = loaded else { return };
+        if let Err(error) = crate::metrics::begin_run(&self.state, &job) {
+            tracing::error!("无法初始化本轮用量记录：{error:?}");
+            self.fail(JobError {
+                code: "USAGE_RECORD_UNAVAILABLE".into(),
+                message: "无法保存本轮生成用量，请检查本机数据库后重试。".into(),
+                retryable: true,
+                failed_stage: None,
+            });
+            return;
+        }
         tracing::info!(
             target: "job",
             "{} 开始执行 {}（项目 {}，第 {} 次执行）",
@@ -255,7 +266,7 @@ impl Runner {
                 tracing::info!(target: "job", "{job}   · {label} 已中止（用户停止）");
                 Err(Stop::Cancelled)
             }
-            result = future => match result {
+            result = crate::metrics::operation(&self.state, &self.job_id, self.attempt, stage, label, future) => match result {
                 Ok(value) => {
                     tracing::info!(target: "job", "{job}   · {label} 完成，用时 {}", elapsed(started));
                     Ok(value)
@@ -497,8 +508,11 @@ impl Runner {
             match outcome {
                 PlanOutcome::NeedInput(question) => return self.ask(question),
                 PlanOutcome::Ready(plan) => {
+                    let selected_duration = draft.settings.target_duration_seconds;
                     draft.brief = Some(plan.brief);
                     draft.settings = plan.settings;
+                    // 界面选择或用户原话中的时长已经由前端保存；策划模型无权覆盖这一明确参数。
+                    draft.settings.target_duration_seconds = selected_duration;
                     draft
                         .invalidated_stages
                         .retain(|s| *s != StageKey::Planning);
@@ -601,6 +615,44 @@ impl Runner {
         if !input.attachments_applied && !input.asset_ids.is_empty() {
             self.apply_attachments(&mut draft, &mut input)?;
         }
+
+        // 所有旁白入口（首次生成、历史草稿、手动编辑）统一执行目标时长预算。
+        let (target_shot_count, max_narration_chars) =
+            crate::providers::siliconflow::narration_budget(
+                draft.settings.target_duration_seconds,
+                draft.audio.speech_rate,
+            );
+        let mut narration_changed = false;
+        if draft.shots.len() > target_shot_count {
+            draft.shots.truncate(target_shot_count);
+            narration_changed = true;
+        }
+        for shot in &mut draft.shots {
+            let fitted = crate::providers::siliconflow::clip_narration_line(
+                &shot.narration,
+                max_narration_chars,
+            );
+            if fitted != shot.narration {
+                shot.narration = fitted;
+                narration_changed = true;
+            }
+        }
+        if narration_changed {
+            if let Some(script) = &mut draft.script {
+                script.text = draft
+                    .shots
+                    .iter()
+                    .map(|shot| shot.narration.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+            }
+        }
+
+        self.state.db.write(|conn| {
+            conn.execute("UPDATE generation_runs SET config = json_set(config, '$.settings', json(?1), '$.shot_count', ?2) WHERE job_id = ?3",
+                rusqlite::params![serde_json::to_string(&draft.settings).unwrap_or_default(), draft.shots.len() as i64, self.job_id])?;
+            Ok(())
+        }).map_err(Stop::from)?;
 
         // 4. SVG 画面（llm1）与 5. 音频（llm3 + llm4）并行
         let ctx = context(&draft, &input);
@@ -1089,7 +1141,7 @@ impl Runner {
                     resolution: "720p".into(),
                     fps: 30,
                     format: "mp4".into(),
-                    created_at: created,
+                    created_at: created.clone(),
                 }],
             };
             db::insert_version(t, &version)?;
@@ -1097,7 +1149,7 @@ impl Runner {
             job.job.status = JobStatus::Succeeded;
             job.job.progress_percent = Some(100);
             job.job.current_stage = None;
-            job.job.finished_at = Some(now_iso());
+            job.job.finished_at = Some(created.clone());
             job.job.result = Some(json!({
                 "video_version_id": version.id,
                 "draft_revision": project.project.draft_revision,
@@ -1114,7 +1166,15 @@ impl Runner {
                 } else {
                     "你的短片准备好了！画面、配音和音乐都安排好了。还想调整哪里，继续告诉我就好。"
                 };
-                let video_block = json!({ "type": "video", "video_version_id": version.id });
+                let usage =
+                    crate::metrics::completion_summary(t, &job.job.id, &job.job.created_at, &created)?;
+                let video_block = json!({
+                    "type": "video",
+                    "video_version_id": version.id,
+                    "elapsed_ms": usage["elapsed_ms"],
+                    "total_tokens": usage["total_tokens"],
+                    "token_complete": usage["token_complete"],
+                });
                 ops::finish_message(t, &id, Some(text), "completed", |blocks| {
                     blocks.retain(|b| b["type"] != "question");
                     blocks.push(video_block);
@@ -1271,8 +1331,13 @@ impl Runner {
                         });
                     }
                     // 用户上传的文件即使未放入当前时间线，也一并交给人工剪辑。
-                    let (uploads, _) =
-                        db::list_assets(conn, &version.project_id, None, 10_000, true)?;
+                    let (uploads, _) = db::list_assets(
+                        conn,
+                        &version.project_id,
+                        None,
+                        10_000,
+                        db::AssetScope::Uploads,
+                    )?;
                     for row in uploads {
                         if seen.insert(row.asset.id.clone()) {
                             bundle_assets.push(BundleAsset {

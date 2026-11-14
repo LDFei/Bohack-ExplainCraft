@@ -161,6 +161,11 @@ pub async fn create(
             return Ok(response);
         }
         let now = now_iso();
+        let mut draft = empty_draft();
+        let default_voice = state.model_config.load().default_voice();
+        if !default_voice.trim().is_empty() {
+            draft.audio.voice_id = default_voice;
+        }
         let mut row = ProjectRow {
             project: Project {
                 id: make_id("prj"),
@@ -174,7 +179,7 @@ pub async fn create(
                 updated_at: now,
             },
             user_id: user.clone(),
-            draft: empty_draft(),
+            draft,
             artifacts: Artifacts::default(),
             event_seq: 0,
             pruned_through: 0,

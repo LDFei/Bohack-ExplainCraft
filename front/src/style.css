@@ -2118,6 +2118,16 @@ p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.message-time {
+  display: block;
+  margin-top: 7px;
+  font-size: 8px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.user-bubble .message-time {
+  text-align: right;
+}
 .user-avatar {
   display: none;
 }

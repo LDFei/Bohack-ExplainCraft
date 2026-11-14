@@ -39,8 +39,8 @@ pub async fn list(
     let limit = page_limit(query.limit, 50);
     let (rows, next_cursor) = state.db.read(|conn| {
         db::project_for(conn, &project_id, &user)?;
-        // 素材面板展示用户上传的文件；生成的中间产物通过分镜与成片体现。
-        db::list_assets(conn, &project_id, before, limit, true)
+        // 素材库展示用户上传文件和最终成片；SVG 镜头、旁白等中间产物仍保持隐藏。
+        db::list_assets(conn, &project_id, before, limit, db::AssetScope::Library)
     })?;
     let items: Vec<Asset> = rows.iter().map(|r| state.media.asset_api(r)).collect();
     Ok(ok(json!({ "items": items, "next_cursor": next_cursor })))

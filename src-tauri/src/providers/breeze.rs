@@ -217,6 +217,7 @@ impl VoiceModel for BreezeTts {
             "4": { "class_type": "SaveAudio", "inputs": {
                 "audio": ["3", 0], "filename_prefix": "explaincraft/narration" } }
         });
+        let mut metric = crate::metrics::ModelCall::start("breeze", &self.model, "tts")?;
         let response = self
             .http
             .post(format!("{}/prompt", self.base))
@@ -224,9 +225,11 @@ impl VoiceModel for BreezeTts {
             .send()
             .await
             .map_err(Self::offline)?;
+        metric.response(&response);
         let status = response.status();
         let submitted: Value = response.json().await.map_err(Self::offline)?;
         if !status.is_success() {
+            metric.finish(false, &Value::Null);
             tracing::warn!(target: "job", "breezeTTS2 工作流被 ComfyUI 拒绝：{}", crate::util::preview(&submitted.to_string(), 400));
             return Err(ProviderError::unavailable(
                 "本地配音工作流提交失败，请检查 ComfyUI 中的 breezeTTS2 节点。",
@@ -253,6 +256,7 @@ impl VoiceModel for BreezeTts {
                 continue;
             }
             if entry["status"]["status_str"].as_str() == Some("error") {
+                metric.finish(false, &Value::Null);
                 tracing::warn!(target: "job", "breezeTTS2 生成出错：{}", crate::util::preview(&entry["status"].to_string(), 400));
                 return Err(ProviderError::unavailable("本地配音生成失败，请稍后重试。"));
             }
@@ -274,6 +278,7 @@ impl VoiceModel for BreezeTts {
                 .bytes()
                 .await
                 .map_err(Self::offline)?;
+            metric.finish(true, &Value::Null);
             return Ok(MediaOutput {
                 data: MediaData::Bytes(bytes.to_vec()),
                 file_name: "narration.flac".into(),
@@ -286,6 +291,7 @@ impl VoiceModel for BreezeTts {
                 duration_ms: None,
             });
         }
+        metric.finish(false, &Value::Null);
         Err(Self::offline("生成超时"))
     }
 }

@@ -186,6 +186,7 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "busy_timeout", 5000)?;
         conn.execute_batch(SCHEMA)?;
+        crate::metrics::initialize(&conn)?;
         // 早期版本的 versions 表没有工程时间线；仅补充列，不重写任何历史数据。
         let has_edit_plan = {
             let mut statement = conn.prepare("PRAGMA table_info(versions)")?;
@@ -701,18 +702,30 @@ pub fn load_asset(conn: &Connection, id: &str) -> ApiResult<Option<AssetRow>> {
         .map(|(_, a)| a))
 }
 
-/// 按创建时间倒序分页列出项目素材；`uploads_only` 为真时只列用户上传的文件。
+/// 素材列表范围。
+#[derive(Clone, Copy)]
+pub enum AssetScope {
+    /// 只列用户上传文件，供工程包收集原始素材。
+    Uploads,
+    /// 列用户上传文件和最终成片，供工作台素材库直接回看。
+    Library,
+}
+
+/// 按创建时间倒序分页列出项目素材。
 pub fn list_assets(
     conn: &Connection,
     project_id: &str,
     before: Option<i64>,
     limit: i64,
-    uploads_only: bool,
+    scope: AssetScope,
 ) -> ApiResult<(Vec<AssetRow>, Option<String>)> {
-    let sql = if uploads_only {
-        "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source = 'upload' ORDER BY seq DESC LIMIT ?3"
-    } else {
-        "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3"
+    let sql = match scope {
+        AssetScope::Uploads => {
+            "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source = 'upload' ORDER BY seq DESC LIMIT ?3"
+        }
+        AssetScope::Library => {
+            "SELECT * FROM assets WHERE project_id = ?1 AND seq < ?2 AND source IN ('upload', 'rendered') ORDER BY seq DESC LIMIT ?3"
+        }
     };
     let mut stmt = conn.prepare(sql)?;
     let mut page: Vec<(i64, AssetRow)> = stmt
@@ -926,7 +939,16 @@ pub fn delete_project(conn: &Connection, project_id: &str) -> ApiResult<Vec<Stri
     let files: Vec<String> = stmt
         .query_map(params![project_id], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    for table in ["messages", "jobs", "assets", "versions", "events"] {
+    for table in [
+        "generation_model_calls",
+        "stage_spans",
+        "generation_runs",
+        "messages",
+        "jobs",
+        "assets",
+        "versions",
+        "events",
+    ] {
         conn.execute(
             &format!("DELETE FROM {table} WHERE project_id = ?1"),
             params![project_id],
@@ -934,4 +956,63 @@ pub fn delete_project(conn: &Connection, project_id: &str) -> ApiResult<Vec<Stri
     }
     conn.execute("DELETE FROM projects WHERE id = ?1", params![project_id])?;
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Asset;
+
+    /// 素材库只展示上传文件和最终成片，不把 SVG、配音等中间产物放进列表。
+    #[test]
+    fn library_lists_rendered_videos_and_uploads_only() {
+        let root = std::env::temp_dir().join(crate::util::make_id("asset-library-test"));
+        let db = Db::open(&root.join("test.sqlite3")).unwrap();
+        db.write(|conn| {
+            conn.execute(
+                "INSERT INTO projects
+                 (id, user_id, title, status, draft_revision, draft_dirty, draft, created_at, updated_at)
+                 VALUES ('project', 'local_user', 'test', 'draft', 1, 0, ?1, ?2, ?2)",
+                params![
+                    serde_json::to_string(&crate::catalog::empty_draft()).unwrap(),
+                    now_iso()
+                ],
+            )?;
+            for (id, source, kind) in [
+                ("upload", "upload", "image"),
+                ("rendered", "rendered", "video"),
+                ("generated", "generated", "video"),
+            ] {
+                insert_asset(
+                    conn,
+                    &AssetRow {
+                        asset: Asset {
+                            id: id.into(),
+                            project_id: "project".into(),
+                            kind: kind.into(),
+                            source: source.into(),
+                            status: "ready".into(),
+                            file_name: format!("{id}.mp4"),
+                            mime_type: "video/mp4".into(),
+                            size_bytes: 1,
+                            duration_ms: Some(1000),
+                            width: Some(720),
+                            height: Some(1280),
+                            thumbnail_url: None,
+                            error: None,
+                        },
+                        storage_path: format!("/tmp/{id}.mp4"),
+                    },
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let (rows, _) = db
+            .read(|conn| list_assets(conn, "project", None, 20, AssetScope::Library))
+            .unwrap();
+        let ids: Vec<&str> = rows.iter().map(|row| row.asset.id.as_str()).collect();
+        assert_eq!(ids, vec!["rendered", "upload"]);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

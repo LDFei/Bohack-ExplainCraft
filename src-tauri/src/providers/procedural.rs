@@ -204,6 +204,7 @@ mod tests {
                 },
                 user_text: "温暖的咖啡店".into(),
                 answers: vec![],
+                speech_rate: 1.0,
             },
             mode: "auto".into(),
             track_id: None,

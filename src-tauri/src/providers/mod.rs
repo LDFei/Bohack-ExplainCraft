@@ -127,6 +127,8 @@ pub struct ProductionContext {
     pub user_text: String,
     /// 用户对追问的回答。
     pub answers: Vec<Answer>,
+    /// 当前配音语速；文案长度预算需要考虑慢速配音，避免成片被音频拉长。
+    pub speech_rate: f64,
 }
 
 /// 本次消息附带的用户素材摘要，供选题阶段参考。
@@ -503,7 +505,6 @@ impl Providers {
                 other => anyhow::bail!("PROVIDER_LLM4 不支持供应商 `{other}`"),
             },
             renderer: match config.provider_renderer.as_str() {
-                
                 "quercus" => Arc::new(quercus::QuercusRenderer::new(config)),
                 other => anyhow::bail!("PROVIDER_RENDERER 不支持供应商 `{other}`"),
             },

@@ -29,6 +29,8 @@ pub struct SiliconFlow {
     http: reqwest::Client,
     /// 接口地址，如 `https://api.siliconflow.cn/v1`。
     base: String,
+    /// 实际供应商配置名，用于用量归属。
+    provider: String,
 }
 
 impl SiliconFlow {
@@ -48,7 +50,11 @@ impl SiliconFlow {
         if config.provider_llm1 == "custom" && base.trim().is_empty() {
             anyhow::bail!("自定义供应商需要设置 LLM1_BASE_URL");
         }
-        Ok(Self { http, base })
+        Ok(Self {
+            http,
+            base,
+            provider: config.provider_llm1.clone(),
+        })
     }
 
     /// POST JSON 并解析 JSON 响应；HTTP 错误转为可重试的供应商错误。
@@ -64,6 +70,15 @@ impl SiliconFlow {
                 "{what}未配置密钥，请在 src-tauri/.env 中设置。"
             )));
         }
+        let mut metric = if path == "/chat/completions" {
+            Some(crate::metrics::ModelCall::start(
+                &self.provider,
+                &access.model,
+                "text",
+            )?)
+        } else {
+            None
+        };
         let response = self
             .http
             .post(format!("{}{path}", self.base))
@@ -75,10 +90,22 @@ impl SiliconFlow {
             .await
             .map_err(|e| unavailable(what, format!("请求失败：{e}")))?;
         let status = response.status();
+        if let Some(metric) = &mut metric {
+            metric.response(&response);
+        }
         let text = response
             .text()
             .await
             .map_err(|e| unavailable(what, format!("读取响应失败：{e}")))?;
+        let parsed = serde_json::from_str::<Value>(&text);
+        if let Some(metric) = &mut metric {
+            let usage = parsed
+                .as_ref()
+                .ok()
+                .and_then(|v| v.get("usage"))
+                .unwrap_or(&Value::Null);
+            metric.finish(status.is_success() && parsed.is_ok(), usage);
+        }
         if !status.is_success() {
             let reason = match status.as_u16() {
                 401 | 403 => "密钥无效或无权访问该模型",
@@ -90,7 +117,7 @@ impl SiliconFlow {
                 "{what}{reason}，请稍后重试。"
             )));
         }
-        serde_json::from_str(&text).map_err(|e| unavailable(what, format!("响应不是 JSON：{e}")))
+        parsed.map_err(|e| unavailable(what, format!("响应不是 JSON：{e}")))
     }
 
     /// 下载生成结果（图片、视频）。
@@ -304,6 +331,8 @@ fn style_text(style_id: &str) -> &'static str {
 
 /// 中文旁白的语速估算：每秒约 4 个字。
 const CHARS_PER_SECOND: f64 = 4.0;
+/// 预留 TTS 标点停顿和镜头间隔，正文按目标时长约 85% 设计。
+const SCRIPT_BUDGET_RATIO: f64 = 0.85;
 
 // ---------- llm1：GLM 文案 / 分镜 / 剪辑 ----------
 
@@ -328,6 +357,84 @@ impl GlmScript {
 /// 镜头数：每个镜头约 7 秒，限制在 3～8 个。
 fn shot_count(seconds: u32) -> usize {
     ((seconds as f64 / 7.0).round() as usize).clamp(3, 40)
+}
+
+/// 按目标时长和当前语速计算镜头数与每句旁白字数上限。
+pub(crate) fn narration_budget(seconds: u32, speech_rate: f64) -> (usize, usize) {
+    let count = shot_count(seconds);
+    let per_line = ((seconds as f64 / count as f64)
+        * CHARS_PER_SECOND
+        * speech_rate.clamp(0.5, 2.0)
+        * SCRIPT_BUDGET_RATIO)
+        .round()
+        .max(6.0) as usize;
+    (count, per_line)
+}
+
+/// 在字数预算内尽量保留完整分句；超短标题不足以表达内容时，从后续实义分句开始。
+pub(crate) fn clip_narration_line(line: &str, max_chars: usize) -> String {
+    let length = line.chars().count();
+    if length <= max_chars {
+        return line.trim().to_string();
+    }
+    let mut clauses = Vec::new();
+    let mut clause = String::new();
+    for ch in line.chars() {
+        clause.push(ch);
+        if matches!(ch, '，' | '。' | '！' | '？' | '；' | '：') {
+            clauses.push(std::mem::take(&mut clause));
+        }
+    }
+    if !clause.is_empty() {
+        clauses.push(clause);
+    }
+    if clauses.is_empty() {
+        clauses.push(line.to_string());
+    }
+    let mut output = String::new();
+    for clause in clauses {
+        let merged = output.chars().count() + clause.chars().count();
+        if merged <= max_chars {
+            output.push_str(&clause);
+        } else if output.chars().count() <= max_chars / 2 {
+            output = clause.chars().take(max_chars).collect();
+            if clause.chars().count() > max_chars {
+                output.push('…');
+            }
+        } else {
+            break;
+        }
+    }
+    let output = output.trim_end_matches(['，', '。', '：', '；', '、']);
+    if output.is_empty() {
+        format!("{}…", line.chars().take(max_chars).collect::<String>())
+    } else {
+        output.to_string()
+    }
+}
+
+/// 从模型返回的多句文案中选出目标镜头数，并把每句压到配音时长预算内。
+fn fit_narration_lines(lines: Vec<String>, count: usize, max_chars: usize) -> Vec<String> {
+    if lines.is_empty() {
+        return lines;
+    }
+    let selected = if lines.len() <= count {
+        lines
+    } else if count <= 1 {
+        vec![lines.join("")]
+    } else {
+        (0..count)
+            .map(|index| {
+                let source =
+                    ((index * (lines.len() - 1)) as f64 / (count - 1) as f64).round() as usize;
+                lines[source].clone()
+            })
+            .collect()
+    };
+    selected
+        .into_iter()
+        .map(|line| clip_narration_line(&line, max_chars))
+        .collect()
 }
 
 #[async_trait]
@@ -389,8 +496,7 @@ impl ScriptModel for GlmScript {
 
     async fn write_script(&self, request: ScriptRequest) -> ProviderResult<Script> {
         let seconds = request.ctx.settings.target_duration_seconds;
-        let count = shot_count(seconds);
-        let per_line = ((seconds as f64 / count as f64) * CHARS_PER_SECOND).round() as usize;
+        let (count, per_line) = narration_budget(seconds, request.ctx.speech_rate);
         let brief = &request.brief;
         let user = format!(
             "主题：{}\n受众：{}\n目的：{}\n风格：{}\n用户原话：{}\n\
@@ -408,7 +514,7 @@ impl ScriptModel for GlmScript {
                 1200,
             )
             .await?;
-        let lines: Vec<String> = value["lines"]
+        let model_lines: Vec<String> = value["lines"]
             .as_array()
             .map(|items| {
                 items
@@ -419,9 +525,11 @@ impl ScriptModel for GlmScript {
                     .collect()
             })
             .unwrap_or_default();
-        if lines.is_empty() {
+        if model_lines.is_empty() {
             return Err(ProviderError::unavailable("文案生成结果为空，请重试。"));
         }
+        // 模型经常忽略“共几句、每句多少字”；这里硬性限长，避免配音把 15 秒成片拖到 40 秒以上。
+        let lines = fit_narration_lines(model_lines, count, per_line);
         Ok(Script {
             title: crate::util::preview(&text_or(&value, "title", &brief.subject), 30),
             text: lines.join("\n"),
@@ -429,17 +537,22 @@ impl ScriptModel for GlmScript {
     }
 
     async fn storyboard(&self, request: StoryboardRequest) -> ProviderResult<Vec<ShotPlan>> {
-        let lines: Vec<&str> = request
+        let model_lines: Vec<String> = request
             .script
             .text
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
+            .map(str::to_string)
             .collect();
-        if lines.is_empty() {
+        if model_lines.is_empty() {
             return Err(ProviderError::invalid("脚本内容为空，无法规划分镜。"));
         }
         let settings = &request.ctx.settings;
+        let (count, per_line) =
+            narration_budget(settings.target_duration_seconds, request.ctx.speech_rate);
+        // 无论文案来自本次生成、历史草稿还是手动编辑，分镜阶段都执行同一时长预算。
+        let lines = fit_narration_lines(model_lines, count, per_line);
         let total_ms = settings.target_duration_seconds as i64 * 1000;
         let numbered: Vec<String> = lines
             .iter()
@@ -609,7 +722,7 @@ impl ScriptModel for GlmScript {
             }
         }
         if let Some(seconds) = value["target_duration_seconds"].as_u64() {
-            let seconds = (seconds as u32).clamp(15, 60);
+            let seconds = (seconds as u32).clamp(15, 300);
             if seconds != draft.settings.target_duration_seconds {
                 // 时长变化：保留文案，重新分镜。
                 draft.settings.target_duration_seconds = seconds;
@@ -640,7 +753,11 @@ impl ScriptModel for GlmScript {
                 .as_str()
                 .filter(|n| !n.trim().is_empty())
             {
-                shot.narration = narration.trim().into();
+                let (_, per_line) = narration_budget(
+                    draft.settings.target_duration_seconds,
+                    draft.audio.speech_rate,
+                );
+                shot.narration = clip_narration_line(narration.trim(), per_line);
                 narration_changed = true;
                 invalidated.push(StageKey::Audio);
             }
@@ -1090,6 +1207,28 @@ mod tests {
         assert_eq!(shot_count(30), 4);
         assert_eq!(shot_count(60), 9);
         assert_eq!(shot_count(300), 40);
+    }
+
+    #[test]
+    fn narration_is_hard_capped_to_target_duration_and_shot_count() {
+        let lines = vec![
+            "土法制盐第一课：土法制盐需要哪些原料和工具？主要原料是海水或含盐土，工具包括铁锅和木桶。"
+                .into(),
+            "第二步溶解过滤：把盐土装进木桶加水搅拌，让盐分溶入水中，再过滤泥沙杂质。".into(),
+            "第三步熬煮结晶：把过滤后的盐水倒入铁锅加热熬煮，水分蒸发并析出白色盐晶。".into(),
+            "流程总结：采集、溶解、过滤、熬煮、结晶，这是利用盐分溶于水又随水蒸发析出的原理。"
+                .into(),
+        ];
+        let fitted = fit_narration_lines(lines, 3, 17);
+        assert_eq!(fitted.len(), 3);
+        assert!(fitted.iter().all(|line| line.chars().count() <= 18));
+        assert!(
+            fitted
+                .iter()
+                .map(|line| line.chars().count())
+                .sum::<usize>()
+                <= 54
+        );
     }
 
     #[test]

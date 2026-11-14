@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 左侧素材与项目导航。素材仅定位预览，不改变服务层中的镜头顺序或内容。 */
 import { computed, ref, watch } from 'vue';
-import type { Asset, Project, Shot } from '../domain/types.ts';
+import type { Asset, Project, Shot, VideoVersion } from '../domain/types.ts';
 import { imagePath, inferTheme, themes } from '../domain/content.ts';
 import Icon from './Icon.vue';
 import PanelDragHandle from './PanelDragHandle.vue';
@@ -12,6 +12,7 @@ const props = defineProps<{
   open: boolean;
   shots: Shot[];
   assets: Asset[];
+  versions: VideoVersion[];
   busy: boolean;
   duration: number;
   layoutEnabled: boolean;
@@ -30,6 +31,7 @@ const emit = defineEmits<{
   upload: [];
   seek: [seconds: number];
   panel: [tab: string];
+  view: [versionId: string];
   resize: [expanded: boolean];
 }>();
 // 参照官方 Sidebar 的受控展开与悬停行为：300px / 60px，额外保留固定展开供编辑器长时间工作。
@@ -76,6 +78,17 @@ const filteredShots = computed(() =>
     }))
     .filter((shot) => shot.visual_prompt.includes(query.value)),
 );
+/** 查找最终成片素材对应的版本；中间 SVG 和配音素材不会出现在素材库中。 */
+function assetVersion(asset: Asset) {
+  return props.versions.find((version) => version.video_asset_id === asset.id);
+}
+/** 成片直接打开对应版本预览，上传素材则定位到素材详情。 */
+function openAsset(asset: Asset) {
+  const version = assetVersion(asset);
+  if (version) emit('view', version.id);
+  else emit('panel', 'assets');
+  emit('close');
+}
 /** 切换项目并关闭手机导航；状态与实际项目数据由父级统一管理。 */
 function select(id: string) {
   menuId.value = '';
@@ -234,7 +247,7 @@ function select(id: string) {
           :class="{ active: libraryTab === 'uploads' }"
           @click="libraryTab = 'uploads'"
         >
-          已上传
+          素材库
           <span>{{ assets.length }}</span>
         </button>
       </div>
@@ -296,21 +309,18 @@ function select(id: string) {
         </template>
         <template v-else>
           <div class="library-section-title">
-            上传素材
+            素材库
             <span>{{ assets.length }} 个文件</span>
           </div>
           <button
             v-for="asset in assets"
             :key="asset.id"
             class="upload-library-item"
-            @click="
-              emit('panel', 'assets');
-              emit('close');
-            "
+            @click="openAsset(asset)"
           >
             <img
-              v-if="asset.thumbnail_url"
-              :src="asset.thumbnail_url"
+              v-if="asset.thumbnail_url || assetVersion(asset)?.thumbnail_url"
+              :src="asset.thumbnail_url || assetVersion(asset)?.thumbnail_url"
               alt=""
             />
             <Icon
@@ -322,11 +332,13 @@ function select(id: string) {
               <strong>{{ asset.file_name }}</strong>
               <small>
                 {{
-                  asset.status === 'ready'
-                    ? '已就绪'
-                    : asset.status === 'failed'
-                      ? '处理失败'
-                      : '处理中'
+                  assetVersion(asset)
+                    ? `生成视频 · v${assetVersion(asset)!.version_number}`
+                    : asset.status === 'ready'
+                      ? '已上传 · 已就绪'
+                      : asset.status === 'failed'
+                        ? '处理失败'
+                        : '处理中'
                 }}
               </small>
             </span>

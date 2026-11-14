@@ -12,6 +12,7 @@ mod config;
 mod db;
 mod error;
 mod media;
+mod metrics;
 mod models;
 
 mod oak;

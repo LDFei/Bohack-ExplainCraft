@@ -130,6 +130,12 @@ export interface MessageBlock {
   summary?: string;
   job_id?: string;
   video_version_id?: string;
+  /** 成片从提交到完成的总耗时。 */
+  elapsed_ms?: number;
+  /** 所有实际模型请求已报告的 Token 总量。 */
+  total_tokens?: number;
+  /** 所有请求是否都返回了 Token 用量。 */
+  token_complete?: boolean;
   question_id?: string;
 }
 /** 一条用户或助手消息。助手文本和卡片可以在任务执行中逐步更新。 */

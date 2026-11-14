@@ -145,6 +145,35 @@ function version(id?: string) {
   return props.versions.find((item) => item.id === id);
 }
 /**
+ * 在每条对话旁显示本地日期和秒级时间，便于手动对齐每次生成统计。
+ */
+function messageTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+/** 用秒或分秒展示一次成片的端到端耗时。 */
+function generationDuration(value?: number) {
+  if (value == null) return '耗时未知';
+  const seconds = Math.max(0, value / 1000);
+  if (seconds < 60) return `耗时 ${seconds.toFixed(1)} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  return `耗时 ${minutes} 分 ${(seconds % 60).toFixed(1)} 秒`;
+}
+/** 汇总所有已返回模型的 Token；TTS 未返回用量时明确标记为已知小计。 */
+function generationTokens(value?: number, complete?: boolean) {
+  if (value == null) return 'Token 未知';
+  return `Token ${value.toLocaleString()}${complete ? '' : '（已知）'}`;
+}
+/**
  * 把任务状态和当前阶段转换成用户能理解的进度标题，避免直接显示内部枚举。
  */
 function jobLabel(job: Job) {
@@ -341,6 +370,12 @@ defineExpose({
                   {{ assets.find((asset) => asset.id === assetId)?.file_name ?? '创作素材' }}
                 </span>
               </div>
+              <time
+                class="message-time"
+                :datetime="message.created_at"
+              >
+                {{ messageTime(message.created_at) }}
+              </time>
             </div>
             <span class="user-avatar">我</span>
           </template>
@@ -517,7 +552,14 @@ defineExpose({
                       MP4
                     </span>
                     <small>
-                      在画布中预览作品
+                      {{
+                        block.elapsed_ms == null
+                          ? '在画布中预览作品'
+                          : `${generationDuration(block.elapsed_ms)} · ${generationTokens(
+                              block.total_tokens,
+                              block.token_complete,
+                            )}`
+                      }}
                       <Icon
                         name="arrowRight"
                         :size="12"
@@ -592,6 +634,12 @@ defineExpose({
                 />
                 继续这次制作
               </button>
+              <time
+                class="message-time"
+                :datetime="message.created_at"
+              >
+                {{ messageTime(message.created_at) }}
+              </time>
             </div>
           </template>
         </article>

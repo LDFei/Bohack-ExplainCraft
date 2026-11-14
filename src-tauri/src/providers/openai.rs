@@ -263,10 +263,25 @@ impl OpenAiSpeech {
             return fallback
                 .ok_or_else(|| ProviderError::invalid("无法自动获取声线，请手动填写 voice ID。"));
         };
-        let data: Value = response
-            .json()
+        // 硅基流动当前对 `/audio/voices` 返回纯文本 404；这种可选发现接口失败时，
+        // 应继续使用已配置的候选声线，不能阻断整个视频生成。
+        if !response.status().is_success() {
+            return fallback.ok_or_else(|| {
+                ProviderError::invalid(format!(
+                    "声线列表不可用（HTTP {}），请手动填写 voice ID。",
+                    response.status()
+                ))
+            });
+        }
+        let text = response
+            .text()
             .await
-            .map_err(|_| ProviderError::invalid("声线服务返回格式不正确，请手动填写 voice ID。"))?;
+            .map_err(|_| ProviderError::invalid("无法读回声线服务响应，请手动填写 voice ID。"))?;
+        let Ok(data) = serde_json::from_str::<Value>(&text) else {
+            return fallback.ok_or_else(|| {
+                ProviderError::invalid("声线服务返回格式不正确，请手动填写 voice ID。")
+            });
+        };
         for item in data["data"]
             .as_array()
             .or_else(|| data["voices"].as_array())
@@ -282,9 +297,7 @@ impl OpenAiSpeech {
                 return Ok(id.into());
             }
         }
-        Err(ProviderError::invalid(
-            "TTS 未返回声线，请手动填写 voice ID。",
-        ))
+        fallback.ok_or_else(|| ProviderError::invalid("TTS 未返回声线，请手动填写 voice ID。"))
     }
 }
 
@@ -332,13 +345,30 @@ impl VoiceModel for OpenAiSpeech {
             "speed": request.speech_rate.clamp(0.5, 2.0),
         });
         tracing::info!(target: "job", "TTS 请求（已脱敏）：{payload}");
+        let provider = if !self.cloud {
+            "indextts"
+        } else if self.siliconflow {
+            "siliconflow"
+        } else {
+            "qwen"
+        };
+        let mut metric = crate::metrics::ModelCall::start(provider, &self.model, "tts")?;
         let response = builder
             .json(&payload)
             .send()
             .await
             .map_err(|error| failed("语音合成", error))?;
+        metric.response(&response);
+        let usage = response
+            .headers()
+            .get("x-usage")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| serde_json::from_str::<Value>(v).ok())
+            .unwrap_or(Value::Null);
         if !response.status().is_success() {
             let text = response.text().await.unwrap_or_default();
+            let body = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+            metric.finish(false, body.get("usage").unwrap_or(&usage));
             return Err(failed("语音合成", text));
         }
         let bytes = response
@@ -347,8 +377,11 @@ impl VoiceModel for OpenAiSpeech {
             .map_err(|error| failed("语音合成", error))?
             .to_vec();
         if bytes.first() == Some(&b'{') {
+            let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+            metric.finish(false, body.get("usage").unwrap_or(&usage));
             return Err(failed("语音合成", "服务返回了错误而不是音频"));
         }
+        metric.finish(true, &usage);
         Ok(MediaOutput {
             data: MediaData::Bytes(bytes),
             file_name: if self.siliconflow {
@@ -367,5 +400,41 @@ impl VoiceModel for OpenAiSpeech {
             height: None,
             duration_ms: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{http::StatusCode, routing::get, Router};
+
+    /// 硅基流动的声线发现接口返回纯文本 404 时，使用已配置候选而不是中断生成。
+    #[tokio::test]
+    async fn voice_discovery_falls_back_on_plain_text_404() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/audio/voices",
+                    get(|| async { (StatusCode::NOT_FOUND, "Not Found") }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let speech = OpenAiSpeech {
+            http: reqwest::Client::new(),
+            base: format!("http://{address}"),
+            api_key: "test-only".into(),
+            model: "fnlp/MOSS-TTSD-v0.5".into(),
+            default_voice: String::new(),
+            voice_options: vec!["anna".into(), "alex".into()],
+            cloud: true,
+            siliconflow: true,
+        };
+        assert_eq!(speech.first_available_voice().await.unwrap(), "anna");
+        server.abort();
     }
 }

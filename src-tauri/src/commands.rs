@@ -827,6 +827,18 @@ pub async fn list_voices(
     if response.status() == StatusCode::NOT_FOUND
         || response.status() == StatusCode::METHOD_NOT_ALLOWED
     {
+        if setting.provider == "siliconflow" {
+            return Ok(vec![
+                "alex".into(),
+                "benjamin".into(),
+                "charles".into(),
+                "david".into(),
+                "anna".into(),
+                "bella".into(),
+                "claire".into(),
+                "diana".into(),
+            ]);
+        }
         let voices = state.model_config.load().tts_voices.clone();
         if !voices.is_empty() {
             return Ok(voices);
@@ -900,6 +912,186 @@ mod tests {
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../shared/public/media");
         config.public_origin = crate::media_origin().into();
         crate::build_state(config).expect("创建 command 测试状态")
+    }
+
+    /// 使用真实文本模型和 TTS 跑一条 15 秒视频；默认忽略，只在显式深度自测时执行。
+    #[tokio::test]
+    #[ignore = "calls paid model providers and renders a real video"]
+    async fn real_fifteen_second_generation_smoke() {
+        let env_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env");
+        assert!(crate::load_env_file(Some(&env_path)), "需要 src-tauri/.env");
+        let state = test_state();
+        let root = state
+            .config
+            .database_path
+            .parent()
+            .expect("数据库目录")
+            .to_path_buf();
+
+        let mut create_headers = HeaderMap::new();
+        create_headers.insert("idempotency-key", "real-smoke-create".parse().unwrap());
+        let created = dispatch(
+            state.clone(),
+            Method::POST,
+            "/api/v1/projects",
+            create_headers,
+            json!({}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.status, 201);
+        let project_id = created.body["data"]["project"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let snapshot = dispatch(
+            state.clone(),
+            Method::GET,
+            format!("/api/v1/projects/{project_id}"),
+            HeaderMap::new(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+        let mut settings = snapshot.body["data"]["draft"]["settings"].clone();
+        settings["target_duration_seconds"] = json!(15);
+        settings["aspect_ratio"] = json!("16:9");
+        settings["style_id"] = json!("minimal");
+        let mut audio = snapshot.body["data"]["draft"]["audio"].clone();
+        audio["voice_id"] = json!("anna");
+        audio["speech_rate"] = json!(1.0);
+        audio["music_mode"] = json!("none");
+        let revision = snapshot.body["data"]["project"]["draft_revision"]
+            .as_i64()
+            .unwrap();
+        let mut patch_headers = HeaderMap::new();
+        patch_headers.insert("idempotency-key", "real-smoke-patch".parse().unwrap());
+        let patched = dispatch(
+            state.clone(),
+            Method::PATCH,
+            format!("/api/v1/projects/{project_id}/draft"),
+            patch_headers,
+            json!({
+                "expected_draft_revision": revision,
+                "changes": {"settings": settings, "audio": audio}
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(patched.status, 200);
+        let latest = dispatch(
+            state.clone(),
+            Method::GET,
+            format!("/api/v1/projects/{project_id}"),
+            HeaderMap::new(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+        let latest_revision = latest.body["data"]["project"]["draft_revision"]
+            .as_i64()
+            .unwrap();
+
+        let mut send_headers = HeaderMap::new();
+        send_headers.insert("idempotency-key", "real-smoke-send".parse().unwrap());
+        let sent = dispatch(
+            state.clone(),
+            Method::POST,
+            format!("/api/v1/projects/{project_id}/messages"),
+            send_headers,
+            json!({
+                "intent": "generate",
+                "text": "生成15s核弹科普教学视频",
+                "asset_ids": [],
+                "expected_draft_revision": latest_revision,
+                "base_video_version_id": null
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sent.status, 202);
+        let job_id = sent.body["data"]["job_id"].as_str().unwrap().to_string();
+
+        let started = std::time::Instant::now();
+        let job = loop {
+            let current = state
+                .db
+                .read(|conn| db::load_job(conn, &job_id))
+                .unwrap()
+                .expect("任务存在");
+            if matches!(
+                current.job.status,
+                crate::models::JobStatus::Succeeded
+                    | crate::models::JobStatus::Failed
+                    | crate::models::JobStatus::Cancelled
+            ) {
+                break current;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(360),
+                "真实生成测试超时"
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        };
+        assert_eq!(
+            job.job.status,
+            crate::models::JobStatus::Succeeded,
+            "真实生成失败：{:?}",
+            job.job.error
+        );
+
+        let snapshot = dispatch(
+            state.clone(),
+            Method::GET,
+            format!("/api/v1/projects/{project_id}"),
+            HeaderMap::new(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+        let draft = &snapshot.body["data"]["draft"];
+        assert_eq!(draft["settings"]["target_duration_seconds"], 15);
+        assert!(draft["shots"].as_array().unwrap().len() <= 3);
+        let narration_chars: usize = draft["shots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|shot| {
+                shot["narration"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .chars()
+                    .count()
+            })
+            .sum();
+        assert!(narration_chars <= 54, "旁白仍过长：{narration_chars}");
+
+        let version = &snapshot.body["data"]["latest_video"];
+        let duration_ms = version["duration_ms"].as_i64().unwrap();
+        assert!(
+            (14_000..=17_000).contains(&duration_ms),
+            "15 秒目标实际输出 {duration_ms}ms"
+        );
+        let rendered_asset = version["video_asset_id"].as_str().unwrap();
+        let assets = dispatch(
+            state,
+            Method::GET,
+            format!("/api/v1/projects/{project_id}/assets?limit=100"),
+            HeaderMap::new(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+        assert!(
+            assets.body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|asset| asset["id"] == rendered_asset && asset["source"] == "rendered"),
+            "最终成片没有出现在素材库"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// command 调度不启动监听器，也能读取真实 SQLite 后端能力。
