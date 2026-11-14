@@ -180,7 +180,7 @@ onBeforeUnmount(() => {
               <div class="product-stage">
                 <div class="product-stage-heading">
                   <span>23 人，就有一半概率</span>
-                  <span>9:16 · 34s</span>
+                  <span>16:9 · 34s</span>
                 </div>
                 <button
                   class="product-video-button"
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
                 >
                   <video
                     ref="heroVideo"
-                    :src="mediaUrl('bday-vertical.mp4')"
+                    :src="mediaUrl('relativity-16x9.mp4')"
                     :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted
@@ -501,7 +501,7 @@ onBeforeUnmount(() => {
                 <div class="feature-motion">
                   <video
                     ref="motionVideo"
-                    :src="mediaUrl('bday-vertical.mp4')"
+                    :src="mediaUrl('relativity-16x9.mp4')"
                     :poster="mediaUrl('relativity-poster.jpg')"
                     :autoplay="!reducedMotion"
                     muted

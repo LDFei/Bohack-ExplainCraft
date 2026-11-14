@@ -1892,3 +1892,15 @@
 .hero-product-content .product-stage {
   background: linear-gradient(180deg, #0d1425 0%, #0b1120 100%);
 }
+
+/* 首页示例回到 16:9 播放器 */
+.hero-product-content .product-video-button {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 0;
+  border-radius: 5px;
+  box-shadow: none;
+}
+.hero-product-content .product-stage {
+  background: var(--bg);
+}
