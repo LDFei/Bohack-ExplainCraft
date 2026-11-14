@@ -11,12 +11,16 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS
 for tool in ffmpeg ffprobe; do
   executable="$app/Contents/Resources/runtime/$tool"
   install_name_tool -add_rpath @executable_path/../../Frameworks "$executable"
-  env -i PATH=/usr/bin:/bin "$executable" -version
-  codesign --force --sign - "$executable"
 done
 find "$frameworks" -name '*.dylib' -exec codesign --force --sign - {} \;
+for tool in ffmpeg ffprobe; do
+  codesign --force --sign - "$app/Contents/Resources/runtime/$tool"
+done
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
+for tool in ffmpeg ffprobe; do
+  env -i PATH=/usr/bin:/bin "$app/Contents/Resources/runtime/$tool" -version
+done
 mkdir -p dist-release
 arch=$(uname -m)
 hdiutil create -volname ExplainCraft -srcfolder "$app" -ov -format UDZO "dist-release/ExplainCraft_0.1.1_macos_${arch}.dmg"
